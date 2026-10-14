@@ -16,6 +16,9 @@ namespace SwAgent.UI
     /// Set SWAGENT_DEV_URL=http://localhost:5173 to load the Vite dev server with hot reload.
     /// </summary>
     [System.ComponentModel.ToolboxItem(false)]
+    // xCAD takes the Task Pane tab's tooltip and icon from these attributes (TaskPaneSpec is only a fallback).
+    [System.ComponentModel.DisplayName("Unify3D Agent")]
+    [Xarial.XCad.Base.Attributes.Icon(typeof(Icons), nameof(Icons.Agent))]
     public class ChatPaneControl : UserControl
     {
         private const string VirtualHost = "swagent.app";
