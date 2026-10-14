@@ -123,7 +123,7 @@ export function Composer() {
           </>
         )}
         {running ? (
-          <button type="button" onClick={stop} title="Stop" className="sw-btn !h-6 !px-2">
+          <button type="button" onClick={() => stop()} title="Stop" className="sw-btn !h-6 !px-2">
             <IconStop size={13} /> Stop
           </button>
         ) : (

@@ -8,6 +8,7 @@ import { ChatView } from "./components/ChatView";
 import { Composer } from "./components/Composer";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { AutoUpdatePrompt, UpdateDialog } from "./components/Update";
+import { ToolRunBanner } from "./components/ToolRunBanner";
 import { useStore } from "./store";
 
 export default function App() {
@@ -96,6 +97,7 @@ export default function App() {
       <div className="zoom-chrome shrink-0">
         <Header />
         <AutoUpdatePrompt />
+        <ToolRunBanner />
       </div>
       <UpdateDialog />
       {notice && (

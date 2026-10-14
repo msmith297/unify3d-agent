@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { on, rpc } from "./lib/bridge";
 import { syncRibbonIcons } from "./lib/toolIcons";
-import { DEFAULT_SETTINGS, SETTINGS_VERSION } from "./lib/models";
+import { DEFAULT_SETTINGS, SETTINGS_VERSION, tierModel } from "./lib/models";
 import type {
   Attachment,
   ChatData,
@@ -13,6 +13,8 @@ import type {
   SelectionItem,
   Settings,
   SwThemeInfo,
+  ToolRunPayload,
+  FormSpec,
   UpdateInfo,
   UserToolInfo,
   Thread,
@@ -36,8 +38,21 @@ export interface RunState {
   live: LiveBlock[] | null;
   runningToolId: string | null;
   approval: (ApprovalRequest & { resolve: (d: ApprovalDecision) => void }) | null;
-  question: { toolUseId: string; question: string; options: string[]; resolve: (answer: string) => void } | null;
+  question: { toolUseId: string; question: string; options: string[]; form?: FormSpec; resolve: (answer: string) => void } | null;
   controller: AbortController;
+  /** Ribbon tool runs: the tool's title (shown in the "executing" banner) and when it started. */
+  label?: string;
+  startedAt?: number;
+}
+
+/** The last ribbon tool run's outcome, shown briefly in the banner. */
+export interface ToolRunOutcome {
+  label: string;
+  text: string;
+  ok: boolean;
+  threadId: string;
+  docKey: string;
+  at: number;
 }
 
 interface State {
@@ -85,7 +100,8 @@ interface State {
   retry(): Promise<void>;
   /** Drop everything after the prompt at msgIndex and run again, optionally with edited text. */
   resendFrom(msgIndex: number, editedText?: string): Promise<void>;
-  stop(): void;
+  /** Stop the current chat's run, or a specific thread's (e.g. a background tool run). */
+  stop(threadId?: string): void;
   answerApproval(threadId: string, d: ApprovalDecision): void;
   answerQuestion(threadId: string, answer: string): void;
   saveSettings(patch: Partial<Settings>): Promise<void>;
@@ -94,8 +110,9 @@ interface State {
   setIncludeSelection(v: boolean): void;
   toggleSelItem(index: number): void;
   runUserTool(name: string): Promise<void>;
-  /** A ribbon tool the agent has to run (no macro yet, or the macro failed). Runs in the background "Tool runs" chat. */
-  runQuickTool(name: string, failure?: string): Promise<void>;
+  /** A ribbon tool that needs the agent. Runs in the background "Tool runs" chat. */
+  runQuickTool(payload: ToolRunPayload): Promise<void>;
+  toolOutcome: ToolRunOutcome | null;
   deleteUserTool(name: string): Promise<void>;
   startMarkup(): Promise<void>;
   setMarkup(patch: { tool?: MarkupTool; color?: string }): void;
@@ -126,8 +143,57 @@ export function isAgentSelection(s: { selection: Record<string, SelectionItem[]>
   return items.length > 0 && s.agentSel[docKey] === selSig(items);
 }
 
-/** Model for ribbon tools the agent runs: fast enough to feel like a command, capable enough to fix a macro. */
-const QUICK_MODEL = "claude-sonnet-5-5";
+/**
+ * The prompt for a ribbon tool run: the tool and the user's inputs first (what the chat shows when expanded), then
+ * the silently captured context - model, feature history, macro output, selections as [S1]... and the view.
+ * Images and PDFs the user added go in as real attachments.
+ */
+function stageToolPrompt(p: ToolRunPayload, label: string, refBase: number): { blocks: ContentBlockParam[]; refs: Record<string, string> } {
+  const refs: Record<string, string> = {};
+  const inputLines: string[] = [];
+  const contextLines: string[] = [];
+  const attachments: ContentBlockParam[] = [];
+  let n = refBase;
+  for (const i of p.inputs ?? []) {
+    if (i.type === "selection") {
+      const ids = (i.items ?? []).map((it) => {
+        const id = `S${++n}`;
+        if (it.ref) refs[id] = it.ref;
+        contextLines.push(`[${id}] ${it.type}${it.label ? ` of ${it.label}` : ""}${it.detail ? ` - ${it.detail}` : ""}${it.ref ? "" : " (no persistent id)"}`);
+        return `[${id}]`;
+      });
+      inputLines.push(`- ${i.label} (${i.id}): ${ids.length ? ids.join(", ") : "(nothing selected)"}`);
+    } else if (i.type === "files") {
+      const names: string[] = [];
+      for (const f of i.files ?? []) {
+        if (f.data && f.mediaType?.startsWith("image/")) {
+          attachments.push({ type: "image", source: { type: "base64", media_type: f.mediaType as "image/png", data: f.data } });
+          names.push(`${f.name} (attached image)`);
+        } else if (f.data && f.mediaType === "application/pdf") {
+          attachments.push({ type: "document", source: { type: "base64", media_type: "application/pdf", data: f.data }, title: f.name } as unknown as ContentBlockParam);
+          names.push(`${f.name} (attached PDF)`);
+        } else {
+          names.push(`${f.name} (${f.kind === "model" ? "3D model, not attached - open it with execute_csharp if you need it" : f.error ?? "not attached"}: ${f.path})`);
+        }
+      }
+      inputLines.push(`- ${i.label} (${i.id}): ${names.length ? names.join("; ") : "(none)"}`);
+    } else {
+      const v = typeof i.value === "string" ? i.value : JSON.stringify(i.value);
+      inputLines.push(`- ${i.label} (${i.id}): ${v === "" ? "(empty)" : v}`);
+    }
+  }
+  const c = p.context ?? {};
+  if (c.failure) contextLines.unshift(`The tool's macro failed - finish the job, then fix the macro (edit_user_tool) so the next run works:\n${c.failure.slice(0, 4000)}`);
+  if (c.macroOutput) contextLines.unshift(`Output of the tool's macro (already run):\n${c.macroOutput.slice(0, 6000)}`);
+  if (c.model) contextLines.push(`Model:\n${c.model}`);
+  if (c.history) contextLines.push(`Feature history:\n${c.history}`);
+
+  const head = `[Run tool: ${p.tool}]${inputLines.length ? `\n<tool_inputs>\n${inputLines.join("\n")}\n</tool_inputs>` : ""}`;
+  const blocks: ContentBlockParam[] = [{ type: "text", text: head }, ...attachments];
+  blocks.push({ type: "text", text: `<sw_context>\nTool run: ${label}\n${contextLines.join("\n")}${c.view ? "\nAttached after this block: the user's view when they ran the tool." : ""}\n</sw_context>` });
+  if (c.view) blocks.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: c.view } });
+  return { blocks, refs };
+}
 
 /** Stable empty array for selectors (a fresh [] each call would re-render forever). */
 export const EMPTY: never[] = [];
@@ -263,7 +329,7 @@ export const useStore = create<State>((set, get) => {
     return { blocks: [{ type: "text", text: `<sw_context>\n${lines.join("\n")}\n</sw_context>` }, ...extra], refs };
   };
 
-  const startRun = async (docKey: string, threadId: string) => {
+  const startRun = async (docKey: string, threadId: string, extra: Partial<RunState> = {}) => {
     const keyRes = await rpc<{ key: string | null }>("apiKey.get");
     if (!keyRes.key) {
       set({ panel: "settings", notice: "Add your Anthropic API key to start chatting." });
@@ -274,7 +340,7 @@ export const useStore = create<State>((set, get) => {
 
     const controller = new AbortController();
     set((s) => ({
-      runs: { ...s.runs, [threadId]: { docKey, threadId, live: null, runningToolId: null, approval: null, question: null, controller } },
+      runs: { ...s.runs, [threadId]: { docKey, threadId, live: null, runningToolId: null, approval: null, question: null, controller, ...extra } },
     }));
     const started = performance.now();
     const selectionAtStart = selSig(get().selection[docKey] ?? []);
@@ -323,8 +389,8 @@ export const useStore = create<State>((set, get) => {
               }),
             })),
           approve: (req) => new Promise<ApprovalDecision>((resolve) => updateRun(threadId, { approval: { ...req, resolve } })),
-          ask: (toolUseId, question, options) =>
-            new Promise<string>((resolve) => updateRun(threadId, { question: { toolUseId, question, options, resolve } })),
+          ask: (toolUseId, question, options, form) =>
+            new Promise<string>((resolve) => updateRun(threadId, { question: { toolUseId, question, options, form, resolve } })),
           runTool: (name, input) =>
             rpc<ToolRunResult>("tools.run", {
               docKey,
@@ -377,6 +443,7 @@ export const useStore = create<State>((set, get) => {
     userTools: [],
     update: null,
     updateDialog: false,
+    toolOutcome: null,
     docs: {},
     activeDocKey: null,
     viewKey: "scratch",
@@ -498,13 +565,13 @@ export const useStore = create<State>((set, get) => {
             break;
           case "runTool": {
             // A ribbon tool the add-in couldn't run on its own (no macro yet, or the macro failed).
-            const { tool, failure } = (args as { tool?: string; failure?: string } | undefined) ?? {};
-            if (!tool) break;
-            const info = s.userTools.find((t) => t.name === tool);
+            const payload = (args as ToolRunPayload | undefined) ?? null;
+            if (!payload?.tool) break;
+            const info = s.userTools.find((t) => t.name === payload.tool);
             if (info?.kind === "workflow") {
               set({ panel: "chat" });
-              if (!s.runs[currentThread(s)?.id ?? ""]) void s.runUserTool(tool);
-            } else void s.runQuickTool(tool, failure);
+              if (!s.runs[currentThread(s)?.id ?? ""]) void s.runUserTool(payload.tool);
+            } else void s.runQuickTool(payload.failure ? { ...payload, context: { ...payload.context, failure: payload.failure } } : payload);
             break;
           }
           case "newTool": {
@@ -742,16 +809,16 @@ export const useStore = create<State>((set, get) => {
       await startRun(s.viewKey, t.id);
     },
 
-    stop() {
+    stop(threadId) {
       const s = get();
-      const t = currentThread(s);
-      if (!t) return;
-      const run = s.runs[t.id];
+      const id = threadId ?? currentThread(s)?.id;
+      if (!id) return;
+      const run = s.runs[id];
       if (!run) return;
       run.controller.abort();
       run.approval?.resolve({ decision: "reject", note: "The user pressed Stop." });
       run.question?.resolve("(The user pressed Stop instead of answering.)");
-      rpc("tools.cancel", { threadId: t.id });
+      rpc("tools.cancel", { threadId: id });
     },
 
     answerApproval(threadId, d) {
@@ -791,24 +858,26 @@ export const useStore = create<State>((set, get) => {
       await get().send(`[Run workflow: ${name}]${notes ? `\n${notes}` : ""}`);
     },
 
-    async runQuickTool(name, failure) {
+    async runQuickTool(payload) {
+      const name = payload.tool;
       const s0 = get();
       const docKey = s0.activeDocKey ?? s0.viewKey;
       await loadChat(docKey);
       const tool = get().userTools.find((t) => t.name === name);
+      const label = payload.title ?? tool?.title ?? name;
       let thread = get().chats[docKey]?.data.threads.find((t) => t.kind === "tools");
       if (thread && get().runs[thread.id]) return; // one tool run at a time per document
       if (!thread) {
-        // A separate chat, so quick runs never interrupt (or switch) the conversation the user is in.
+        // A separate chat, so tool runs never interrupt (or switch) the conversation the user is in.
         const created: Thread = {
           id: uid(),
           title: "Tool runs",
           kind: "tools",
           createdAt: now(),
           updatedAt: now(),
-          model: QUICK_MODEL,
+          model: tierModel("balanced").model,
           effort: "low",
-          autoApprove: true, // the user clicked the button: that is the approval
+          autoApprove: true, // the user ran the tool: that is the approval
           messages: [],
           turns: [],
         };
@@ -816,30 +885,41 @@ export const useStore = create<State>((set, get) => {
         thread = created;
       }
       const threadId = thread.id;
-      const model = tool?.model || QUICK_MODEL;
-      const text = failure
-        ? `[Run tool: ${name}]\nThe tool's macro failed:\n${failure.slice(0, 4000)}`
-        : `[Run tool: ${name}]\nThis tool has no macro yet.`;
-      const ctx = await buildContext(docKey, threadId, false, { noView: true });
+      const { model, effort } = tierModel(payload.intelligence ?? tool?.intelligence);
+      const staged = stageToolPrompt(payload, label, Object.keys(thread.selRefs ?? {}).length);
       updateThread(docKey, threadId, (t) => {
+        // A previous run that failed before the agent answered leaves its request last: replace it rather than
+        // stacking requests (nothing follows it, so no earlier reasoning is invalidated).
         const last = t.messages[t.messages.length - 1];
-        const blocks: ContentBlockParam[] = [{ type: "text", text }, ...ctx.blocks];
         const messages: MessageParam[] =
           last && last.role === "user"
-            ? [...t.messages.slice(0, -1), { role: "user", content: [...asBlocks(last.content), ...blocks] }]
-            : [...t.messages, { role: "user", content: blocks }];
+            ? [...t.messages.slice(0, -1), { role: "user", content: staged.blocks }]
+            : [...t.messages, { role: "user", content: staged.blocks }];
         return {
           ...t,
           model,
-          effort: "low",
+          effort,
           messages,
-          selRefs: { ...(t.selRefs ?? {}), ...ctx.refs },
-          turns: [...t.turns, { at: now(), msgIndex: messages.length - 1, model, effort: "low", usage: { ...ZERO_USAGE } }],
+          selRefs: { ...(t.selRefs ?? {}), ...staged.refs },
+          turns: [...t.turns, { at: now(), msgIndex: messages.length - 1, model, effort, usage: { ...ZERO_USAGE } }],
         };
       });
       await persist(docKey);
-      if (failure) set({ notice: `${tool?.title ?? name}: the macro hit a problem, so the agent is finishing the job (see the "Tool runs" chat).` });
-      await startRun(docKey, threadId);
+      set({ toolOutcome: null });
+      await startRun(docKey, threadId, { label, startedAt: Date.now() });
+
+      // A one-line outcome for the banner: the agent's last words, or the error.
+      const th = get().chats[docKey]?.data.threads.find((t) => t.id === threadId);
+      const turn = th?.turns[th.turns.length - 1];
+      const lastText = [...(th?.messages ?? [])]
+        .reverse()
+        .find((m) => m.role === "assistant" && typeof m.content !== "string" && m.content.some((b) => b.type === "text"));
+      const text =
+        turn?.error ??
+        (lastText && typeof lastText.content !== "string"
+          ? (lastText.content.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join(" ").split("\n").find((l) => l.trim()) ?? "")
+          : "");
+      set({ toolOutcome: { label, text: text.replace(/[*_`#>]/g, "").trim().slice(0, 160), ok: !turn?.error && turn?.stop !== "aborted", threadId, docKey, at: Date.now() } });
     },
 
     async deleteUserTool(name) {

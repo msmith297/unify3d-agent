@@ -172,7 +172,7 @@ namespace SwAgent.Tools
             return $"{parts} (direction {Vec(t)})";
         }
 
-        private static string Owner(object obj, IComponent2 comp)
+        internal static string Owner(object obj, IComponent2 comp)
         {
             string feature = null;
             try
@@ -194,7 +194,7 @@ namespace SwAgent.Tools
             return feature ?? "";
         }
 
-        private static string Describe(object obj, IComponent2 comp)
+        internal static string Describe(object obj, IComponent2 comp)
         {
             var sb = new StringBuilder();
             try

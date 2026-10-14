@@ -36,6 +36,9 @@ namespace SwAgent.Scripting
         }
 
         private readonly ConcurrentDictionary<string, Session> _sessions = new ConcurrentDictionary<string, Session>();
+
+        /// <summary>Tool inputs for the next cell of a thread (set by RunMacroAsync; not part of the agent's tool schema).</summary>
+        private readonly ConcurrentDictionary<string, ToolInputs> _inputs = new ConcurrentDictionary<string, ToolInputs>();
         private readonly Lazy<ScriptOptions> _options = new Lazy<ScriptOptions>(BuildOptions);
         private readonly ToolRegistry _registry;
 
@@ -83,6 +86,7 @@ namespace SwAgent.Scripting
             globals.App = ctx.App;
             globals.Doc = ctx.Doc;
             globals.Refs = ctx.Refs;
+            globals.Inputs = _inputs.TryRemove(ctx.ThreadId ?? "default", out var toolInputs) ? toolInputs : ToolInputs.Empty;
             globals.Ct = session.Cts.Token;
             globals.Agent = new AgentApi((name, json) =>
                 name == "execute_csharp"
@@ -151,6 +155,26 @@ namespace SwAgent.Scripting
                 }
             }
             return result;
+        }
+
+        /// <summary>Run a tool's macro with its PropertyManager inputs, as one undo step (same report as execute_csharp).</summary>
+        public Task<ToolResult> RunMacroAsync(ToolContext ctx, string title, string code, ToolInputs inputs)
+        {
+            _inputs[ctx.ThreadId ?? "default"] = inputs ?? ToolInputs.Empty;
+            return Execute(ctx, new ExecuteInput { Title = title, Kind = "change", Code = code });
+        }
+
+        /// <summary>
+        /// Compile a tool's preview code once (off the UI thread) into a delegate that runs in milliseconds, so the
+        /// preview can follow every change in the PropertyManager page. Returns null and the errors if it doesn't compile.
+        /// </summary>
+        public async Task<(ScriptRunner<object> Runner, string Errors)> CompilePreviewAsync(string code)
+        {
+            var script = CSharpScript.Create(code, _options.Value, typeof(ScriptGlobals));
+            var diagnostics = await Task.Run(() => script.Compile());
+            var errors = diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).ToList();
+            if (errors.Count > 0) return (null, string.Join("\n", errors.Take(10).Select(FormatDiagnostic)));
+            return (script.CreateDelegate(), null);
         }
 
         /// <summary>Request cancellation of the running cell (cooperative: the cell must check Ct).</summary>

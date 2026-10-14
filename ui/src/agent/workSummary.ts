@@ -27,7 +27,7 @@ const MINOR_TOOLS = new Set([
 const CHECK_TITLE = /^(check|verify|validate|inspect|list|find|get|read|measure|look|query|probe|debug|diagnose|examine|confirm|test|count|show|print|dump|report|search|compare|re-?check|investigate|locate|identify|explore|review|analy[sz]e|evaluate|determine)\b/i;
 
 export function isHighlight(call: ToolCall): boolean {
-  if (call.name === "ask_user") return true;
+  if (call.name === "ask_user" || call.name === "ask_form") return true;
   if (!call.result || call.result.is_error) return false;
   if (MINOR_TOOLS.has(call.name)) return false;
   if (call.name === "execute_csharp") {

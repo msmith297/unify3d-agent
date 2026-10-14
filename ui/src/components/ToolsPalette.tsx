@@ -4,7 +4,8 @@ import { Caret, IconCancel, IconEdit, IconNewChat, IconPart, IconToolbox, ToolIc
 import { EMPTY, draftKey, useStore } from "../store";
 import { rpc } from "../lib/bridge";
 import { svgDataUrl } from "../lib/toolIcons";
-import type { UserToolInfo } from "../lib/types";
+import type { Tier, UserToolInfo } from "../lib/types";
+import { TIERS } from "../lib/models";
 
 function Icon({ t }: { t: UserToolInfo }) {
   return t.iconSvg ? <img src={svgDataUrl(t.iconSvg)} alt="" width={16} height={16} /> : <ToolIcon name={t.icon} />;
@@ -71,9 +72,24 @@ export function ToolsPalette({ disabled }: { disabled?: boolean }) {
           Run
         </button>
       ) : (
-        <span className="shrink-0 self-center text-[10.5px] text-text-3" title={t.hasMacro ? "Runs its macro directly" : "No macro yet: the agent runs it"}>
-          {t.hasMacro ? "macro" : "agent"}
-        </span>
+        t.agent === false ? (
+          <span className="shrink-0 self-center text-[10.5px] text-text-3" title="Runs its macro directly - no agent">
+            instant
+          </span>
+        ) : (
+          <select
+            className="sw-input shrink-0 self-center !h-[20px] px-0.5 text-[10.5px]"
+            value={t.intelligence ?? "balanced"}
+            title="How much intelligence the agent uses for this tool"
+            onChange={(e) => rpc("userTools.setValue", { name: t.name, key: "intelligence", value: e.target.value })}
+          >
+            {(Object.keys(TIERS) as Tier[]).map((k) => (
+              <option key={k} value={k}>
+                {TIERS[k].label}
+              </option>
+            ))}
+          </select>
+        )
       )}
     </div>
   );

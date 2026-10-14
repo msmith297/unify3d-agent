@@ -80,6 +80,21 @@ namespace SwAgent.Scripting
         /// <summary>Write a line to the cell's output (Console.WriteLine works too).</summary>
         public void Print(object value) => Output.AppendLine(ValueFormatter.Format(value));
 
+        /// <summary>A tool's inputs from its PropertyManager page (empty outside tool runs).</summary>
+        public ToolInputs Inputs { get; internal set; } = ToolInputs.Empty;
+
+        internal readonly System.Collections.Generic.List<(IBody2 Body, int Color, double Transparency)> PreviewBodies =
+            new System.Collections.Generic.List<(IBody2, int, double)>();
+
+        /// <summary>
+        /// In a tool's preview code: show a temporary ("holographic") body - e.g. made with IModeler or IBody2.Copy2 and
+        /// Operations2 - without adding anything to the model. Color as 0xRRGGBB. Ignored outside previews.
+        /// </summary>
+        public void Preview(IBody2 body, int color = 0x2F84D6, double transparency = 0.55)
+        {
+            if (body != null) PreviewBodies.Add((body, color, transparency));
+        }
+
         /// <summary>
         /// Stop with a message for the user, e.g. Fail("Select a planar face first"). In a tool's macro this is shown in
         /// the status bar instead of handing the run to the agent.

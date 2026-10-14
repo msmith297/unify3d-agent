@@ -132,6 +132,44 @@ export interface ToolRunResult {
 }
 
 /** A user-created tool (a saved, reusable procedure the agent runs). */
+/** How much intelligence a tool needs; mapped to a model per provider (lib/models.ts). */
+export type Tier = "fast" | "balanced" | "max";
+
+/** One question of an ask_form questionnaire. */
+export interface FormField {
+  id: string;
+  label: string;
+  type: "choice" | "multi" | "text" | "number" | "yesno";
+  options?: string[];
+  default?: string | number | boolean | string[];
+  help?: string;
+  required?: boolean;
+}
+
+export interface FormSpec {
+  title: string;
+  intro?: string;
+  fields: FormField[];
+}
+
+/** What the add-in hands the panel when a ribbon tool needs the agent (Tools/ToolRunner.cs). */
+export interface ToolRunPayload {
+  tool: string;
+  title?: string;
+  intelligence?: Tier;
+  inputs?: {
+    id: string;
+    label: string;
+    type: string;
+    value?: unknown;
+    items?: { type: string; label: string; detail: string; ref?: string }[];
+    files?: { name: string; path: string; mediaType?: string; data?: string; kind?: string; error?: string }[];
+  }[];
+  context?: { model?: string; history?: string; view?: string; failure?: string; macroOutput?: string };
+  /** Older add-ins: the macro's failure report. */
+  failure?: string;
+}
+
 export interface UserToolInfo {
   name: string;
   title: string;
@@ -148,6 +186,12 @@ export interface UserToolInfo {
   hasMacro?: boolean;
   /** Model for agent-run steps, if the tool chose one. */
   model?: string | null;
+  /** Tools: an agent finishes the job after the macro (false: the macro is the whole tool). */
+  agent?: boolean;
+  /** Tools: fast | balanced | max. */
+  intelligence?: Tier;
+  hasInputs?: boolean;
+  hasPreview?: boolean;
 }
 
 export interface SelectionItem {

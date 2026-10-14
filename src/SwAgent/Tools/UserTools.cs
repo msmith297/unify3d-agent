@@ -68,8 +68,33 @@ namespace SwAgent.Tools
                        "Fail(\"Select a planar face first\") (shown to the user in the status bar). End with a short result string, e.g. \"Added 4 holes\".")]
             public string Macro { get; set; }
 
-            [ToolParam("Model for agent-run steps of this tool or workflow: claude-haiku-5-5 (fastest), claude-sonnet-5-5 (default for tools) or claude-opus-5-5. Omit for the default.")]
+            [ToolParam("Workflows: model for runs, if it must differ from the chat's (claude-haiku-5-5, claude-sonnet-5-5, claude-opus-5-5). Tools use intelligence instead.")]
             public string Model { get; set; }
+
+            [ToolParam("Tools: the inputs of its PropertyManager page (shown on the left like a native command). Omit for tools that just act on the selection.")]
+            public ToolInputSpec[] Inputs { get; set; }
+
+            [ToolParam("Tools: true (default) if an agent finishes the job after the macro (the macro then only prepares and gathers data); " +
+                       "false if the macro does everything and no agent is ever needed.")]
+            public bool? Agent { get; set; }
+
+            [ToolParam("Tools with an agent: how much intelligence the job needs - fast (simple, mechanical), balanced (default) or max (hard geometry reasoning). " +
+                       "Maps to the user's provider (e.g. Claude Haiku / Sonnet / Opus); the user can change it in the tool's page.")]
+            public string Intelligence { get; set; }
+
+            [ToolParam("Tools: \"missing\" (default) skips the PropertyManager page when everything required is already selected and runs at once; " +
+                       "\"always\" shows it every time (when the user normally adjusts values).")]
+            public string Confirm { get; set; }
+
+            [ToolParam("Tools with an agent: context captured silently for it - any of view (screenshot of the current view), selection, model " +
+                       "(units, material, size), history (feature tree with parameters), history_full (also sketch geometry). Default view, selection, model, history. " +
+                       "Prefer a little too much over too little.")]
+            public string[] Context { get; set; }
+
+            [ToolParam("Tools: C# that draws a live holographic preview while the page is open: build temporary bodies from Inputs " +
+                       "(IModeler, IBody2.Copy2/Operations2...) and pass them to Preview(body). Runs on every input change, so it must be fast " +
+                       "and must not change the model. Omit when a preview wouldn't be fast or useful.")]
+            public string Preview { get; set; }
 
             [ToolParam("One or two sentences: what the tool does and what the user should select or provide before running it.", Required = true)]
             public string Description { get; set; }
@@ -124,6 +149,31 @@ namespace SwAgent.Tools
                        "selection (Model.SelectionManager) or use fixed defaults, never Ref(\"S1\"). For a wrong or missing selection call " +
                        "Fail(\"Select a planar face first\") (shown to the user in the status bar). End with a short result string, e.g. \"Added 4 holes\"." + " Replaces the tool's whole macro.")]
             public string Macro { get; set; }
+
+            [ToolParam("Tools: replace the inputs of its PropertyManager page (shown on the left like a native command). Omit for tools that just act on the selection.")]
+            public ToolInputSpec[] Inputs { get; set; }
+
+            [ToolParam("Tools: true (default) if an agent finishes the job after the macro (the macro then only prepares and gathers data); " +
+                       "false if the macro does everything and no agent is ever needed.")]
+            public bool? Agent { get; set; }
+
+            [ToolParam("Tools with an agent: how much intelligence the job needs - fast (simple, mechanical), balanced (default) or max (hard geometry reasoning). " +
+                       "Maps to the user's provider (e.g. Claude Haiku / Sonnet / Opus); the user can change it in the tool's page.")]
+            public string Intelligence { get; set; }
+
+            [ToolParam("Tools: \"missing\" (default) skips the PropertyManager page when everything required is already selected and runs at once; " +
+                       "\"always\" shows it every time (when the user normally adjusts values).")]
+            public string Confirm { get; set; }
+
+            [ToolParam("Tools with an agent: context captured silently for it - any of view (screenshot of the current view), selection, model " +
+                       "(units, material, size), history (feature tree with parameters), history_full (also sketch geometry). Default view, selection, model, history. " +
+                       "Prefer a little too much over too little.")]
+            public string[] Context { get; set; }
+
+            [ToolParam("Tools: C# that draws a live holographic preview while the page is open: build temporary bodies from Inputs " +
+                       "(IModeler, IBody2.Copy2/Operations2...) and pass them to Preview(body). Runs on every input change, so it must be fast " +
+                       "and must not change the model. Omit when a preview wouldn't be fast or useful.")]
+            public string Preview { get; set; }
 
             [ToolParam("An icon designed for this tool, as SVG markup: viewBox=\"0 0 16 16\", drawn to read clearly at 16-20 px next to SolidWorks' own " +
                        "commands - a simple pictogram of what the tool makes or does (e.g. a mold block with a cavity, a plate with holes), " +
@@ -180,6 +230,13 @@ namespace SwAgent.Tools
             sb.AppendLine($"kind: {kind}");
             sb.AppendLine($"icon: {icon}");
             if (!string.IsNullOrWhiteSpace(input.Model)) sb.AppendLine($"model: {OneLine(input.Model)}");
+            if (kind == "tool")
+            {
+                sb.AppendLine($"agent: {(input.Agent == false && !string.IsNullOrWhiteSpace(input.Macro) ? "false" : "true")}");
+                sb.AppendLine($"intelligence: {(ToolSpec.Tiers.Contains(input.Intelligence) ? input.Intelligence : "balanced")}");
+                sb.AppendLine($"confirm: {(input.Confirm == "always" ? "always" : "missing")}");
+                if (input.Context?.Length > 0) sb.AppendLine($"context: {string.Join(", ", input.Context.Select(c => c.Trim().ToLowerInvariant()))}");
+            }
             sb.AppendLine($"created: {created}");
             sb.AppendLine($"updated: {Now()}");
             sb.AppendLine("---");
@@ -189,6 +246,8 @@ namespace SwAgent.Tools
 
             WriteIcon(dir, input.IconSvg, iconChanged: !string.IsNullOrWhiteSpace(input.IconSvg) || input.Icon != null);
             WriteMacro(dir, input.Macro);
+            WritePreview(dir, input.Preview);
+            ToolSpec.SaveInputs(dir, input.Inputs);
 
             foreach (var f in input.Files ?? new ToolFile[0])
             {
@@ -218,10 +277,14 @@ namespace SwAgent.Tools
             var md = Path.Combine(dir, "TOOL.md");
             if (!File.Exists(md)) throw new ToolException($"Tool '{input.Name}' has no TOOL.md.");
             if (string.IsNullOrWhiteSpace(input.Append) && (input.Replacements?.Length ?? 0) == 0 && string.IsNullOrWhiteSpace(input.Description) &&
-                string.IsNullOrWhiteSpace(input.Title) && string.IsNullOrWhiteSpace(input.IconSvg) && string.IsNullOrWhiteSpace(input.Macro))
-                throw new ToolException("Nothing to change: pass append, replacements, description, title or icon_svg.");
+                string.IsNullOrWhiteSpace(input.Title) && string.IsNullOrWhiteSpace(input.IconSvg) && string.IsNullOrWhiteSpace(input.Macro) &&
+                string.IsNullOrWhiteSpace(input.Preview) && input.Inputs == null && input.Agent == null && input.Intelligence == null &&
+                input.Confirm == null && input.Context == null)
+                throw new ToolException("Nothing to change: pass append, replacements, description, title, icon_svg, macro, preview, inputs or a tool setting.");
             if (!string.IsNullOrWhiteSpace(input.IconSvg)) WriteIcon(dir, input.IconSvg, iconChanged: true);
             WriteMacro(dir, input.Macro);
+            WritePreview(dir, input.Preview);
+            if (input.Inputs != null) ToolSpec.SaveInputs(dir, input.Inputs);
 
             var text = File.ReadAllText(md).Replace("\r\n", "\n");
             var lines = text.Split('\n');
@@ -245,6 +308,10 @@ namespace SwAgent.Tools
                 SetHeader(header, "updated", Now());
                 if (!string.IsNullOrWhiteSpace(input.Description)) SetHeader(header, "description", OneLine(input.Description));
                 if (!string.IsNullOrWhiteSpace(input.Title)) SetHeader(header, "title", OneLine(input.Title));
+                if (input.Agent != null) SetHeader(header, "agent", input.Agent == false ? "false" : "true");
+                if (ToolSpec.Tiers.Contains(input.Intelligence)) SetHeader(header, "intelligence", input.Intelligence);
+                if (input.Confirm == "always" || input.Confirm == "missing") SetHeader(header, "confirm", input.Confirm);
+                if (input.Context?.Length > 0) SetHeader(header, "context", string.Join(", ", input.Context.Select(c => c.Trim().ToLowerInvariant())));
             }
             File.WriteAllText(md, (header.Count > 0 ? string.Join("\n", header) + "\n" : "") + body, new UTF8Encoding(false));
             Log.Info($"Edited user tool '{input.Name}'");
@@ -283,6 +350,28 @@ namespace SwAgent.Tools
             {
                 return null;
             }
+        }
+
+        private static void WritePreview(string dir, string code)
+        {
+            if (string.IsNullOrWhiteSpace(code)) return;
+            File.WriteAllText(Path.Combine(dir, "preview.cs"), code.Replace("\r\n", "\n").Trim() + "\n", new UTF8Encoding(false));
+        }
+
+        /// <summary>Front matter of a TOOL.md (public for ToolSpec).</summary>
+        public static Dictionary<string, string> FrontMatter(string text) => ReadFrontMatter(text);
+
+        /// <summary>Change one front-matter value of a saved tool (e.g. its intelligence, from the tool's page).</summary>
+        public static void SetValue(string name, string key, string value)
+        {
+            var md = Path.Combine(ToolDir(name, mustExist: true), "TOOL.md");
+            var lines = File.ReadAllText(md).Replace("\r\n", "\n").Split('\n').ToList();
+            var end = lines.Count > 0 && lines[0].Trim() == "---" ? lines.FindIndex(1, l => l.Trim() == "---") : -1;
+            if (end < 0) return;
+            var header = lines.Take(end + 1).ToList();
+            SetHeader(header, key, value);
+            File.WriteAllText(md, string.Join("\n", header.Concat(lines.Skip(end + 1))), new UTF8Encoding(false));
+            Changed?.Invoke();
         }
 
         private static void WriteMacro(string dir, string macro)
@@ -337,6 +426,10 @@ namespace SwAgent.Tools
                         ["kind"] = fm.TryGetValue("kind", out var k) && k == "tool" ? "tool" : "workflow",
                         ["hasMacro"] = File.Exists(Path.Combine(dir, "macro.cs")),
                         ["model"] = fm.TryGetValue("model", out var m) ? m : null,
+                        ["agent"] = !fm.TryGetValue("agent", out var ag) || ag != "false" || !File.Exists(Path.Combine(dir, "macro.cs")),
+                        ["intelligence"] = fm.TryGetValue("intelligence", out var tier) && ToolSpec.Tiers.Contains(tier) ? tier : "balanced",
+                        ["hasInputs"] = File.Exists(Path.Combine(dir, "inputs.json")),
+                        ["hasPreview"] = File.Exists(Path.Combine(dir, "preview.cs")),
                         ["updated"] = fm.TryGetValue("updated", out var u) ? u : File.GetLastWriteTimeUtc(md).ToString("o"),
                         ["iconSvg"] = ReadIconSvg(dir),
                         ["hasPng"] = File.Exists(Path.Combine(dir, "icon.png")),

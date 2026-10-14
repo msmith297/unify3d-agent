@@ -1,0 +1,261 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Threading.Tasks;
+using Newtonsoft.Json.Linq;
+using SolidWorks.Interop.sldworks;
+using SolidWorks.Interop.swconst;
+using SwAgent.Infrastructure;
+using SwAgent.Scripting;
+using SwAgent.UI;
+using Xarial.XCad.SolidWorks;
+using Xarial.XCad.SolidWorks.Documents;
+
+namespace SwAgent.Tools
+{
+    /// <summary>
+    /// Runs one of the user's Tools (ribbon button or hotkey), the way a native command runs:
+    ///   1. Its PropertyManager page opens at once (skipped when everything required is already selected), with a live
+    ///      holographic preview if the tool has one.
+    ///   2. Meanwhile, for tools with an agent in the loop, context is captured quietly in small steps - model data and
+    ///      feature history while the page is open, the view and selection when the user presses OK. Nothing moves:
+    ///      the camera, the view and the model are left exactly as they are.
+    ///   3. The tool's hard-coded macro runs (one undo step). For a tool without an agent that is the whole job.
+    ///   4. Otherwise everything is staged into one prompt and handed to the agent in the panel's "Tool runs" chat,
+    ///      at the tool's intelligence level.
+    /// </summary>
+    internal sealed class ToolRunner
+    {
+        private const int HistoryBudget = 24000;
+
+        private readonly ISwApplication _app;
+        private readonly ToolRegistry _tools;
+        private readonly ScriptHost _scripts;
+        private readonly Action<string, object> _send;
+        private readonly Action<string> _status;
+        private bool _busy;
+
+        public ToolRunner(ISwApplication app, ToolRegistry tools, ScriptHost scripts, Action<string, object> send, Action<string> status)
+        {
+            _app = app;
+            _tools = tools;
+            _scripts = scripts;
+            _send = send;
+            _status = status;
+        }
+
+        public async Task RunAsync(string name, Action showPane)
+        {
+            if (_busy) return; // one tool at a time, like native commands
+            var spec = ToolSpec.Load(name);
+            if (spec == null) return;
+            if (!(_app.Documents.Active is ISwDocument doc) || doc.Model == null)
+            {
+                _status($"Unify3D ▸ {spec.Title}: open a document first");
+                return;
+            }
+            _busy = true;
+            var model = doc.Model;
+            var threadId = "tool:" + name;
+            try
+            {
+                var preselected = ToolPage.CurrentSelection(model);
+                var context = new JObject();
+                var ctx = new ToolContext(_app, doc, threadId, _tools);
+
+                // 1. Inputs: straight from the selection, or from the tool's page.
+                var inputs = spec.Inputs.Count == 0 ? new ToolInputs() : ToolPage.TryFromSelection(spec, model, preselected);
+                if (inputs == null)
+                {
+                    var page = new ToolPage(_app.Sw, model, spec, preselected);
+                    page.TierChanged += tier =>
+                    {
+                        spec.Intelligence = tier;
+                        try
+                        {
+                            UserTools.SetValue(name, "intelligence", tier);
+                        }
+                        catch (Exception ex)
+                        {
+                            Log.Warn("Saving the tool's intelligence failed: " + ex.Message);
+                        }
+                    };
+                    var pageTask = page.ShowAsync(_scripts);
+                    // 2a. While the user fills the page in: what doesn't depend on their inputs.
+                    if (spec.Agent) await CaptureModelContextAsync(spec, ctx, context);
+                    inputs = await pageTask;
+                    if (inputs == null)
+                    {
+                        _status($"Unify3D ▸ {spec.Title}: cancelled");
+                        return;
+                    }
+                }
+                else if (spec.Agent)
+                {
+                    await CaptureModelContextAsync(spec, ctx, context);
+                }
+
+                // 3. The hard-coded part.
+                string macroOutput = null;
+                if (spec.Macro != null)
+                {
+                    _status($"Unify3D ▸ {spec.Title}...");
+                    var watch = Stopwatch.StartNew();
+                    var result = await _scripts.RunMacroAsync(ctx, spec.Title, spec.Macro, inputs);
+                    var text = TextOf(result);
+                    var userError = Regex.Match(text, @"MacroInputException: (.+)");
+                    if (userError.Success)
+                    {
+                        _status($"Unify3D ▸ {spec.Title}: {userError.Groups[1].Value.Trim()}");
+                        return;
+                    }
+                    if (!result.IsError && !spec.Agent)
+                    {
+                        var value = Regex.Match(text, @"--- return value ---\s*\n(.+)");
+                        _status($"Unify3D ▸ {spec.Title}: {(value.Success ? value.Groups[1].Value.Trim().Trim('"') : "done")}  ({watch.Elapsed.TotalSeconds:0.0} s, Ctrl+Z to undo)");
+                        Log.Info($"Tool '{name}' ran its macro in {watch.ElapsedMilliseconds} ms");
+                        return;
+                    }
+                    if (result.IsError)
+                    {
+                        Log.Warn($"Tool '{name}' macro failed:\n{text}");
+                        context["failure"] = text;
+                    }
+                    else
+                    {
+                        macroOutput = text;
+                    }
+                }
+
+                // 2b + 4. The agent: view and selection as they are now, then hand everything over.
+                _status($"Unify3D ▸ {spec.Title}: working...");
+                await CaptureViewAsync(spec, ctx, context);
+                if (macroOutput != null) context["macroOutput"] = macroOutput;
+                showPane?.Invoke();
+                _send("runTool", BuildPayload(spec, inputs, context));
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Tool '{name}' failed", ex);
+                _status($"Unify3D ▸ {spec.Title}: {ex.Message}");
+            }
+            finally
+            {
+                _scripts.Reset(threadId);
+                _busy = false;
+            }
+        }
+
+        /// <summary>Model facts and feature history - read-only API calls, one at a time so SolidWorks stays responsive.</summary>
+        private async Task CaptureModelContextAsync(ToolSpec spec, ToolContext ctx, JObject context)
+        {
+            if (spec.Context.Contains("model"))
+            {
+                await Task.Yield();
+                context["model"] = TextOf(await _tools.InvokeAsync("get_model_context", new JObject(), ctx));
+            }
+            if (spec.Context.Contains("history") || spec.Context.Contains("history_full"))
+            {
+                await Task.Yield();
+                var history = TextOf(await _tools.InvokeAsync("describe_model_history",
+                    new JObject { ["include_sketch_geometry"] = spec.Context.Contains("history_full") }, ctx));
+                context["history"] = history.Length > HistoryBudget
+                    ? history.Substring(0, HistoryBudget) + "\n... (history truncated - call describe_model_history for the rest)"
+                    : history;
+            }
+        }
+
+        /// <summary>A screenshot of exactly what's on screen (no camera change) - taken after the page closed.</summary>
+        private async Task CaptureViewAsync(ToolSpec spec, ToolContext ctx, JObject context)
+        {
+            if (!spec.Context.Contains("view")) return;
+            await Task.Yield();
+            try
+            {
+                var shot = await _tools.InvokeAsync("capture_views", new JObject { ["views"] = new JArray("current"), ["max_size"] = 1024 }, ctx);
+                var image = shot.Content.FirstOrDefault(c => (string)c["type"] == "image");
+                if (image != null) context["view"] = image["source"]?["data"];
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("Tool view capture failed: " + ex.Message);
+            }
+        }
+
+        /// <summary>Everything the panel needs to stage the agent's prompt (it numbers the selections as [S1]...).</summary>
+        private static JObject BuildPayload(ToolSpec spec, ToolInputs inputs, JObject context)
+        {
+            var list = new JArray();
+            foreach (var s in spec.Inputs)
+            {
+                var type = ToolSpec.Type(s);
+                var entry = new JObject { ["id"] = s.Id, ["label"] = s.Label, ["type"] = type };
+                switch (type)
+                {
+                    case "selection":
+                        entry["items"] = new JArray(inputs.SelectedItems(s.Id).Select(i => new JObject
+                        {
+                            ["type"] = i.Type, ["label"] = i.Label, ["detail"] = i.Detail, ["ref"] = i.Ref,
+                        }));
+                        break;
+                    case "number":
+                    {
+                        var v = inputs.Number(s.Id);
+                        var unit = (s.Unit ?? "length").ToLowerInvariant();
+                        entry["value"] = unit == "length" ? $"{(v * 1000).ToString("0.###", CultureInfo.InvariantCulture)} mm ({v.ToString("0.######", CultureInfo.InvariantCulture)} m)"
+                            : unit == "angle" ? $"{(v * 180 / Math.PI).ToString("0.###", CultureInfo.InvariantCulture)} deg"
+                            : v.ToString("0.######", CultureInfo.InvariantCulture);
+                        break;
+                    }
+                    case "files":
+                        entry["files"] = new JArray(inputs.Files(s.Id).Select(FileEntry));
+                        break;
+                    default:
+                        entry["value"] = JToken.FromObject(inputs[s.Id] ?? "");
+                        break;
+                }
+                list.Add(entry);
+            }
+            return new JObject
+            {
+                ["tool"] = spec.Name,
+                ["title"] = spec.Title,
+                ["intelligence"] = spec.Intelligence,
+                ["inputs"] = list,
+                ["context"] = context,
+            };
+        }
+
+        /// <summary>Images and PDFs travel as data (the model reads them directly); 3D models as a path for now.</summary>
+        private static JObject FileEntry(string path)
+        {
+            var ext = Path.GetExtension(path).ToLowerInvariant();
+            var media = ext == ".png" ? "image/png" : ext == ".jpg" || ext == ".jpeg" ? "image/jpeg" : ext == ".gif" ? "image/gif"
+                : ext == ".webp" ? "image/webp" : ext == ".pdf" ? "application/pdf" : null;
+            var entry = new JObject { ["name"] = Path.GetFileName(path), ["path"] = path };
+            try
+            {
+                var size = new FileInfo(path).Length;
+                if (media != null && size <= (media == "application/pdf" ? 30_000_000 : 5_000_000))
+                {
+                    entry["mediaType"] = media;
+                    entry["data"] = Convert.ToBase64String(File.ReadAllBytes(path));
+                }
+                else entry["kind"] = media == null ? "model" : "too_large";
+            }
+            catch (Exception ex)
+            {
+                entry["error"] = ex.Message;
+            }
+            return entry;
+        }
+
+        private static string TextOf(ToolResult r) =>
+            string.Join("\n", r.Content.Where(c => (string)c["type"] == "text").Select(c => (string)c["text"]));
+    }
+}

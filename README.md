@@ -23,12 +23,18 @@ SLDWORKS.exe
 
 - **Workflows** are larger saved procedures (e.g. building a compression mold). Run them from the **Workflows** menu in
   the chat panel; the agent follows the saved instructions.
-- **Tools** (agentic macros) are quick commands on the **Unify3D** ribbon tab, assignable to hotkeys in
-  Tools > Customize > Keyboard (category *Unify3D*). A tool carries a verified C# macro that runs directly on the current
-  selection as one undo step - no AI round trip. If it has no macro yet or the macro breaks, the agent finishes the job
-  in the background *Tool runs* chat and repairs the macro.
+- **Tools** are quick, AI-powered commands on the **Unify3D** ribbon tab, assignable to hotkeys in
+  Tools > Customize > Keyboard (category *Unify3D*). A tool is a skill with optional hard-coded parts:
+  - a native **PropertyManager page** built from its declared inputs (selection boxes, numbers with units, checkboxes,
+    dropdowns, option buttons, a note, image/PDF/3D-model files), skipped when everything it needs is already selected;
+  - a live **holographic preview** (temporary bodies, rebuilt on every change; switches to on-demand if it gets slow);
+  - a **macro** (verified C#, one undo step) - for mechanical tools it is the whole job, no AI involved;
+  - for tools with an **agent in the loop**: context captured silently (view, selection, model, feature history) and
+    staged with the inputs for the agent at the tool's **intelligence** tier (Fast / Balanced / Max), shown in the panel
+    as a single "executing" line.
+- The agent creates both with an in-chat questionnaire, from a description, from "what you just did", or from the model.
 
-Both are created with the agent and stored in `%APPDATA%\SwAgent\tools\<name>\` (`TOOL.md`, optional `macro.cs`, `icon.svg`).
+Both are created with the agent and stored in `%APPDATA%\SwAgent\tools\<name>\` (`TOOL.md`, `inputs.json`, `macro.cs`, `preview.cs`, `icon.svg`).
 
 ## How it works
 

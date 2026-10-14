@@ -1,4 +1,5 @@
 import type { Effort, Settings } from "./types";
+import type { Tier } from "./types";
 
 export interface ModelOption {
   id: string;
@@ -43,4 +44,18 @@ export const DEFAULT_SETTINGS: Settings = {
 
 export function modelOption(id: string): ModelOption {
   return MODELS.find((m) => m.id === id) ?? { id, label: id, note: "", fallbacks: false, progressUpdates: false };
+}
+
+/**
+ * Intelligence tiers for tools, per provider. A tool stores only the tier, so it keeps working when the user
+ * switches provider (only Anthropic is wired up today).
+ */
+export const TIERS: Record<Tier, { label: string; note: string; anthropic: { model: string; effort: "low" | "medium" | "high" } }> = {
+  fast: { label: "Fast", note: "Quickest - simple, mechanical jobs", anthropic: { model: "claude-haiku-5-5", effort: "low" } },
+  balanced: { label: "Balanced", note: "Default - most tools", anthropic: { model: "claude-sonnet-5-5", effort: "low" } },
+  max: { label: "Max", note: "Hardest geometry reasoning", anthropic: { model: "claude-opus-5-5", effort: "high" } },
+};
+
+export function tierModel(tier: Tier | undefined): { model: string; effort: "low" | "medium" | "high" } {
+  return (TIERS[tier ?? "balanced"] ?? TIERS.balanced).anthropic;
 }

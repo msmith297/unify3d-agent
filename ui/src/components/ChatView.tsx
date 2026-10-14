@@ -3,6 +3,7 @@ import { ArrowDown, X } from "lucide-react";
 import { IconCancel, IconCopy, IconEdit, IconError, IconEye, IconOk, IconQuestion, IconResend, IconShield, ToolIcon } from "./SwIcons";
 import { Markdown } from "./Markdown";
 import { BrandLogo } from "./Brand";
+import { FormCard } from "./FormCard";
 import { svgDataUrl } from "../lib/toolIcons";
 import { Caret } from "./SwIcons";
 import { ToolCard, statusFor, type ToolCall } from "./ToolCard";
@@ -106,7 +107,7 @@ function renderItem(item: Item, thread: Thread, run: RunState | undefined, onIma
         </ToolCard>
       );
     case "question":
-      return <QuestionCard call={item.call} threadId={thread.id} run={run} />;
+      return item.call.name === "ask_form" ? <FormCard call={item.call} threadId={thread.id} run={run} /> : <QuestionCard call={item.call} threadId={thread.id} run={run} />;
     case "footer":
       return <TurnFooter turn={item.turn} isLast={item.isLast} running={!!run} />;
     case "work":
@@ -222,7 +223,7 @@ function buildItems(thread: Thread, run: RunState | undefined, showProgress: boo
       else if (b.type === "text" && b.text.trim()) segment.push({ kind: "text", key, text: b.text });
       else if (b.type === "tool_use") {
         const call: ToolCall = { id: b.id, name: b.name, input: b.input, result: results.get(b.id) };
-        segment.push(call.name === "ask_user" ? { kind: "question", key, call } : { kind: "tool", key, call });
+        segment.push(call.name === "ask_user" || call.name === "ask_form" ? { kind: "question", key, call } : { kind: "tool", key, call });
       }
     });
   });
@@ -369,6 +370,8 @@ function PromptBubble({
     );
   }
 
+  if (/^\[Run tool: /.test(text)) return <ToolRunPrompt text={text} images={images} refs={refs} view={view} onImage={onImage} />;
+
   return (
     <div className="group mt-2 flex flex-col items-end gap-1 first:mt-0">
       {images.length > 0 && (
@@ -420,6 +423,69 @@ function PromptBubble({
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * A ribbon tool run: just "Tool: Smart fillet" - the inputs, attachments, selections and view the tool captured
+ * stay folded away unless the user opens them.
+ */
+function ToolRunPrompt({
+  text,
+  images,
+  refs,
+  view,
+  onImage,
+}: {
+  text: string;
+  images: string[];
+  refs: { id: string; text: string }[];
+  view: string | null;
+  onImage: (s: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const tools = useStore((s) => s.userTools);
+  const m = /^\[Run tool: ([a-z0-9-]+)\]\s*([\s\S]*)$/.exec(text);
+  const tool = m ? tools.find((t) => t.name === m[1]) : undefined;
+  const body = (m?.[2] ?? "").replace(/<\/?tool_inputs>/g, "").trim();
+  const hasDetails = !!body || images.length > 0 || refs.length > 0 || !!view;
+  return (
+    <div className="mt-2 flex flex-col items-end gap-1 first:mt-0">
+      <button
+        type="button"
+        onClick={() => hasDetails && setOpen((o) => !o)}
+        className="flex max-w-[88%] items-center gap-1.5 rounded-[3px] border border-line bg-user px-2.5 py-1 text-[12px] font-semibold text-text shadow-[inset_0_1px_0_var(--bevel-hi),var(--shadow)]"
+        title={hasDetails ? (open ? "Hide the inputs" : "Show the inputs and context the tool captured") : undefined}
+      >
+        {tool?.iconSvg ? <img src={svgDataUrl(tool.iconSvg)} alt="" width={14} height={14} /> : <ToolIcon name={tool?.icon ?? "macro"} size={14} />}
+        <span>Tool: {tool?.title ?? m?.[1]}</span>
+        {hasDetails && <Caret open={open} className="text-text-3" />}
+      </button>
+      {open && (
+        <div className="flex max-w-[92%] flex-col items-end gap-1">
+          {body && <div className="selectable whitespace-pre-wrap rounded-[3px] border border-line bg-card-2 px-2 py-1 text-[11.5px] text-text-2">{body}</div>}
+          {(images.length > 0 || view) && (
+            <div className="flex flex-wrap justify-end gap-1.5">
+              {[...images, ...(view ? [view] : [])].map((src, i) => (
+                <button key={i} onClick={() => onImage(src)} className="overflow-hidden rounded-[2px] border border-input-border shadow-[var(--shadow)]">
+                  <img src={src} alt="" className="h-[48px] w-auto" />
+                </button>
+              ))}
+            </div>
+          )}
+          {refs.length > 0 && (
+            <div className="flex flex-wrap justify-end gap-1">
+              {refs.map((r) => (
+                <span key={r.id} title={r.text} className="flex max-w-[180px] items-center gap-1 rounded-[2px] border border-line bg-card-2 px-1 text-[10.5px] text-text-2">
+                  <b className="text-accent">{r.id}</b>
+                  <span className="truncate">{r.text}</span>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

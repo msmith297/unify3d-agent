@@ -10,10 +10,45 @@ import type {
   ToolResultBlockParam,
   ToolRunResult,
   Usage,
+  FormSpec,
 } from "../lib/types";
 
 /** Tools that change the model; gated by the approval setting. */
 export const WRITE_TOOLS = new Set(["execute_csharp", "undo", "rebuild"]);
+
+/** Handled in the UI: a questionnaire card in the chat; the answers come back as JSON. */
+export const ASK_FORM_TOOL: ToolDef = {
+  name: "ask_form",
+  description:
+    "Show the user a short questionnaire (a form in the chat) and wait for the answers, returned as JSON keyed by field id. " +
+    "Use it to settle several decisions at once - above all when designing a new tool or workflow (what it does, what the user " +
+    "selects, which values they set in its PropertyManager page, defaults, preview, whether an agent is needed, intelligence). " +
+    "Pre-fill sensible defaults so the user can just confirm; ask only what you can't infer; at most about 8 fields.",
+  input_schema: {
+    type: "object",
+    properties: {
+      title: { type: "string", description: "Form title, e.g. \"New tool: Smart fillet\"." },
+      intro: { type: "string", description: "One or two sentences on what you're proposing." },
+      fields: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            id: { type: "string" },
+            label: { type: "string" },
+            type: { type: "string", enum: ["choice", "multi", "text", "number", "yesno"] },
+            options: { type: "array", items: { type: "string" } },
+            default: { description: "Pre-filled answer (string, number, boolean, or array for multi)." },
+            help: { type: "string" },
+            required: { type: "boolean" },
+          },
+          required: ["id", "label", "type"],
+        },
+      },
+    },
+    required: ["title", "fields"],
+  },
+};
 
 /** Handled entirely in the UI: shows a question card and waits for the user. */
 export const ASK_USER_TOOL: ToolDef = {
@@ -57,7 +92,7 @@ export interface AgentCallbacks {
   setRunningTool(toolUseId: string | null): void;
   addUsage(usage: Usage): void;
   approve(req: ApprovalRequest): Promise<ApprovalDecision>;
-  ask(toolUseId: string, question: string, options: string[]): Promise<string>;
+  ask(toolUseId: string, question: string, options: string[], form?: FormSpec): Promise<string>;
   runTool(name: string, input: unknown): Promise<ToolRunResult>;
   isAutoApproved(): boolean;
   setAutoApproved(): void;
@@ -92,7 +127,7 @@ const CLEAR_OLD_TOOL_USES = {
   keep: { type: "tool_uses" as const, value: 6 },
   clear_at_least: { type: "input_tokens" as const, value: 12000 },
   clear_tool_inputs: true,
-  exclude_tools: ["ask_user", "read_user_tool"],
+  exclude_tools: ["ask_user", "ask_form", "read_user_tool"],
 };
 
 /** Runs the agent until it ends its turn, is stopped, or fails. */
@@ -105,7 +140,7 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
   if (m.progressUpdates) betas.push("thinking-display-updates-2026-08-18");
   if (m.fallbacks) betas.push("server-side-fallback-2026-07-01");
 
-  const tools: Anthropic.Beta.Messages.BetaToolUnion[] = [...opts.tools, ASK_USER_TOOL].map((t) => ({
+  const tools: Anthropic.Beta.Messages.BetaToolUnion[] = [...opts.tools, ASK_USER_TOOL, ASK_FORM_TOOL].map((t) => ({
     name: t.name,
     description: t.description,
     input_schema: t.input_schema,
@@ -230,10 +265,16 @@ async function executeTool(tu: Anthropic.Beta.Messages.BetaToolUseBlock, opts: A
   const { cb } = opts;
   const err = (text: string): ToolResultBlockParam => ({ type: "tool_result", tool_use_id: tu.id, is_error: true, content: text });
 
-  const def = tu.name === ASK_USER_TOOL.name ? ASK_USER_TOOL : opts.tools.find((t) => t.name === tu.name);
+  const def = tu.name === ASK_USER_TOOL.name ? ASK_USER_TOOL : tu.name === ASK_FORM_TOOL.name ? ASK_FORM_TOOL : opts.tools.find((t) => t.name === tu.name);
   if (!def) return err(`Unknown tool '${tu.name}'.`);
   const problem = validateInput(def, tu.input);
   if (problem) return err(`INVALID_INPUT: ${problem}. Re-issue the call with complete, valid JSON input.`);
+
+  if (tu.name === ASK_FORM_TOOL.name) {
+    const form = tu.input as FormSpec;
+    const answer = await cb.ask(tu.id, form.title, [], form);
+    return { type: "tool_result", tool_use_id: tu.id, content: answer };
+  }
 
   if (tu.name === ASK_USER_TOOL.name) {
     const input = tu.input as { question: string; options?: string[] };
