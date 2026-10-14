@@ -44,6 +44,7 @@ namespace SwAgent
             Log.Prune();
             ChatDocument.PruneBackups();
             SoundMuter.RestoreNow(); // if SolidWorks crashed while the agent was working
+            var crash = CrashGuard.Recover(); // ...or while a tool's preview / macro or an agent cell was running
 
             try
             {
@@ -57,7 +58,28 @@ namespace SwAgent
                 tools.RegisterAll(new UserTools());
                 tools.RegisterAll(new LibraryTools());
                 tools.RegisterAll(scripts);
+                tools.RegisterAll(new ToolTester(scripts));
                 Controller = new AgentController(Application, tools, scripts);
+                if (crash != null)
+                {
+                    // Pause the part of the tool that crashed SolidWorks so clicking it again can't repeat it; the
+                    // panel offers to have the agent find and fix the cause.
+                    var tool = (string)crash["tool"];
+                    var kind = (string)crash["kind"];
+                    if (tool != null && (kind == "preview" || kind == "macro"))
+                    {
+                        try
+                        {
+                            UserTools.SetValue(tool, "paused", kind);
+                            crash["paused"] = kind;
+                        }
+                        catch (Exception ex)
+                        {
+                            Log.Warn("Pausing the crashed tool failed: " + ex.Message);
+                        }
+                    }
+                    Controller.Crash = crash;
+                }
 
                 Application.Documents.RegisterHandler(() => new ChatDocumentHandler());
                 Application.Documents.DocumentActivated += doc => Controller.OnDocumentActivated(doc);
@@ -67,10 +89,10 @@ namespace SwAgent
                 CommandManager.AddContextMenu<EdgeContextCommands_e>().CommandClick += _ => AskAboutSelection();
                 CommandManager.AddContextMenu<FeatureContextCommands_e>().CommandClick += _ => AskAboutSelection();
 
-                // One "Unify3D" tab: panel commands and the user's tools, rebuilt as tools are saved or changed.
+                // One "Unify3D" tab: panel commands and the user's tools. Built at start-up only (see UnifyRibbon).
                 _ribbon = new UnifyRibbon(((Xarial.XCad.SolidWorks.UI.Commands.ISwCommandManager)CommandManager).CmdMgr);
                 _ribbon.Rebuild();
-                UserTools.Changed += _ribbon.Invalidate;
+                Controller.RibbonStale = _ribbon.IsStale;
 
                 _pane = this.CreateTaskPaneWinForm<ChatPaneControl>(new TaskPaneSpec
                 {
@@ -183,11 +205,7 @@ namespace SwAgent
             Log.Info("Unify3D Agent disconnecting");
             SoundMuter.RestoreNow();
             Controller?.InstallPendingUpdateOnExit();
-            if (_ribbon != null)
-            {
-                UserTools.Changed -= _ribbon.Invalidate;
-                _ribbon.Dispose();
-            }
+            _ribbon?.Dispose();
             Controller?.Dispose();
             Instance = null;
         }

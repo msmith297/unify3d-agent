@@ -52,6 +52,12 @@ namespace SwAgent
         private MarkupOverlay _markup;
         private IntPtr _markupView;
         private WatchRecorder _watch;
+
+        /// <summary>What SolidWorks was running when it closed unexpectedly last time (CrashGuard), until dismissed.</summary>
+        internal JObject Crash { get; set; }
+
+        /// <summary>True when tools changed since SolidWorks started: the ribbon only picks them up after a restart.</summary>
+        internal Func<bool> RibbonStale { get; set; }
         private bool _agentRunning;
 
         public AgentController(ISwApplication app, ToolRegistry tools, ScriptHost scripts)
@@ -124,6 +130,18 @@ namespace SwAgent
             {
                 _settings = (JObject)p;
                 SettingsStore.SaveSettings(_settings);
+                return null;
+            });
+            bridge.Register("crash.dismiss", p =>
+            {
+                Crash = null;
+                return null;
+            });
+            bridge.RegisterAsync("app.saveAndRestart", async p => await SaveAndRestart((bool?)p?["saveDocuments"] == true));
+            bridge.Register("userTools.run", p =>
+            {
+                // From the panel (e.g. right after creating a tool, before the ribbon has its button).
+                _ = RunToolAsync((string)p["name"], null);
                 return null;
             });
             bridge.Register("update.status", p => Updates.ToJson());
@@ -335,6 +353,8 @@ namespace SwAgent
 
         // ---- document lifecycle (called by ChatDocumentHandler / xCAD events) ----
 
+        public void OnChatReadFromFile(ChatDocumentHandler handler) => _bridge?.Emit("doc.chatChanged", new JObject { ["key"] = handler.Chat.Key });
+
         public void OnDocumentOpened(ChatDocumentHandler handler) => _docs[handler.Chat.Key] = handler;
 
         public void OnDocumentClosed(ChatDocumentHandler handler)
@@ -499,6 +519,48 @@ namespace SwAgent
             return new JObject { ["ok"] = true };
         }
 
+        /// <summary>
+        /// Save open documents and restart SolidWorks (new tools only reach the ribbon at start-up). The active
+        /// document is reopened. Returns { ok } or { ok: false, reason, unsaved } like RestartAndInstall.
+        /// </summary>
+        private Task<JObject> SaveAndRestart(bool saveDocuments)
+        {
+            var unsaved = UnsavedDocuments();
+            if (unsaved.Any(d => (bool)d["untitled"]))
+                return Task.FromResult(new JObject { ["ok"] = false, ["reason"] = "Some documents have never been saved. Save them (File > Save As) first.", ["unsaved"] = unsaved });
+            if (unsaved.Count > 0 && !saveDocuments)
+                return Task.FromResult(new JObject { ["ok"] = false, ["reason"] = "unsaved", ["unsaved"] = unsaved });
+
+            foreach (var d in unsaved)
+            {
+                var model = (IModelDoc2)_app.Sw.GetOpenDocumentByName((string)d["path"]);
+                int errors = 0, warnings = 0;
+                if (model != null && !model.Save3((int)swSaveAsOptions_e.swSaveAsOptions_Silent, ref errors, ref warnings))
+                    return Task.FromResult(new JObject { ["ok"] = false, ["reason"] = $"Couldn't save {d["title"]} ({(swFileSaveError_e)errors}). Save it yourself, then try again." });
+            }
+
+            string reopen = null;
+            try
+            {
+                reopen = ((IModelDoc2)_app.Sw.ActiveDoc)?.GetPathName();
+            }
+            catch
+            {
+                // Nothing to reopen.
+            }
+            if (!RestartHelper.Launch(reopen)) return Task.FromResult(new JObject { ["ok"] = false, ["reason"] = "Couldn't start the restart helper." });
+
+            var exit = new Timer { Interval = 500 };
+            exit.Tick += (s, e) =>
+            {
+                exit.Stop();
+                Log.Info("Restarting SolidWorks");
+                _app.Sw.ExitApp();
+            };
+            exit.Start();
+            return Task.FromResult(new JObject { ["ok"] = true });
+        }
+
         /// <summary>At shutdown: with auto-update on, a downloaded update installs now (without restarting SolidWorks).</summary>
         public void InstallPendingUpdateOnExit()
         {
@@ -513,6 +575,8 @@ namespace SwAgent
             {
                 ["version"] = Updates.CurrentVersion.ToString(3),
                 ["update"] = Updates.ToJson(),
+                ["crash"] = Crash,
+                ["ribbonStale"] = RibbonStale?.Invoke() ?? false,
                 ["solidworksVersion"] = SafeRevision(),
                 ["apiKeySource"] = SettingsStore.ApiKeySource(),
                 ["settings"] = _settings,
@@ -644,7 +708,11 @@ namespace SwAgent
         /// <summary>COLORREF (0x00BBGGRR) to #RRGGBB.</summary>
         internal static string ToHex(int colorRef) => $"#{colorRef & 0xFF:X2}{(colorRef >> 8) & 0xFF:X2}{(colorRef >> 16) & 0xFF:X2}";
 
-        private void OnUserToolsChanged() => _bridge?.Emit("userTools.changed", new JArray(UserTools.ListTools()));
+        private void OnUserToolsChanged()
+        {
+            _bridge?.Emit("userTools.changed", new JArray(UserTools.ListTools()));
+            _bridge?.Emit("ribbon.stale", new JObject { ["stale"] = RibbonStale?.Invoke() ?? false });
+        }
 
         private object StartMarkup(string docKey, string tool, string color)
         {

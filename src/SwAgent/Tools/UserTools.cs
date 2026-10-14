@@ -112,8 +112,9 @@ namespace SwAgent.Tools
 
             [ToolParam("An icon designed for this tool, as SVG markup: viewBox=\"0 0 16 16\", drawn to read clearly at 16-20 px next to SolidWorks' own " +
                        "commands - a simple pictogram of what the tool makes or does (e.g. a mold block with a cavity, a plate with holes), " +
-                       "SolidWorks style: flat fills with subtle top-to-bottom gradients, 0.75-1 px darker outlines, steel greys plus one accent " +
-                       "(blue #2F84D6, orange #E8912D, green #3AA655 or red #D94A38), no text, no thin details, transparent background. " +
+                       "in the Unify3D look (like its brushed-metal U logo): brushed steel fills as top-to-bottom gradients (#F4F5F6 to #9AA0A6), " +
+                       "graphite for dark parts and details (#55595F to #1C1F22), 0.75-1 px graphite outlines (#26292D), a small white highlight " +
+                       "at most - monochrome metal, no blue or other colour accents, no text, no thin details, transparent background. " +
                        "Shown on the tool's ribbon button and in the Tools menu.")]
             public string IconSvg { get; set; }
         }
@@ -177,8 +178,9 @@ namespace SwAgent.Tools
 
             [ToolParam("An icon designed for this tool, as SVG markup: viewBox=\"0 0 16 16\", drawn to read clearly at 16-20 px next to SolidWorks' own " +
                        "commands - a simple pictogram of what the tool makes or does (e.g. a mold block with a cavity, a plate with holes), " +
-                       "SolidWorks style: flat fills with subtle top-to-bottom gradients, 0.75-1 px darker outlines, steel greys plus one accent " +
-                       "(blue #2F84D6, orange #E8912D, green #3AA655 or red #D94A38), no text, no thin details, transparent background. " +
+                       "in the Unify3D look (like its brushed-metal U logo): brushed steel fills as top-to-bottom gradients (#F4F5F6 to #9AA0A6), " +
+                       "graphite for dark parts and details (#55595F to #1C1F22), 0.75-1 px graphite outlines (#26292D), a small white highlight " +
+                       "at most - monochrome metal, no blue or other colour accents, no text, no thin details, transparent background. " +
                        "Shown on the tool's ribbon button and in the Tools menu.")]
             public string IconSvg { get; set; }
         }
@@ -312,6 +314,14 @@ namespace SwAgent.Tools
                 if (ToolSpec.Tiers.Contains(input.Intelligence)) SetHeader(header, "intelligence", input.Intelligence);
                 if (input.Confirm == "always" || input.Confirm == "missing") SetHeader(header, "confirm", input.Confirm);
                 if (input.Context?.Length > 0) SetHeader(header, "context", string.Join(", ", input.Context.Select(c => c.Trim().ToLowerInvariant())));
+                // A new preview or macro replaces the one that crashed SolidWorks: un-pause it.
+                var paused = header.FirstOrDefault(l => l.StartsWith("paused:", StringComparison.OrdinalIgnoreCase));
+                if (paused != null)
+                {
+                    var left = paused.Substring(7).Split(new[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries)
+                        .Where(p => !(p == "preview" && !string.IsNullOrWhiteSpace(input.Preview)) && !(p == "macro" && !string.IsNullOrWhiteSpace(input.Macro)));
+                    SetHeader(header, "paused", string.Join(", ", left));
+                }
             }
             File.WriteAllText(md, (header.Count > 0 ? string.Join("\n", header) + "\n" : "") + body, new UTF8Encoding(false));
             Log.Info($"Edited user tool '{input.Name}'");
@@ -430,6 +440,7 @@ namespace SwAgent.Tools
                         ["intelligence"] = fm.TryGetValue("intelligence", out var tier) && ToolSpec.Tiers.Contains(tier) ? tier : "balanced",
                         ["hasInputs"] = File.Exists(Path.Combine(dir, "inputs.json")),
                         ["hasPreview"] = File.Exists(Path.Combine(dir, "preview.cs")),
+                        ["paused"] = fm.TryGetValue("paused", out var pz) ? pz : "",
                         ["updated"] = fm.TryGetValue("updated", out var u) ? u : File.GetLastWriteTimeUtc(md).ToString("o"),
                         ["iconSvg"] = ReadIconSvg(dir),
                         ["hasPng"] = File.Exists(Path.Combine(dir, "icon.png")),

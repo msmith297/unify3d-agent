@@ -82,6 +82,9 @@ namespace SwAgent.Tools
         public HashSet<string> Context;
 
         public List<ToolInputSpec> Inputs;
+
+        /// <summary>Parts paused after SolidWorks closed while running them ("preview", "macro") - see CrashGuard.</summary>
+        public HashSet<string> Paused;
         public string Macro;
         public string Preview;
 
@@ -109,6 +112,7 @@ namespace SwAgent.Tools
             spec.Agent = spec.Macro == null || !string.Equals(Get("agent", "true"), "false", StringComparison.OrdinalIgnoreCase);
             spec.Intelligence = Tiers.Contains(Get("intelligence")) ? Get("intelligence") : "balanced";
             spec.Confirm = Get("confirm", "missing") == "always" ? "always" : "missing";
+            spec.Paused = new HashSet<string>((Get("paused", "") ?? "").Split(new[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries));
             spec.Context = new HashSet<string>((Get("context", "view,selection,model,history") ?? "")
                 .Split(new[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim().ToLowerInvariant()));
             return spec;

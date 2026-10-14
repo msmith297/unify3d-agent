@@ -4,6 +4,7 @@ import { IconCancel, IconCopy, IconDocs, IconEdit, IconError, IconEye, IconModel
 import { Markdown } from "./Markdown";
 import { BrandLogo } from "./Brand";
 import { FormCard } from "./FormCard";
+import { RestartCard } from "./Recovery";
 import { svgDataUrl } from "../lib/toolIcons";
 import { Caret } from "./SwIcons";
 import { ToolCard, statusFor, toolTitle, type ToolCall } from "./ToolCard";
@@ -119,9 +120,15 @@ function renderItem(item: Item, thread: Thread, run: RunState | undefined, onIma
       );
     case "tool":
       return (
-        <ToolCard call={item.call} status={statusFor(item.call, run)} onImage={onImage}>
-          {run?.approval?.toolUseId === item.call.id && <ApprovalCard threadId={thread.id} />}
-        </ToolCard>
+        <>
+          <ToolCard call={item.call} status={statusFor(item.call, run)} onImage={onImage}>
+            {run?.approval?.toolUseId === item.call.id && <ApprovalCard threadId={thread.id} />}
+          </ToolCard>
+          {(item.call.name === "save_user_tool" || item.call.name === "edit_user_tool") &&
+            item.call.result &&
+            !item.call.result.is_error &&
+            item.call.id === lastToolSave(thread) && <RestartCard title={item.call.input?.title} />}
+        </>
       );
     case "question":
       return item.call.name === "ask_form" ? <FormCard call={item.call} threadId={thread.id} run={run} /> : <QuestionCard call={item.call} threadId={thread.id} run={run} />;
@@ -226,6 +233,19 @@ function quietFailures(segment: Item[], finished: boolean): Item[] {
       const n = retries.get(it.key);
       return soft || n ? { ...it, call: { ...it.call, soft, retries: n } } : it;
     });
+}
+
+/** The newest successful save/edit of a tool in the chat: the restart offer goes under it, once. */
+function lastToolSave(thread: Thread): string | undefined {
+  for (let i = thread.messages.length - 1; i >= 0; i--) {
+    const m = thread.messages[i];
+    if (m.role !== "assistant" || typeof m.content === "string") continue;
+    for (let j = m.content.length - 1; j >= 0; j--) {
+      const b = m.content[j];
+      if (b.type === "tool_use" && (b.name === "save_user_tool" || b.name === "edit_user_tool") && (b.input as { kind?: string })?.kind !== "workflow") return b.id;
+    }
+  }
+  return undefined;
 }
 
 /** Flatten API messages (+ the live stream) into display items. */

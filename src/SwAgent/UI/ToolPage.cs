@@ -97,7 +97,7 @@ namespace SwAgent.UI
                                 swPropertyManagerPageOptions_e.swPropertyManagerOptions_LockedPage |
                                 swPropertyManagerPageOptions_e.swPropertyManagerOptions_PushpinButton |
                                 swPropertyManagerPageOptions_e.swPropertyManagerOptions_CanEscapeCancel);
-            if (_spec.Preview != null) options |= (int)swPropertyManagerPageOptions_e.swPropertyManagerOptions_PreviewButton;
+            if (_spec.Preview != null && !_spec.Paused.Contains("preview")) options |= (int)swPropertyManagerPageOptions_e.swPropertyManagerOptions_PreviewButton;
 
             var errors = 0;
             _page = (IPropertyManagerPage2)_sw.CreatePropertyManagerPage(_spec.Title, options, this, ref errors);
@@ -111,7 +111,11 @@ namespace SwAgent.UI
             Preselect();
             UpdateOkButton();
 
-            if (_spec.Preview != null)
+            if (_spec.Preview != null && _spec.Paused.Contains("preview"))
+            {
+                Message("The live preview is paused: SolidWorks closed while drawing it last time. Ask Unify3D to fix this tool.");
+            }
+            else if (_spec.Preview != null)
             {
                 // Compile the preview off the UI thread while the user looks at the page.
                 scripts.CompilePreviewAsync(_spec.Preview).ContinueWith(t =>
@@ -454,24 +458,12 @@ namespace SwAgent.UI
                 HidePreview();
                 if (!RequiredSatisfied()) return;
                 var globals = new ScriptGlobals { swApp = _sw, Model = _model, Inputs = Collect(withRefs: false) };
-                await _previewRunner(globals);
-                foreach (var (body, color, transparency) in globals.PreviewBodies)
+                // If SolidWorks dies in here, the next start knows it was this tool's preview and pauses it.
+                using (CrashGuard.Enter("preview", _spec.Name, _spec.Title, _spec.Preview))
                 {
-                    var r = (color >> 16) & 0xFF;
-                    var g = (color >> 8) & 0xFF;
-                    var b = color & 0xFF;
-                    try
-                    {
-                        body.MaterialPropertyValues2 = new[] { r / 255.0, g / 255.0, b / 255.0, 1, 1, 0.5, 0.4, Math.Max(0, Math.Min(1, transparency)), 0 };
-                    }
-                    catch
-                    {
-                        // Colour only.
-                    }
-                    body.Display3(_model, (b << 16) | (g << 8) | r, (int)swTempBodySelectOptions_e.swTempBodySelectOptionNone);
-                    _shownBodies.Add(body);
+                    await _previewRunner(globals);
+                    _shownBodies.AddRange(PreviewDisplay.Show(_model, globals.PreviewBodies));
                 }
-                _model.GraphicsRedraw2();
                 Message(null);
             }
             catch (Exception ex)
@@ -491,22 +483,7 @@ namespace SwAgent.UI
             }
         }
 
-        private void HidePreview()
-        {
-            foreach (var b in _shownBodies)
-            {
-                try
-                {
-                    b.Hide(_model);
-                }
-                catch
-                {
-                    // Already gone.
-                }
-            }
-            if (_shownBodies.Count > 0) _model.GraphicsRedraw2();
-            _shownBodies.Clear();
-        }
+        private void HidePreview() => PreviewDisplay.Hide(_model, _shownBodies);
 
         private void Message(string text)
         {
@@ -646,9 +623,9 @@ namespace SwAgent.UI
         /// When everything the tool needs is already selected (and it doesn't ask to always show its page), build the
         /// inputs from the selection and defaults so it can run straight away.
         /// </summary>
-        internal static ToolInputs TryFromSelection(ToolSpec spec, IModelDoc2 model, List<SelectedEntity> preselected)
+        internal static ToolInputs TryFromSelection(ToolSpec spec, IModelDoc2 model, List<SelectedEntity> preselected, bool forTest = false)
         {
-            if (spec.Confirm == "always") return null;
+            if (spec.Confirm == "always" && !forTest) return null;
             var inputs = new ToolInputs();
             var used = new HashSet<object>();
             foreach (var s in spec.Inputs)
@@ -661,7 +638,7 @@ namespace SwAgent.UI
                         var allowed = new HashSet<int>(SelectFilters(s.Filter));
                         var matches = preselected.Where(p => !used.Contains(p.Entity) && (allowed.Count == 0 || allowed.Contains(p.Type))).ToList();
                         if (s.Multiple == false) matches = matches.Take(1).ToList();
-                        if (matches.Count == 0 && ToolSpec.IsRequired(s)) return null;
+                        if (matches.Count == 0 && ToolSpec.IsRequired(s) && !forTest) return null;
                         var items = new List<ToolInputs.SelectedItem>();
                         foreach (var m in matches)
                         {
@@ -699,7 +676,7 @@ namespace SwAgent.UI
                         break;
                     case "text":
                     case "files":
-                        if (ToolSpec.IsRequired(s)) return null;
+                        if (ToolSpec.IsRequired(s) && !forTest) return null;
                         if (type == "text") inputs.Set(s.Id, s.Default ?? "");
                         else inputs.SetFiles(s.Id, new List<string>());
                         break;

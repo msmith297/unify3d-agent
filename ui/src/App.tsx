@@ -9,6 +9,7 @@ import { Composer } from "./components/Composer";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { AutoUpdatePrompt, UpdateDialog } from "./components/Update";
 import { ToolRunBanner } from "./components/ToolRunBanner";
+import { CrashNotice } from "./components/Recovery";
 import { useStore } from "./store";
 
 export default function App() {
@@ -97,6 +98,7 @@ export default function App() {
       <div className="zoom-chrome shrink-0">
         <Header />
         <AutoUpdatePrompt />
+        <CrashNotice />
         <ToolRunBanner />
       </div>
       <UpdateDialog />

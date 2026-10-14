@@ -35,16 +35,40 @@ namespace SwAgent
             }
         }
 
+        // Unify3D style: brushed steel and graphite, like the logo - no colour accents.
+        private static readonly Color SteelTop = Color.FromArgb(0xF4, 0xF5, 0xF6);
+        private static readonly Color SteelBot = Color.FromArgb(0x9A, 0xA0, 0xA6);
+        private static readonly Color GraphiteTop = Color.FromArgb(0x55, 0x5A, 0x60);
+        private static readonly Color GraphiteBot = Color.FromArgb(0x1C, 0x1F, 0x22);
+        private static readonly Color Edge = Color.FromArgb(0x26, 0x29, 0x2D);
+
+        /// <summary>Fill a shape with a vertical brushed-metal gradient and a dark edge.</summary>
+        private static void Metal(Graphics g, GraphicsPath path, bool graphite, float edge = 5)
+        {
+            var bounds = path.GetBounds();
+            using (var brush = new LinearGradientBrush(new RectangleF(bounds.X, bounds.Y - 1, bounds.Width, bounds.Height + 2),
+                       graphite ? GraphiteTop : SteelTop, graphite ? GraphiteBot : SteelBot, LinearGradientMode.Vertical))
+                g.FillPath(brush, path);
+            using (var pen = new Pen(Edge, edge) { LineJoin = LineJoin.Round }) g.DrawPath(pen, path);
+        }
+
+        private static GraphicsPath Poly(params PointF[] points)
+        {
+            var p = new GraphicsPath();
+            p.AddPolygon(points);
+            return p;
+        }
+
         public static byte[] Chat => Draw(nameof(Chat), g =>
         {
-            ChatBubble(g, Blue, fill: false);
-            Sparkle(g, Blue, 64, 56, 20);
+            using (var bubble = Bubble()) Metal(g, bubble, graphite: true);
+            Sparkle(g, SteelTop, 64, 56, 22);
         });
 
         public static byte[] NewChat => Draw(nameof(NewChat), g =>
         {
-            ChatBubble(g, Ink, fill: false);
-            using (var pen = Pen(Blue, 11))
+            using (var bubble = Bubble()) Metal(g, bubble, graphite: false);
+            using (var pen = Pen(GraphiteBot, 12))
             {
                 g.DrawLine(pen, 64, 34, 64, 78);
                 g.DrawLine(pen, 42, 56, 86, 56);
@@ -53,80 +77,87 @@ namespace SwAgent
 
         public static byte[] Selection => Draw(nameof(Selection), g =>
         {
-            using (var pen = Pen(Ink, 8))
+            using (var pen = Pen(Color.FromArgb(0x86, 0x8D, 0x94), 8)) // mid grey: visible on light and dark ribbons
             {
                 pen.DashPattern = new[] { 2.2f, 1.6f };
-                g.DrawRectangle(pen, 14, 14, 76, 76);
+                g.DrawRectangle(pen, 12, 12, 80, 80);
             }
-            using (var fill = new SolidBrush(Blue))
-            {
-                // cursor arrow
-                g.FillPolygon(fill, new[]
-                {
-                    new PointF(58, 52), new PointF(116, 78), new PointF(90, 86), new PointF(104, 112),
-                    new PointF(92, 118), new PointF(78, 92), new PointF(60, 108),
-                });
-            }
+            using (var arrow = Poly(new PointF(54, 48), new PointF(118, 76), new PointF(90, 86), new PointF(106, 114),
+                       new PointF(92, 121), new PointF(77, 93), new PointF(56, 110)))
+                Metal(g, arrow, graphite: false, edge: 6);
         });
 
         public static byte[] Camera => Draw(nameof(Camera), g =>
         {
-            using (var pen = Pen(Ink, 9))
+            using (var hump = Poly(new PointF(40, 38), new PointF(50, 18), new PointF(78, 18), new PointF(88, 38))) Metal(g, hump, graphite: true);
+            using (var body = Rounded(new RectangleF(8, 34, 112, 78), 14)) Metal(g, body, graphite: false);
+            using (var ring = new GraphicsPath())
             {
-                g.DrawPath(pen, Rounded(new RectangleF(10, 34, 108, 76), 14));
-                g.DrawLine(pen, 42, 34, 50, 18);
-                g.DrawLine(pen, 50, 18, 78, 18);
-                g.DrawLine(pen, 78, 18, 86, 34);
+                ring.AddEllipse(38, 44, 52, 52);
+                Metal(g, ring, graphite: true);
             }
-            using (var pen = Pen(Blue, 10))
-            {
-                g.DrawEllipse(pen, 42, 46, 44, 44);
-            }
+            using (var glass = new LinearGradientBrush(new RectangleF(50, 56, 28, 28), Color.FromArgb(0x8C, 0x93, 0x9A), Color.FromArgb(0x2E, 0x32, 0x36), LinearGradientMode.ForwardDiagonal))
+                g.FillEllipse(glass, 50, 56, 28, 28);
+            using (var shine = new SolidBrush(Color.FromArgb(200, 255, 255, 255))) g.FillEllipse(shine, 56, 61, 8, 8);
         });
 
         public static byte[] Settings => Draw(nameof(Settings), g =>
         {
-            using (var pen = Pen(Ink, 10))
+            using (var gear = new GraphicsPath())
             {
-                for (var i = 0; i < 8; i++)
+                const int teeth = 8;
+                var pts = new List<PointF>();
+                for (var i = 0; i < teeth * 4; i++)
                 {
-                    var a = i * Math.PI / 4;
-                    g.DrawLine(pen, (float)(64 + Math.Cos(a) * 38), (float)(64 + Math.Sin(a) * 38),
-                        (float)(64 + Math.Cos(a) * 54), (float)(64 + Math.Sin(a) * 54));
+                    var a = (i - 0.5) * Math.PI * 2 / (teeth * 4);
+                    var r = (i % 4 == 0 || i % 4 == 1) ? 58 : 44;
+                    pts.Add(new PointF((float)(64 + Math.Cos(a) * r), (float)(64 + Math.Sin(a) * r)));
                 }
-                g.DrawEllipse(pen, 26, 26, 76, 76);
+                gear.AddPolygon(pts.ToArray());
+                gear.AddEllipse(46, 46, 36, 36); // alternate fill makes this a hole
+                Metal(g, gear, graphite: false);
             }
-            using (var pen = Pen(Blue, 10))
+            using (var hole = new GraphicsPath())
             {
-                g.DrawEllipse(pen, 48, 48, 32, 32);
+                hole.AddEllipse(46, 46, 36, 36);
+                Metal(g, hole, graphite: true, edge: 4);
             }
         });
 
-        /// <summary>Toolbox: the Agent Tools group, and tools that have no icon of their own yet.</summary>
+        /// <summary>Toolbox: tools that have no icon of their own yet.</summary>
         public static byte[] ToolDefault => Draw(nameof(ToolDefault), g => Toolbox(g));
 
         public static byte[] NewTool => Draw(nameof(NewTool), g =>
         {
             Toolbox(g);
-            using (var b = new SolidBrush(Color.White)) g.FillEllipse(b, 74, 70, 52, 52);
-            using (var b = new SolidBrush(Color.FromArgb(0x2E, 0x9E, 0x44))) g.FillEllipse(b, 79, 75, 42, 42);
-            using (var pen = Pen(Color.White, 8))
+            using (var disc = new GraphicsPath())
             {
-                g.DrawLine(pen, 100, 84, 100, 108);
-                g.DrawLine(pen, 88, 96, 112, 96);
+                disc.AddEllipse(72, 68, 54, 54);
+                Metal(g, disc, graphite: true, edge: 4);
+            }
+            using (var pen = Pen(SteelTop, 8))
+            {
+                g.DrawLine(pen, 99, 82, 99, 108);
+                g.DrawLine(pen, 86, 95, 112, 95);
             }
         });
 
         private static void Toolbox(Graphics g)
         {
-            using (var pen = Pen(Ink, 9)) g.DrawPath(pen, Rounded(new RectangleF(44, 18, 40, 26), 6));
-            using (var body = Rounded(new RectangleF(10, 40, 108, 74), 10))
-            {
-                using (var b = new SolidBrush(Color.FromArgb(0xD9, 0x4A, 0x38))) g.FillPath(b, body);
-                using (var pen = Pen(Color.FromArgb(0x8E, 0x2A, 0x1E), 5)) g.DrawPath(pen, body);
-            }
-            using (var b = new SolidBrush(Color.FromArgb(0x8E, 0x2A, 0x1E))) g.FillRectangle(b, 12, 66, 104, 8);
-            using (var b = new SolidBrush(Color.FromArgb(0xE8, 0xE8, 0xE8))) g.FillRectangle(b, 54, 60, 20, 20);
+            using (var handle = Rounded(new RectangleF(42, 16, 44, 30), 8))
+            using (var pen = Pen(Edge, 9)) g.DrawPath(pen, handle);
+            using (var body = Rounded(new RectangleF(8, 40, 112, 76), 10)) Metal(g, body, graphite: false);
+            using (var band = new LinearGradientBrush(new RectangleF(10, 64, 108, 12), GraphiteTop, GraphiteBot, LinearGradientMode.Vertical))
+                g.FillRectangle(band, 10, 64, 108, 12);
+            using (var latch = Rounded(new RectangleF(52, 58, 24, 24), 4)) Metal(g, latch, graphite: false, edge: 4);
+        }
+
+        private static GraphicsPath Bubble()
+        {
+            var path = Rounded(new RectangleF(10, 12, 108, 86), 22);
+            path.AddPolygon(new[] { new PointF(30, 92), new PointF(26, 120), new PointF(58, 96) });
+            path.FillMode = FillMode.Winding;
+            return path;
         }
 
         private static void ChatBubble(Graphics g, Color color, bool fill)

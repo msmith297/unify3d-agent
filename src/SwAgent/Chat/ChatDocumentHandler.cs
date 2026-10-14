@@ -28,7 +28,12 @@ namespace SwAgent.Chat
             AgentAddIn.Instance?.Controller?.OnDocumentOpened(this);
         }
 
-        private void OnStreamRead(IXDocument doc) => Chat.ReadFromFile(doc);
+        private void OnStreamRead(IXDocument doc)
+        {
+            Chat.ReadFromFile(doc);
+            // The panel may have asked for this chat before SolidWorks read it from the file: let it reload.
+            AgentAddIn.Instance?.Controller?.OnChatReadFromFile(this);
+        }
 
         private void OnStreamWrite(IXDocument doc)
         {

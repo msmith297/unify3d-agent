@@ -104,11 +104,20 @@ namespace SwAgent.Tools
 
                 // 3. The hard-coded part.
                 string macroOutput = null;
-                if (spec.Macro != null)
+                if (spec.Macro != null && spec.Paused.Contains("macro"))
+                {
+                    // SolidWorks closed while this macro ran last time: don't run it blind again.
+                    context["failure"] = "This tool's macro is paused because SolidWorks closed (crashed) while it was running last time. " +
+                                         "Do the job carefully with execute_csharp, find what in the macro crashed SolidWorks, and fix it with " +
+                                         "edit_user_tool (which un-pauses it). The macro:\n" + spec.Macro;
+                }
+                else if (spec.Macro != null)
                 {
                     _status($"Unify3D ▸ {spec.Title}...");
                     var watch = Stopwatch.StartNew();
-                    var result = await _scripts.RunMacroAsync(ctx, spec.Title, spec.Macro, inputs);
+                    ToolResult result;
+                    using (CrashGuard.Enter("macro", spec.Name, spec.Title, spec.Macro))
+                        result = await _scripts.RunMacroAsync(ctx, spec.Title, spec.Macro, inputs);
                     var text = TextOf(result);
                     var userError = Regex.Match(text, @"MacroInputException: (.+)");
                     if (userError.Success)

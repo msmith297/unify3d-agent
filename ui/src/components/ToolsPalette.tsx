@@ -59,14 +59,15 @@ export function ToolsPalette({ disabled }: { disabled?: boolean }) {
           <IconCancel size={9} />
         </button>
       </div>
-      {run ? (
+      {run || t.kind === "tool" ? (
         <button
           className="sw-btn sw-btn-primary shrink-0 !h-[22px] !px-2"
           disabled={disabled}
           title="Run with the current selection. Text in the message box is passed as notes."
           onClick={() => {
             setOpen(false);
-            runUserTool(t.name);
+            if (t.kind === "tool") rpc("userTools.run", { name: t.name });
+            else runUserTool(t.name);
           }}
         >
           Run

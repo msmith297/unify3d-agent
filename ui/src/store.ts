@@ -15,6 +15,7 @@ import type {
   SelectionItem,
   Settings,
   SwThemeInfo,
+  CrashInfo,
   ToolRunPayload,
   FormSpec,
   UpdateInfo,
@@ -119,6 +120,13 @@ interface State {
   /** A ribbon tool that needs the agent. Runs in the background "Tool runs" chat. */
   runQuickTool(payload: ToolRunPayload): Promise<void>;
   toolOutcome: ToolRunOutcome | null;
+  crash: CrashInfo | null;
+  ribbonStale: boolean;
+  dismissCrash(): void;
+  /** Start a chat that hands the agent the crash details so it finds and fixes the cause. */
+  askAboutCrash(): Promise<void>;
+  /** Save open documents and restart SolidWorks (for new tools to reach the ribbon). */
+  saveAndRestart(): Promise<string | null>;
   deleteUserTool(name: string): Promise<void>;
   startMarkup(): Promise<void>;
   setMarkup(patch: { tool?: MarkupTool; color?: string }): void;
@@ -521,6 +529,8 @@ export const useStore = create<State>((set, get) => {
     update: null,
     updateDialog: false,
     toolOutcome: null,
+    crash: null,
+    ribbonStale: false,
     docs: {},
     activeDocKey: null,
     viewKey: "scratch",
@@ -552,6 +562,7 @@ export const useStore = create<State>((set, get) => {
           rpc("settings.save", settings);
         }
         if (host.update) set({ update: host.update });
+        set({ crash: host.crash ?? null, ribbonStale: !!host.ribbonStale });
         set({
           host,
           tools,
@@ -563,6 +574,8 @@ export const useStore = create<State>((set, get) => {
           settings,
         });
         await loadChat(viewKey);
+        // No document open: start on a fresh chat, not the last document-less conversation (still in the history menu).
+        if (!host.activeDoc) updateSlot(viewKey, (d) => ({ ...d, activeThreadId: null }));
         if (host.activeDoc) {
           rpc<{ docKey: string; items: SelectionItem[] } | null>("selection.get", { docKey: host.activeDoc.key }).then((r) => {
             if (r) set((s) => ({ selection: { ...s.selection, [r.docKey]: r.items } }));
@@ -578,6 +591,18 @@ export const useStore = create<State>((set, get) => {
         get().showDoc(doc.key);
       });
       on("theme.changed", (t: SwThemeInfo) => set({ swTheme: t }));
+      on("ribbon.stale", ({ stale }: { stale: boolean }) => set({ ribbonStale: !!stale }));
+      // SolidWorks read a document's chat from the file (it may have been asked for before that): reload it.
+      on("doc.chatChanged", ({ key }: { key: string }) => {
+        const s = get();
+        if (Object.values(s.runs).some((r) => r.docKey === key)) return;
+        set((st) => {
+          const chats = { ...st.chats };
+          delete chats[key];
+          return { chats };
+        });
+        if (get().viewKey === key) void loadChat(key);
+      });
       on("update.changed", (u: UpdateInfo) => set({ update: u }));
       on("userTools.changed", (list: UserToolInfo[]) => {
         set({ userTools: list ?? [] });
@@ -1025,6 +1050,39 @@ export const useStore = create<State>((set, get) => {
           ? (lastText.content.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join(" ").split("\n").find((l) => l.trim()) ?? "")
           : "");
       set({ toolOutcome: { label, text: text.replace(/[*_`#>]/g, "").trim().slice(0, 160), ok: !turn?.error && turn?.stop !== "aborted", threadId, docKey, at: Date.now() } });
+    },
+
+    dismissCrash() {
+      set({ crash: null });
+      rpc("crash.dismiss").catch(() => {});
+    },
+
+    async askAboutCrash() {
+      const c = get().crash;
+      if (!c) return;
+      get().dismissCrash();
+      const what =
+        c.kind === "preview" ? `the live preview of the tool "${c.tool}"`
+        : c.kind === "macro" ? `the macro of the tool "${c.tool}"`
+        : `your code "${c.title ?? "a C# cell"}"`;
+      const lines = [
+        `SolidWorks closed unexpectedly (crashed) while running ${what}.${c.paused ? ` I paused the tool's ${c.paused} so it can't happen again until it's fixed.` : ""}`,
+        "Find the cause and fix it so this can't happen again. If you need more, ask me for SolidWorks' crash log (it lists the last API calls).",
+        "",
+        "<crash_report>",
+        `what: ${c.kind}${c.tool ? ` of tool ${c.tool}` : ""}${c.title ? ` (${c.title})` : ""}`,
+        c.at ? `started: ${c.at}` : "",
+        c.code ? `code that was running:\n${c.code}` : "",
+        c.logTail ? `last lines of the add-in log:\n${c.logTail}` : "",
+        "</crash_report>",
+      ].filter(Boolean);
+      await get().newChat();
+      await get().send(lines.join("\n"));
+    },
+
+    async saveAndRestart() {
+      const r = await rpc<{ ok: boolean; reason?: string }>("app.saveAndRestart", { saveDocuments: true }).catch((e) => ({ ok: false, reason: String(e?.message ?? e) }));
+      return r.ok ? null : r.reason ?? "SolidWorks couldn't be restarted.";
     },
 
     async deleteUserTool(name) {

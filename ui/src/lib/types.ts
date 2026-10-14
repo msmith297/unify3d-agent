@@ -118,6 +118,21 @@ export interface HostState {
   logFile: string;
   swTheme?: SwThemeInfo | null;
   update?: UpdateInfo;
+  /** What SolidWorks was running when it closed unexpectedly last time (CrashGuard). */
+  crash?: CrashInfo | null;
+  /** Tools changed since SolidWorks started; the ribbon picks them up after a restart. */
+  ribbonStale?: boolean;
+}
+
+export interface CrashInfo {
+  kind: "preview" | "macro" | "cell";
+  tool?: string | null;
+  title?: string;
+  code?: string;
+  at?: string;
+  logTail?: string;
+  /** The part of the tool that was paused so it can't crash again. */
+  paused?: string;
 }
 
 export interface ToolDef {
@@ -192,6 +207,8 @@ export interface UserToolInfo {
   intelligence?: Tier;
   hasInputs?: boolean;
   hasPreview?: boolean;
+  /** "preview" / "macro" paused after SolidWorks crashed while running it. */
+  paused?: string;
 }
 
 export interface SelectionItem {

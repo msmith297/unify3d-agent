@@ -115,6 +115,7 @@ namespace SwAgent.Scripting
             var runWatch = Stopwatch.StartNew();
             var treeBefore = SwAgent.Tools.FeatureDiff.Take(model);
             ScriptState<object> state;
+            var guard = CrashGuard.Enter("cell", null, title, input.Code);
             try
             {
                 Console.SetOut(new CellWriter(globals.Output));
@@ -129,6 +130,7 @@ namespace SwAgent.Scripting
             }
             finally
             {
+                guard.Dispose();
                 Console.SetOut(originalOut);
                 TryFinishUndo(model, title);
                 runWatch.Stop();
