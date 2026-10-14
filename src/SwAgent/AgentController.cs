@@ -9,9 +9,11 @@ using SolidWorks.Interop.sldworks;
 using SolidWorks.Interop.swconst;
 using SwAgent.Chat;
 using SwAgent.Infrastructure;
+using SwAgent.ModelFiles;
 using SwAgent.Scripting;
 using SwAgent.Tools;
 using SwAgent.UI;
+using SwAgent.Watch;
 using Xarial.XCad.Documents;
 using Xarial.XCad.SolidWorks;
 using Xarial.XCad.SolidWorks.Documents;
@@ -49,6 +51,8 @@ namespace SwAgent
         private JObject _settings = SettingsStore.LoadSettings();
         private MarkupOverlay _markup;
         private IntPtr _markupView;
+        private WatchRecorder _watch;
+        private bool _agentRunning;
 
         public AgentController(ISwApplication app, ToolRegistry tools, ScriptHost scripts)
         {
@@ -223,6 +227,8 @@ namespace SwAgent
             bridge.Register("agent.activity", p =>
             {
                 // The UI reports when a run starts and ends; silence SolidWorks' rebuild-error beeps in between.
+                _agentRunning = (bool?)p["running"] == true;
+                if (_watch != null) _watch.AgentBusy = _agentRunning;
                 if ((bool?)p["running"] == true)
                 {
                     if ((bool?)_settings["muteErrorSounds"] ?? true) SoundMuter.Begin();
@@ -233,6 +239,46 @@ namespace SwAgent
                 }
                 return null;
             });
+            // Files for the chat: picked, dropped on the panel, or a tool's files input. 3D models are described
+            // (views + measurements) separately, so the composer can show the file at once and fill it in when ready.
+            bridge.RegisterAsync("files.pick", async p => await PickFiles());
+            bridge.RegisterAsync("files.describe", async p => (object)await FileAttachments.EntryAsync(_app.Sw, (string)p["path"]));
+            bridge.RegisterAsync("files.entries", async p =>
+            {
+                var list = new JArray();
+                foreach (var path in (p["paths"] as JArray ?? new JArray()).Select(x => (string)x))
+                {
+                    list.Add(await FileAttachments.EntryAsync(_app.Sw, path, describeModels: false));
+                }
+                return list;
+            });
+            bridge.FilesDropped += paths => bridge.Emit("files.dropped", new JObject { ["paths"] = new JArray(paths) });
+
+            // "Watch me": record what the user does so the agent can turn it into a tool or workflow.
+            bridge.RegisterAsync("watch.start", async p =>
+            {
+                var doc = DocumentFor((string)p["docKey"]);
+                var model = doc?.Model ?? throw new InvalidOperationException("Open a part or assembly to record what you do in it.");
+                StopWatch();
+                var key = HandlerFor(doc)?.Chat.Key ?? (string)p["docKey"];
+                _watch = await WatchRecorder.StartAsync(_app.Sw, model, key);
+                _watch.AgentBusy = _agentRunning;
+                _watch.Changed += status => _bridge?.Emit("watch.log", status);
+                return _watch.Status();
+            });
+            bridge.RegisterAsync("watch.stop", async p =>
+            {
+                var w = _watch ?? throw new InvalidOperationException("Watch me isn't recording.");
+                _watch = null;
+                return await w.StopAsync();
+            });
+            bridge.Register("watch.cancel", p =>
+            {
+                StopWatch();
+                return null;
+            });
+            bridge.Register("watch.status", p => _watch?.Status() ?? new JObject { ["active"] = false });
+
             bridge.Register("userTools.list", p => new JArray(UserTools.ListTools()));
             bridge.Register("userTools.delete", p =>
             {
@@ -296,6 +342,11 @@ namespace SwAgent
             if (handler.Chat == null) return;
             _docs.Remove(handler.Chat.Key);
             if (_selectionSource == handler) _selectionSource = null;
+            if (_watch?.DocKey == handler.Chat.Key)
+            {
+                StopWatch();
+                _bridge?.Emit("watch.ended", new JObject { ["reason"] = "The document was closed, so Watch me stopped recording." });
+            }
             _bridge?.Emit("doc.closed", new JObject { ["key"] = handler.Chat.Key });
         }
 
@@ -347,6 +398,41 @@ namespace SwAgent
             {
                 // Cosmetic only.
             }
+        }
+
+        private void StopWatch()
+        {
+            _watch?.Dispose();
+            _watch = null;
+        }
+
+        /// <summary>Open-file dialog for chat attachments; returns entries (3D models still to be described).</summary>
+        private async Task<object> PickFiles()
+        {
+            string[] paths;
+            using (var dlg = new OpenFileDialog
+            {
+                Title = "Attach files for the agent",
+                Multiselect = true,
+                Filter = "Images, PDFs and 3D models|*.png;*.jpg;*.jpeg;*.gif;*.webp;*.pdf;*.stl;*.3mf;*.obj;*.step;*.stp;*.iges;*.igs;*.x_t;*.x_b;*.sldprt;*.sldasm|" +
+                         "3D models (*.stl;*.3mf;*.obj;*.step;*.stp;*.iges;*.igs;*.x_t;*.x_b;*.sldprt;*.sldasm)|*.stl;*.3mf;*.obj;*.step;*.stp;*.iges;*.igs;*.x_t;*.x_b;*.sldprt;*.sldasm|" +
+                         "Images (*.png;*.jpg;*.jpeg;*.gif;*.webp)|*.png;*.jpg;*.jpeg;*.gif;*.webp|PDF documents (*.pdf)|*.pdf|All files (*.*)|*.*",
+            })
+            {
+                var owner = new Win32Window(new IntPtr(((IFrame)_app.Sw.Frame()).GetHWndx64()));
+                if (dlg.ShowDialog(owner) != DialogResult.OK) return new JArray();
+                paths = dlg.FileNames;
+            }
+            var list = new JArray();
+            foreach (var path in paths) list.Add(await FileAttachments.EntryAsync(_app.Sw, path, describeModels: false));
+            return list;
+        }
+
+        private sealed class Win32Window : IWin32Window
+        {
+            public Win32Window(IntPtr handle) => Handle = handle;
+
+            public IntPtr Handle { get; }
         }
 
         // ---- updates ----
@@ -629,6 +715,7 @@ namespace SwAgent
 
         public void Dispose()
         {
+            StopWatch();
             CloseMarkup();
             _themeTimer.Dispose();
             _activeTimer.Dispose();

@@ -163,7 +163,7 @@ export interface ToolRunPayload {
     type: string;
     value?: unknown;
     items?: { type: string; label: string; detail: string; ref?: string }[];
-    files?: { name: string; path: string; mediaType?: string; data?: string; kind?: string; error?: string }[];
+    files?: FileEntry[];
   }[];
   context?: { model?: string; history?: string; view?: string; failure?: string; macroOutput?: string };
   /** Older add-ins: the macro's failure report. */
@@ -199,10 +199,68 @@ export interface SelectionItem {
   label: string;
 }
 
-export interface Attachment {
-  id: string;
-  kind: "image";
+/**
+ * A file as the add-in hands it over (src/SwAgent/ModelFiles/FileAttachments.cs): images and PDFs with their data,
+ * 3D models with six rendered views (one JPEG) and a measurement summary once described.
+ */
+export interface FileEntry {
   name: string;
-  mediaType: "image/jpeg" | "image/png" | "image/webp" | "image/gif";
-  data: string; // base64
+  path: string;
+  kind?: "image" | "pdf" | "model" | "file" | "too_large";
+  mediaType?: string;
+  data?: string;
+  format?: string;
+  summary?: string;
+  views?: string;
+  viewsMediaType?: string;
+  error?: string;
+  seconds?: number;
 }
+
+/** One step in a "Watch me" recording (src/SwAgent/Watch/ActivityLog.cs). */
+export interface WatchEntry {
+  id: number;
+  t: number;
+  kind: "add" | "edit" | "delete" | "rename" | "suppress" | "unsuppress" | "select" | "note";
+  text: string;
+  byAgent?: boolean;
+}
+
+/** What the add-in returns when the user stops "Watch me". */
+export interface WatchResult {
+  docKey: string;
+  doc: string;
+  docType: string;
+  seconds: number;
+  steps: number;
+  /** The log as the agent reads it. */
+  text: string;
+  entries: WatchEntry[];
+  stats: { added: number; edited: number; deleted: number; renamed: number; selections: number };
+  /** JPEGs (base64): the view when recording started and stopped, and numbered step thumbnails. */
+  before?: string | null;
+  after?: string | null;
+  film?: string | null;
+}
+
+export type ImageMediaType = "image/jpeg" | "image/png" | "image/webp" | "image/gif";
+
+export type Attachment =
+  | {
+      id: string;
+      kind: "image";
+      name: string;
+      mediaType: ImageMediaType;
+      data: string; // base64
+    }
+  | { id: string; kind: "pdf"; name: string; mediaType: "application/pdf"; data: string; path?: string }
+  | {
+      id: string;
+      kind: "model";
+      name: string;
+      path: string;
+      /** "reading" until the add-in has rendered and measured it. */
+      status: "reading" | "ready" | "error";
+      entry?: FileEntry;
+    }
+  | { id: string; kind: "watch"; name: string; watch: WatchResult };

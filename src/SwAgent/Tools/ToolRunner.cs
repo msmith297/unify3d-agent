@@ -11,6 +11,7 @@ using Newtonsoft.Json.Linq;
 using SolidWorks.Interop.sldworks;
 using SolidWorks.Interop.swconst;
 using SwAgent.Infrastructure;
+using SwAgent.ModelFiles;
 using SwAgent.Scripting;
 using SwAgent.UI;
 using Xarial.XCad.SolidWorks;
@@ -26,6 +27,7 @@ namespace SwAgent.Tools
     ///      feature history while the page is open, the view and selection when the user presses OK. Nothing moves:
     ///      the camera, the view and the model are left exactly as they are.
     ///   3. The tool's hard-coded macro runs (one undo step). For a tool without an agent that is the whole job.
+    ///      3D models among its files are read in the background (ModelFileContext): six views + measurements.
     ///   4. Otherwise everything is staged into one prompt and handed to the agent in the panel's "Tool runs" chat,
     ///      at the tool's intelligence level.
     /// </summary>
@@ -136,8 +138,9 @@ namespace SwAgent.Tools
                 _status($"Unify3D ▸ {spec.Title}: working...");
                 await CaptureViewAsync(spec, ctx, context);
                 if (macroOutput != null) context["macroOutput"] = macroOutput;
+                var payload = await BuildPayloadAsync(spec, inputs, context);
                 showPane?.Invoke();
-                _send("runTool", BuildPayload(spec, inputs, context));
+                _send("runTool", payload);
             }
             catch (Exception ex)
             {
@@ -187,8 +190,11 @@ namespace SwAgent.Tools
             }
         }
 
-        /// <summary>Everything the panel needs to stage the agent's prompt (it numbers the selections as [S1]...).</summary>
-        private static JObject BuildPayload(ToolSpec spec, ToolInputs inputs, JObject context)
+        /// <summary>
+        /// Everything the panel needs to stage the agent's prompt (it numbers the selections as [S1]...). 3D models among
+        /// the files are read here (in the background, see ModelFileContext) and arrive as views + measurements.
+        /// </summary>
+        private async Task<JObject> BuildPayloadAsync(ToolSpec spec, ToolInputs inputs, JObject context)
         {
             var list = new JArray();
             foreach (var s in spec.Inputs)
@@ -213,8 +219,16 @@ namespace SwAgent.Tools
                         break;
                     }
                     case "files":
-                        entry["files"] = new JArray(inputs.Files(s.Id).Select(FileEntry));
+                    {
+                        var files = new JArray();
+                        foreach (var path in inputs.Files(s.Id))
+                        {
+                            if (ModelFileContext.IsModelFile(path)) _status($"Unify3D ▸ {spec.Title}: reading {Path.GetFileName(path)}...");
+                            files.Add(await FileAttachments.EntryAsync(_app.Sw, path));
+                        }
+                        entry["files"] = files;
                         break;
+                    }
                     default:
                         entry["value"] = JToken.FromObject(inputs[s.Id] ?? "");
                         break;
@@ -229,30 +243,6 @@ namespace SwAgent.Tools
                 ["inputs"] = list,
                 ["context"] = context,
             };
-        }
-
-        /// <summary>Images and PDFs travel as data (the model reads them directly); 3D models as a path for now.</summary>
-        private static JObject FileEntry(string path)
-        {
-            var ext = Path.GetExtension(path).ToLowerInvariant();
-            var media = ext == ".png" ? "image/png" : ext == ".jpg" || ext == ".jpeg" ? "image/jpeg" : ext == ".gif" ? "image/gif"
-                : ext == ".webp" ? "image/webp" : ext == ".pdf" ? "application/pdf" : null;
-            var entry = new JObject { ["name"] = Path.GetFileName(path), ["path"] = path };
-            try
-            {
-                var size = new FileInfo(path).Length;
-                if (media != null && size <= (media == "application/pdf" ? 30_000_000 : 5_000_000))
-                {
-                    entry["mediaType"] = media;
-                    entry["data"] = Convert.ToBase64String(File.ReadAllBytes(path));
-                }
-                else entry["kind"] = media == null ? "model" : "too_large";
-            }
-            catch (Exception ex)
-            {
-                entry["error"] = ex.Message;
-            }
-            return entry;
         }
 
         private static string TextOf(ToolResult r) =>

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
@@ -31,6 +32,12 @@ namespace SwAgent.UI
 
         public bool IsReady => _core != null;
 
+        /// <summary>
+        /// Files dropped on the panel. The page can't see paths, so it forwards the File objects with
+        /// chrome.webview.postMessageWithAdditionalObjects({ kind: "files" }, files) and WebView2 hands us their paths.
+        /// </summary>
+        public event Action<string[]> FilesDropped;
+
         public void Attach(CoreWebView2 core)
         {
             _core = core;
@@ -58,6 +65,12 @@ namespace SwAgent.UI
             catch (Exception ex)
             {
                 Log.Error("Malformed message from UI", ex);
+                return;
+            }
+            if ((string)msg["kind"] == "files")
+            {
+                var paths = (e.AdditionalObjects ?? new object[0]).OfType<CoreWebView2File>().Select(f => f.Path).Where(p => !string.IsNullOrEmpty(p)).ToArray();
+                if (paths.Length > 0) FilesDropped?.Invoke(paths);
                 return;
             }
             if ((string)msg["kind"] != "rpc") return;

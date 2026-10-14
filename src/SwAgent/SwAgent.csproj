@@ -30,6 +30,12 @@
     <Reference Include="System.Security" />
     <Reference Include="Microsoft.VisualBasic" />
     <Reference Include="System.Net.Http" />
+    <Reference Include="System.IO.Compression" />
+  </ItemGroup>
+
+  <!-- Headless tests (tests/SwAgent.Tests) exercise the parts that don't need SolidWorks. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="SwAgent.Tests" />
   </ItemGroup>
 
   <!-- Brand mark (assets/brand), used for the add-in, task pane and ribbon icons. -->

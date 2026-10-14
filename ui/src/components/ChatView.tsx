@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, X } from "lucide-react";
-import { IconCancel, IconCopy, IconEdit, IconError, IconEye, IconOk, IconQuestion, IconResend, IconShield, ToolIcon } from "./SwIcons";
+import { IconCancel, IconCopy, IconDocs, IconEdit, IconError, IconEye, IconModelFile, IconOk, IconQuestion, IconResend, IconShield, IconWatch, ToolIcon } from "./SwIcons";
 import { Markdown } from "./Markdown";
 import { BrandLogo } from "./Brand";
 import { FormCard } from "./FormCard";
@@ -8,13 +8,30 @@ import { svgDataUrl } from "../lib/toolIcons";
 import { Caret } from "./SwIcons";
 import { ToolCard, statusFor, type ToolCall } from "./ToolCard";
 import { highlights as pickHighlights } from "../agent/workSummary";
-import { currentThread, isPrompt, promptText, useStore, writesAfter, type RunState } from "../store";
+import { MODEL_TAG, WATCH_TAG, currentThread, isPrompt, promptText, useStore, writesAfter, type RunState } from "../store";
 import { modelOption } from "../lib/models";
 import type { ContentBlockParam, ImageBlockParam, MessageParam, Thread, ToolResultBlockParam, TurnMeta } from "../lib/types";
 import type { LiveBlock } from "../agent/runAgent";
 
+/** A 3D model or "Watch me" log attached to a prompt: its text block and the images that follow it. */
+interface Extra {
+  kind: "model" | "watch" | "pdf";
+  title: string;
+  body: string;
+  images: string[];
+}
+
 type Item =
-  | { kind: "prompt"; key: string; index: number; text: string; images: string[]; refs: { id: string; text: string }[]; view: string | null }
+  | {
+      kind: "prompt";
+      key: string;
+      index: number;
+      text: string;
+      images: string[];
+      refs: { id: string; text: string }[];
+      view: string | null;
+      extras: Extra[];
+    }
   | { kind: "progress"; key: string; text: string }
   | { kind: "text"; key: string; text: string; streaming?: boolean }
   | { kind: "tool"; key: string; call: ToolCall }
@@ -261,22 +278,96 @@ function promptItem(m: MessageParam, index: number): Item {
   let refs: { id: string; text: string }[] = [];
   let view: string | null = null;
   let afterContext = false;
+  const extras: Extra[] = [];
+  let extra: Extra | null = null;
   for (const b of blocks) {
     if (b.type === "text") {
+      extra = null;
       if (b.text.startsWith("<sw_context>")) {
         refs = [...refs, ...parseRefs(b.text)];
         afterContext = true;
+      } else if (b.text.startsWith(MODEL_TAG) || b.text.startsWith(WATCH_TAG)) {
+        extra = parseExtra(b.text);
+        extras.push(extra);
       } else texts.push(b.text);
     } else if (b.type === "image") {
       const src = (b as ImageBlockParam).source;
       if (src.type !== "base64") continue;
       const url = `data:${src.media_type};base64,${src.data}`;
-      // Images after the context block are the automatic "what the user sees" screenshot.
-      if (afterContext) view = url;
+      // Images right after a model / watch block belong to it; after the context block, it's the user's view.
+      if (extra) extra.images.push(url);
+      else if (afterContext) view = url;
       else images.push(url);
+    } else if ((b.type as string) === "document") {
+      extra = null;
+      extras.push({ kind: "pdf", title: (b as { title?: string }).title ?? "PDF", body: "", images: [] });
     }
   }
-  return { kind: "prompt", key: `p${index}`, index, text: texts.join("\n\n"), images, refs, view };
+  return { kind: "prompt", key: `p${index}`, index, text: texts.join("\n\n"), images, refs, view, extras };
+}
+
+function parseExtra(raw: string): Extra {
+  const watch = raw.startsWith(WATCH_TAG);
+  const head = /^<\w+([^>]*)>/.exec(raw);
+  const attr = (name: string) => new RegExp(`${name}="([^"]*)"`).exec(head?.[1] ?? "")?.[1]?.replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+  const body = raw.replace(/^<[^>]*>\n?/, "").replace(/\n?<\/(model_file|watch_log)>\s*$/, "").trim();
+  const steps = attr("steps");
+  return {
+    kind: watch ? "watch" : "model",
+    title: watch ? `Watch log${steps ? ` · ${steps} step${steps === "1" ? "" : "s"}` : ""}${attr("doc") ? ` · ${attr("doc")}` : ""}` : attr("name") ?? "3D model",
+    body,
+    images: [],
+  };
+}
+
+/** A 3D model or Watch me log in a sent prompt: a compact card that opens to the text the agent got. */
+function ExtraCard({ extra, onImage }: { extra: Extra; onImage: (s: string) => void }) {
+  const [open, setOpen] = useState(false);
+  if (extra.kind === "pdf") {
+    return (
+      <span className="flex max-w-[92%] items-center gap-1 rounded-[3px] border border-line bg-card-2 px-1.5 py-0.5 text-[11px] text-text-2">
+        <IconDocs size={13} />
+        <span className="truncate">{extra.title}</span>
+      </span>
+    );
+  }
+  const line =
+    extra.kind === "model"
+      ? (extra.body.split("\n").find((l) => l.startsWith("Size:")) ?? extra.body.split("\n").find((l) => l.includes("couldn't be read")) ?? "")
+      : (extra.body.split("\n").find((l) => /^\d+\. /.test(l)) ?? "");
+  return (
+    <div className="flex max-w-[92%] flex-col items-end gap-1">
+      <div className="flex items-stretch gap-1.5 overflow-hidden rounded-[3px] border border-line bg-card-2 shadow-[var(--shadow)]">
+        {extra.images.slice(0, 1).map((src, i) => (
+          <button key={i} onClick={() => onImage(src)} title="Open the image" className="shrink-0 border-r border-line">
+            <img src={src} alt="" className="h-[52px] w-auto" />
+          </button>
+        ))}
+        <button type="button" onClick={() => setOpen((o) => !o)} className="flex min-w-0 flex-col items-start justify-center py-1 pr-2 text-left" title={open ? "Hide details" : "Show what the agent received"}>
+          <span className="flex items-center gap-1 text-[11.5px] font-semibold text-text">
+            {extra.kind === "model" ? <IconModelFile size={13} /> : <IconWatch size={13} />}
+            <span className="truncate">{extra.title}</span>
+            <Caret open={open} className="text-text-3" />
+          </span>
+          {line && <span className="max-w-[260px] truncate text-[10.5px] text-text-3">{line.replace(/^Size: /, "")}</span>}
+        </button>
+      </div>
+      {open && (
+        <>
+          <div className="selectable max-h-[220px] overflow-y-auto whitespace-pre-wrap rounded-[3px] border border-line bg-card-2 px-2 py-1 text-[11px] text-text-2">{extra.body}</div>
+          {extra.images.length > 1 && (
+            <div className="flex flex-wrap justify-end gap-1.5">
+              {extra.images.slice(1).map((src, i) => (
+                <button key={i} onClick={() => onImage(src)} className="overflow-hidden rounded-[2px] border border-input-border shadow-[var(--shadow)]">
+                  <img src={src} alt="" className="h-[48px] w-auto" />
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
 }
 
 /** "[S1] Face of Boss-Extrude1 - planar, ..." lines from the context block, shortened for chips. */
@@ -304,7 +395,7 @@ function PromptBubble({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const [copied, setCopied] = useState(false);
-  const { text, images, refs, view, index } = item;
+  const { text, images, refs, view, index, extras } = item;
 
   /** Resending drops later replies; changes already made to the model stay (Ctrl+Z undoes them). */
   const confirmRewind = () => {
@@ -327,7 +418,7 @@ function PromptBubble({
   };
 
   const submitEdit = () => {
-    if (!draft.trim() && images.length === 0) return;
+    if (!draft.trim() && images.length === 0 && extras.length === 0) return;
     if (!confirmRewind()) return;
     setEditing(false);
     resendFrom(index, draft);
@@ -360,7 +451,7 @@ function PromptBubble({
           </button>
           <button
             onClick={submitEdit}
-            disabled={!draft.trim() && images.length === 0}
+            disabled={!draft.trim() && images.length === 0 && extras.length === 0}
             className="sw-btn sw-btn-primary"
           >
             Send
@@ -370,7 +461,7 @@ function PromptBubble({
     );
   }
 
-  if (/^\[Run tool: /.test(text)) return <ToolRunPrompt text={text} images={images} refs={refs} view={view} onImage={onImage} />;
+  if (/^\[Run tool: /.test(text)) return <ToolRunPrompt text={text} images={images} refs={refs} view={view} extras={extras} onImage={onImage} />;
 
   return (
     <div className="group mt-2 flex flex-col items-end gap-1 first:mt-0">
@@ -383,6 +474,9 @@ function PromptBubble({
           ))}
         </div>
       )}
+      {extras.map((x, i) => (
+        <ExtraCard key={i} extra={x} onImage={onImage} />
+      ))}
       {text && <PromptText text={text} />}
       {(refs.length > 0 || view) && (
         <div className="flex max-w-[92%] flex-wrap items-center justify-end gap-1">
@@ -436,12 +530,14 @@ function ToolRunPrompt({
   images,
   refs,
   view,
+  extras,
   onImage,
 }: {
   text: string;
   images: string[];
   refs: { id: string; text: string }[];
   view: string | null;
+  extras: Extra[];
   onImage: (s: string) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -449,7 +545,7 @@ function ToolRunPrompt({
   const m = /^\[Run tool: ([a-z0-9-]+)\]\s*([\s\S]*)$/.exec(text);
   const tool = m ? tools.find((t) => t.name === m[1]) : undefined;
   const body = (m?.[2] ?? "").replace(/<\/?tool_inputs>/g, "").trim();
-  const hasDetails = !!body || images.length > 0 || refs.length > 0 || !!view;
+  const hasDetails = !!body || images.length > 0 || refs.length > 0 || !!view || extras.length > 0;
   return (
     <div className="mt-2 flex flex-col items-end gap-1 first:mt-0">
       <button
@@ -465,6 +561,9 @@ function ToolRunPrompt({
       {open && (
         <div className="flex max-w-[92%] flex-col items-end gap-1">
           {body && <div className="selectable whitespace-pre-wrap rounded-[3px] border border-line bg-card-2 px-2 py-1 text-[11.5px] text-text-2">{body}</div>}
+          {extras.map((x, i) => (
+            <ExtraCard key={i} extra={x} onImage={onImage} />
+          ))}
           {(images.length > 0 || view) && (
             <div className="flex flex-wrap justify-end gap-1.5">
               {[...images, ...(view ? [view] : [])].map((src, i) => (

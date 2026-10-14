@@ -2,7 +2,7 @@
  * Stand-in for the SolidWorks add-in when the UI runs in a normal browser (npm run dev).
  * Lets the chat UI be designed and exercised without SolidWorks. Add ?demo to the URL to seed a sample chat.
  */
-import type { ChatData, HostState, ToolDef, ToolRunResult } from "./types";
+import type { ChatData, FileEntry, HostState, ToolDef, ToolRunResult, WatchEntry, WatchResult } from "./types";
 import { emitLocal } from "./bridge";
 
 const DOC = { key: "mock-doc", title: "Mounting Bracket.SLDPRT", path: "C:\\Work\\Mounting Bracket.SLDPRT", type: "part" as const };
@@ -108,12 +108,172 @@ export async function mockRpc(method: string, params: any): Promise<unknown> {
       return runTool(params.name, params.input ?? {});
     case "selection.get":
       return { docKey: DOC.key, items: [{ type: "FACES", label: "Boss-Extrude1" }] };
+    case "files.pick":
+      return mockEntries(["C:\\Work\\Inputs\\housing.step", "C:\\Work\\Inputs\\clip.stl", "C:\\Work\\Inputs\\drawing.pdf"]);
+    case "files.entries":
+      return mockEntries(params?.paths ?? []);
+    case "files.describe":
+      return describeModel(params.path);
+    case "watch.start":
+      return startWatch(params?.docKey);
+    case "watch.status":
+      return watch ? { active: true, docKey: DOC.key, doc: DOC.title, startedAt: new Date(watch.started).toISOString(), entries: watch.entries } : { active: false };
+    case "watch.stop":
+      return stopWatch();
+    case "watch.cancel":
+      if (watch) clearInterval(watch.timer);
+      watch = null;
+      return null;
     case "app.openExternal":
       window.open(params.url, "_blank", "noopener");
       return null;
     default:
       return null;
   }
+}
+
+// ---- files (3D model context) ----
+
+const MODEL_EXT = /\.(stl|3mf|obj|step|stp|iges|igs|x_t|x_b|sldprt|sldasm)$/i;
+
+function mockEntries(paths: string[]): FileEntry[] {
+  return paths.map((path) => {
+    const name = path.split(/[\\/]/).pop() ?? path;
+    if (MODEL_EXT.test(name)) return { name, path, kind: "model", format: name.split(".").pop()!.toUpperCase() };
+    if (/\.pdf$/i.test(name)) return { name, path, kind: "pdf", mediaType: "application/pdf", data: "JVBERi0xLjQK" };
+    if (/\.(png|jpe?g)$/i.test(name)) return { name, path, kind: "image", mediaType: "image/jpeg", data: mockImage().source.data };
+    return { name, path, kind: "file" };
+  });
+}
+
+/** Stands in for ModelFileContext: a six-view sheet and a measurement summary, after a realistic delay. Name a file "broken.step" to see a failure. */
+async function describeModel(path: string): Promise<FileEntry> {
+  const name = path.split(/[\\/]/).pop() ?? path;
+  const mesh = /\.(stl|3mf|obj)$/i.test(name);
+  await new Promise((r) => setTimeout(r, mesh ? 900 : 2200));
+  if (/broken/i.test(name)) {
+    return {
+      name,
+      path,
+      kind: "model",
+      error: "SolidWorks couldn't import the file (swGenericError).",
+      summary: `3D model: ${name} (STEP, 12 KB) - couldn't be read automatically: SolidWorks couldn't import the file (swGenericError). Path: ${path}`,
+    };
+  }
+  const summary = [
+    `3D model: ${name} (${mesh ? "STL mesh" : "STEP"}, 1.4 MB)`,
+    mesh ? "" : "Read by: SolidWorks (opened hidden in the background, then closed - the user's documents and view were not touched)",
+    `Units: ${mesh ? "mm (assumed - STL files carry no units)" : "mm (document unit: millimeter)"}`,
+    "Size: 120 x 42 x 80 mm (X -60..60, Y 0..42, Z -40..40)",
+    mesh ? "Volume 96,512 mm³, surface area 31,204 mm² (closed mesh)" : "Structure: part, 1 solid body, 14 features",
+    mesh ? "" : "Mass properties (SolidWorks): volume 96,512 mm³, surface area 31,204 mm², mass 0.2606 kg, material 6061 Alloy",
+    "Mesh: 18,342 triangles, 1 separate shell" + (mesh ? ", watertight" : ""),
+    "Attached: one image with six views of the model - isometric, front, top, right, back iso, from below (SolidWorks axes, Y up; a triad in each tile shows the axes). Colours tell separate shells apart.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  return { name, path, kind: "model", format: mesh ? "STL mesh" : "STEP", summary, views: sixViews(), viewsMediaType: "image/jpeg", seconds: 1.8 };
+}
+
+function sixViews(): string {
+  const c = document.createElement("canvas");
+  c.width = 1200;
+  c.height = 600;
+  const g = c.getContext("2d")!;
+  g.fillStyle = "#fff";
+  g.fillRect(0, 0, 1200, 600);
+  ["ISOMETRIC", "FRONT", "TOP", "RIGHT", "BACK ISO", "FROM BELOW"].forEach((label, i) => {
+    const x = (i % 3) * 400;
+    const y = Math.floor(i / 3) * 300;
+    const grad = g.createLinearGradient(0, y, 0, y + 300);
+    grad.addColorStop(0, "#e7edf4");
+    grad.addColorStop(1, "#ffffff");
+    g.fillStyle = grad;
+    g.fillRect(x, y, 400, 300);
+    g.strokeStyle = "#aaa";
+    g.lineWidth = 1;
+    g.strokeRect(x + 0.5, y + 0.5, 399, 299);
+    g.fillStyle = "#b0bece";
+    g.strokeStyle = "#262e38";
+    g.lineWidth = 1.5;
+    g.beginPath();
+    if (i === 0 || i >= 4) {
+      g.moveTo(x + 110, y + 170);
+      g.lineTo(x + 220, y + 225);
+      g.lineTo(x + 310, y + 160);
+      g.lineTo(x + 200, y + 105);
+    } else g.rect(x + 90, y + (i === 2 ? 70 : 120), 220, i === 2 ? 160 : 70);
+    g.closePath();
+    g.fill();
+    g.stroke();
+    g.fillStyle = "rgba(32,38,46,0.8)";
+    g.fillRect(x + 6, y + 6, label.length * 8 + 10, 18);
+    g.fillStyle = "#fff";
+    g.font = "bold 11px Segoe UI, sans-serif";
+    g.fillText(label, x + 10, y + 19);
+  });
+  return c.toDataURL("image/jpeg", 0.8).split(",")[1];
+}
+
+// ---- Watch me ----
+
+const SCRIPT: Omit<WatchEntry, "id" | "t">[] = [
+  { kind: "select", text: "Selected face of Boss-Extrude1 (planar, normal (0, 1, 0), area 9600 mm²)" },
+  { kind: "add", text: "Added Sketch3 (Sketch): on Boss-Extrude1: 4 circles Ø6.6 mm - with face of Boss-Extrude1 (planar, normal (0, 1, 0), area 9600 mm²) selected" },
+  { kind: "add", text: "Added Cut-Extrude2 (Cut-Extrude): end through all (from Sketch3)" },
+  { kind: "select", text: "Selected 4 edges of Cut-Extrude2" },
+  { kind: "add", text: "Added Chamfer1 (Chamfer): equal distance 0.5 mm on 4 edges - with 4 edges of Cut-Extrude2 selected" },
+  { kind: "edit", text: "Edited Boss-Extrude1 (Boss-Extrude): end blind 10 mm -> blind 12 mm" },
+];
+
+let watch: { started: number; entries: WatchEntry[]; timer: ReturnType<typeof setInterval> } | null = null;
+
+function startWatch(docKey: string) {
+  if (docKey !== DOC.key) throw new Error("Open a part or assembly to record what you do in it.");
+  if (watch) clearInterval(watch.timer);
+  const w = { started: Date.now(), entries: [] as WatchEntry[], timer: undefined as unknown as ReturnType<typeof setInterval> };
+  let next = 0;
+  w.timer = setInterval(() => {
+    if (next >= SCRIPT.length) return clearInterval(w.timer);
+    const step = SCRIPT[next++];
+    // Like ActivityLog: a selection followed by a feature is folded into it.
+    if (w.entries.length && w.entries[w.entries.length - 1].kind === "select") w.entries.pop();
+    w.entries.push({ ...step, id: next, t: (Date.now() - w.started) / 1000 });
+    emitLocal("watch.log", { active: true, entries: [...w.entries] });
+  }, 1800);
+  watch = w;
+  return { active: true, docKey: DOC.key, doc: DOC.title, startedAt: new Date().toISOString(), entries: [] };
+}
+
+async function stopWatch(): Promise<WatchResult> {
+  if (!watch) throw new Error("Watch me isn't recording.");
+  clearInterval(watch.timer);
+  const w = watch;
+  watch = null;
+  await new Promise((r) => setTimeout(r, 500));
+  const seconds = Math.round((Date.now() - w.started) / 1000);
+  const lines = w.entries.map((e, i) => `${i + 1}. [0:${String(Math.round(e.t)).padStart(2, "0")}] ${e.text}`);
+  const text =
+    `Recorded with "Watch me" in ${DOC.title} (part) over ${seconds} s: ${w.entries.length} steps, feature tree 9 -> 12 features.\n` +
+    `Steps (lengths in mm, angles in degrees; dimension names like D1@Sketch2 are the SolidWorks full names):\n${lines.join("\n")}\n\n` +
+    "Final parameters of the features above:\n" +
+    "- Sketch3 (Sketch) <- Boss-Extrude1: segments 4; circles Ø6.6 mm Ø6.6 mm Ø6.6 mm Ø6.6 mm; D1@Sketch3 6.6 mm; D2@Sketch3 10 mm\n" +
+    "- Cut-Extrude2 (Cut-Extrude) <- Sketch3: end through all\n" +
+    "- Chamfer1 (Chamfer) <- Cut-Extrude2: type equal distance; distance 0.5 mm; edges 4";
+  const img = mockImage().source.data;
+  return {
+    docKey: DOC.key,
+    doc: DOC.title,
+    docType: "part",
+    seconds,
+    steps: w.entries.length,
+    text,
+    entries: w.entries,
+    stats: { added: w.entries.filter((e) => e.kind === "add").length, edited: w.entries.filter((e) => e.kind === "edit").length, deleted: 0, renamed: 0, selections: 0 },
+    before: img,
+    after: img,
+    film: w.entries.length ? sixViews() : null,
+  };
 }
 
 function emptyChat(docId: string): ChatData {

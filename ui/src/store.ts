@@ -8,6 +8,8 @@ import type {
   ContentBlockParam,
   DocInfo,
   Effort,
+  FileEntry,
+  ImageMediaType,
   HostState,
   MessageParam,
   SelectionItem,
@@ -22,6 +24,8 @@ import type {
   ToolRunResult,
   TurnMeta,
   Usage,
+  WatchEntry,
+  WatchResult,
 } from "./lib/types";
 import { WRITE_TOOLS, runAgent, type ApprovalDecision, type ApprovalRequest, type LiveBlock } from "./agent/runAgent";
 
@@ -84,6 +88,8 @@ interface State {
   panel: "chat" | "settings";
   focusTick: number;
   notice: string | null;
+  /** "Watch me": recording what the user does in a document (live log from the add-in). */
+  watch: WatchState;
 
   boot(): Promise<void>;
   showDoc(key: string): Promise<void>;
@@ -121,7 +127,27 @@ interface State {
   finishMarkup(): Promise<void>;
   cancelMarkup(): void;
   dismissNotice(): void;
+  /** Open the file dialog and attach what the user picks (images, PDFs, 3D models). */
+  pickFiles(): Promise<void>;
+  /** Attach files the add-in described (picked, dropped, ...); 3D models are read in the background. */
+  addFileEntries(entries: FileEntry[]): void;
+  startWatch(): Promise<void>;
+  /** Stop recording and attach the log (with views before/after) to the next message. */
+  stopWatch(): Promise<void>;
+  cancelWatch(): void;
 }
+
+export interface WatchState {
+  active: boolean;
+  /** Stopping: the add-in is finishing the log and capturing the final view. */
+  busy: boolean;
+  docKey: string | null;
+  doc: string | null;
+  startedAt: number;
+  entries: WatchEntry[];
+}
+
+const WATCH_IDLE: WatchState = { active: false, busy: false, docKey: null, doc: null, startedAt: 0, entries: [] };
 
 export type MarkupTool = "pen" | "arrow" | "circle" | "highlighter";
 export const MARKUP_COLORS = ["#E5302A", "#F2B11F", "#2F84D6", "#2E9E3E"];
@@ -172,6 +198,9 @@ function stageToolPrompt(p: ToolRunPayload, label: string, refBase: number): { b
         } else if (f.data && f.mediaType === "application/pdf") {
           attachments.push({ type: "document", source: { type: "base64", media_type: "application/pdf", data: f.data }, title: f.name } as unknown as ContentBlockParam);
           names.push(`${f.name} (attached PDF)`);
+        } else if (f.kind === "model" && f.summary) {
+          attachments.push(...modelBlocks(f));
+          names.push(`${f.name} (3D model - ${f.views ? "views and measurements" : "what could be read"} attached)`);
         } else {
           names.push(`${f.name} (${f.kind === "model" ? "3D model, not attached - open it with execute_csharp if you need it" : f.error ?? "not attached"}: ${f.path})`);
         }
@@ -194,6 +223,54 @@ function stageToolPrompt(p: ToolRunPayload, label: string, refBase: number): { b
   if (c.view) blocks.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: c.view } });
   return { blocks, refs };
 }
+
+/** Text blocks the panel adds for attachments; the chat shows them as cards, not as the user's words. */
+export const MODEL_TAG = "<model_file";
+export const WATCH_TAG = "<watch_log";
+export function isAttachmentText(text: string): boolean {
+  return text.startsWith(MODEL_TAG) || text.startsWith(WATCH_TAG);
+}
+
+const escapeAttr = (v: string) => v.replace(/[&"<>]/g, (c) => ({ "&": "&amp;", '"': "&quot;", "<": "&lt;", ">": "&gt;" })[c]!);
+
+/** A 3D model for the agent: the measurement summary, then the six-view sheet. */
+export function modelBlocks(f: FileEntry): ContentBlockParam[] {
+  const text = f.summary ?? `3D model: ${f.name} - not read${f.error ? ` (${f.error})` : ""}. Path: ${f.path}`;
+  const blocks: ContentBlockParam[] = [{ type: "text", text: `${MODEL_TAG} name="${escapeAttr(f.name)}" path="${escapeAttr(f.path)}">\n${text}\n</model_file>` }];
+  if (f.views) blocks.push({ type: "image", source: { type: "base64", media_type: (f.viewsMediaType ?? "image/jpeg") as ImageMediaType, data: f.views } });
+  return blocks;
+}
+
+/** A "Watch me" recording for the agent: the log, then the views before / after and the step thumbnails. */
+export function watchBlocks(w: WatchResult): ContentBlockParam[] {
+  const images: { label: string; data: string }[] = [];
+  if (w.before) images.push({ label: "the view when recording started", data: w.before });
+  if (w.after) images.push({ label: "the view when it stopped", data: w.after });
+  if (w.film) images.push({ label: "thumbnails of the steps, labelled STEP n like the log", data: w.film });
+  const note = images.length ? `\nAttached after this block, in order: ${images.map((i) => i.label).join("; ")}.` : "";
+  return [
+    { type: "text", text: `${WATCH_TAG} doc="${escapeAttr(w.doc)}" steps="${w.steps}">\n${w.text}${note}\n</watch_log>` },
+    ...images.map((i): ContentBlockParam => ({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: i.data } })),
+  ];
+}
+
+/** Content blocks for whatever is attached to a message. */
+function attachmentBlocks(a: Attachment): ContentBlockParam[] {
+  switch (a.kind) {
+    case "image":
+      return [{ type: "image", source: { type: "base64", media_type: a.mediaType, data: a.data } }];
+    case "pdf":
+      return [{ type: "document", source: { type: "base64", media_type: "application/pdf", data: a.data }, title: a.name } as unknown as ContentBlockParam];
+    case "model":
+      return modelBlocks(a.entry ?? { name: a.name, path: a.path, kind: "model" });
+    case "watch":
+      return watchBlocks(a.watch);
+  }
+}
+
+/** 3D models being read by the add-in, by attachment id (send waits for them). */
+const describing = new Map<string, Promise<void>>();
+const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 
 /** Stable empty array for selectors (a fresh [] each call would re-render forever). */
 export const EMPTY: never[] = [];
@@ -459,6 +536,7 @@ export const useStore = create<State>((set, get) => {
     panel: "chat",
     focusTick: 0,
     notice: null,
+    watch: WATCH_IDLE,
 
     async boot() {
       try {
@@ -540,6 +618,26 @@ export const useStore = create<State>((set, get) => {
         else get().cancelMarkup();
       });
       rpc("markup.cancel").catch(() => {}); // a reloaded panel must not leave an orphaned overlay
+
+      on("files.dropped", async ({ paths }: { paths: string[] }) => {
+        const entries = await rpc<FileEntry[]>("files.entries", { paths }).catch((err) => {
+          set({ notice: `Couldn't attach the files: ${err.message}` });
+          return [] as FileEntry[];
+        });
+        set({ panel: "chat" });
+        get().addFileEntries(entries);
+      });
+      on("watch.log", (st: { entries?: WatchEntry[] }) => set((s) => (s.watch.active ? { watch: { ...s.watch, entries: st.entries ?? [] } } : {})));
+      on("watch.ended", ({ reason }: { reason?: string }) => set({ watch: WATCH_IDLE, notice: reason ?? "Watch me stopped." }));
+      // A reloaded panel picks up a recording that is still running.
+      rpc<{ active: boolean; docKey?: string; doc?: string; startedAt?: string; entries?: WatchEntry[] }>("watch.status")
+        .then((st) => {
+          if (st?.active)
+            set({
+              watch: { active: true, busy: false, docKey: st.docKey ?? null, doc: st.doc ?? null, startedAt: st.startedAt ? Date.parse(st.startedAt) : Date.now(), entries: st.entries ?? [] },
+            });
+        })
+        .catch(() => {});
 
       // SolidWorks doesn't raise an activation event for File > New, and events can be missed while the panel
       // loads, so also follow the active document by polling (cheap: one RPC every 1.5 s).
@@ -685,7 +783,7 @@ export const useStore = create<State>((set, get) => {
           set({ notice: `Couldn't capture the view: ${text && text.type === "text" ? text.text : "no image"}` });
           return;
         }
-        get().addAttachment({ id: uid(), kind: "image", name: "View", mediaType: img.source.media_type as Attachment["mediaType"], data: img.source.data });
+        get().addAttachment({ id: uid(), kind: "image", name: "View", mediaType: img.source.media_type as ImageMediaType, data: img.source.data });
         set((st) => ({ focusTick: st.focusTick + 1 }));
       } catch (err: any) {
         set({ notice: `Couldn't capture the view: ${err.message}` });
@@ -697,6 +795,9 @@ export const useStore = create<State>((set, get) => {
       const docKey = s0.viewKey;
       await loadChat(docKey);
       const dKey = draftKey(get());
+      // 3D models still being read: wait for them (the composer disables Send meanwhile; this is a safety net).
+      const pending = (get().attachments[dKey] ?? []).map((a) => describing.get(a.id)).filter(Boolean);
+      if (pending.length) await Promise.all(pending);
       const attachments = get().attachments[dKey] ?? [];
       const trimmed = text.trim();
       if (!trimmed && attachments.length === 0) return;
@@ -707,7 +808,7 @@ export const useStore = create<State>((set, get) => {
       if (!thread) {
         thread = {
           id: uid(),
-          title: (trimmed || "Image").replace(/\s+/g, " ").slice(0, 70),
+          title: (trimmed || attachments[0]?.name || "Image").replace(/\s+/g, " ").slice(0, 70),
           createdAt: now(),
           updatedAt: now(),
           model: settings.defaultModel,
@@ -727,8 +828,8 @@ export const useStore = create<State>((set, get) => {
       }));
       const blocks: ContentBlockParam[] = [];
       if (trimmed) blocks.push({ type: "text", text: trimmed });
-      for (const a of attachments) blocks.push({ type: "image", source: { type: "base64", media_type: a.mediaType, data: a.data } });
-      const ctx = await buildContext(docKey, threadId, attachments.some((a) => a.name === MARKUP_NAME));
+      for (const a of attachments) blocks.push(...attachmentBlocks(a));
+      const ctx = await buildContext(docKey, threadId, attachments.some((a) => a.kind === "image" && a.name === MARKUP_NAME));
       blocks.push(...ctx.blocks);
 
       updateThread(docKey, threadId, (t) => {
@@ -768,7 +869,11 @@ export const useStore = create<State>((set, get) => {
         // keeping the user's own images (those before the context block) and taking a fresh snapshot of
         // the document, selection and view.
         const ctxAt = blocks.findIndex((b) => b.type === "text" && b.text.startsWith("<sw_context>"));
-        const ownImages = blocks.filter((b, i) => b.type === "image" && (ctxAt < 0 || i < ctxAt));
+        const ownImages = blocks.filter(
+          (b, i) =>
+            (ctxAt < 0 || i < ctxAt) &&
+            (b.type === "image" || (b.type as string) === "document" || (b.type === "text" && isAttachmentText(b.text))),
+        );
         const ctx = await buildContext(docKey, t.id, false);
         newRefs = ctx.refs;
         content = [
@@ -959,7 +1064,7 @@ export const useStore = create<State>((set, get) => {
       if (!get().markup.active) return;
       set((s) => ({ markup: { ...s.markup, active: false } }));
       try {
-        const res = await rpc<{ mediaType: Attachment["mediaType"]; data: string; strokes: number } | null>("markup.finish");
+        const res = await rpc<{ mediaType: ImageMediaType; data: string; strokes: number } | null>("markup.finish");
         if (res?.data) {
           // One markup per message: replace an earlier one that wasn't sent yet.
           const key = draftKey(get());
@@ -982,6 +1087,85 @@ export const useStore = create<State>((set, get) => {
     dismissNotice() {
       set({ notice: null });
     },
+
+    async pickFiles() {
+      try {
+        const entries = await rpc<FileEntry[]>("files.pick");
+        get().addFileEntries(entries ?? []);
+      } catch (err: any) {
+        set({ notice: `Couldn't attach the files: ${err.message}` });
+      }
+    },
+
+    addFileEntries(entries) {
+      const skipped: string[] = [];
+      for (const f of entries) {
+        if (f.kind === "image" && f.data && IMAGE_TYPES.includes(f.mediaType ?? "")) {
+          get().addAttachment({ id: uid(), kind: "image", name: f.name, mediaType: f.mediaType as ImageMediaType, data: f.data });
+        } else if (f.kind === "pdf" && f.data) {
+          get().addAttachment({ id: uid(), kind: "pdf", name: f.name, mediaType: "application/pdf", data: f.data, path: f.path });
+        } else if (f.kind === "model") {
+          const id = uid();
+          if (f.summary) {
+            get().addAttachment({ id, kind: "model", name: f.name, path: f.path, status: f.views ? "ready" : "error", entry: f });
+            continue;
+          }
+          get().addAttachment({ id, kind: "model", name: f.name, path: f.path, status: "reading" });
+          // Read it in the background (hidden in SolidWorks for CAD formats); the chip fills in when done.
+          const patch = (entry: FileEntry, status: "ready" | "error") =>
+            set((s) => {
+              const attachments: Record<string, Attachment[]> = {};
+              for (const [k, list] of Object.entries(s.attachments)) {
+                attachments[k] = list.map((a) => (a.id === id && a.kind === "model" ? { ...a, status, entry } : a));
+              }
+              return { attachments };
+            });
+          const job = rpc<FileEntry>("files.describe", { path: f.path })
+            .then((entry) => patch(entry, entry.views ? "ready" : "error"))
+            .catch((err) => patch({ ...f, error: err.message }, "error"))
+            .finally(() => describing.delete(id));
+          describing.set(id, job);
+        } else {
+          skipped.push(`${f.name}${f.kind === "too_large" ? " (too large)" : f.error ? ` (${f.error})` : ""}`);
+        }
+      }
+      if (skipped.length) set({ notice: `Not attached: ${skipped.join(", ")}. Attach images, PDFs or 3D models (STL, STEP, 3MF, IGES, SLDPRT, SLDASM, X_T).` });
+      set((s) => ({ focusTick: s.focusTick + 1 }));
+    },
+
+    async startWatch() {
+      const s = get();
+      if (s.watch.active || s.watch.busy) return;
+      const docKey = s.viewKey;
+      try {
+        const st = await rpc<{ doc?: string }>("watch.start", { docKey });
+        set({ watch: { active: true, busy: false, docKey, doc: st?.doc ?? s.docs[docKey]?.title ?? null, startedAt: Date.now(), entries: [] } });
+      } catch (err: any) {
+        set({ notice: `Can't watch: ${err.message}` });
+      }
+    },
+
+    async stopWatch() {
+      if (!get().watch.active || get().watch.busy) return;
+      set((s) => ({ watch: { ...s.watch, busy: true } }));
+      try {
+        const res = await rpc<WatchResult>("watch.stop");
+        set({ watch: WATCH_IDLE, panel: "chat" });
+        // One recording per message: replace an earlier one that wasn't sent yet.
+        const key = draftKey(get());
+        set((s) => ({ attachments: { ...s.attachments, [key]: (s.attachments[key] ?? []).filter((a) => a.kind !== "watch") } }));
+        get().addAttachment({ id: uid(), kind: "watch", name: `Watch log · ${res.steps} step${res.steps === 1 ? "" : "s"}`, watch: res });
+        if (!(get().drafts[key] ?? "").trim()) set((s) => ({ drafts: { ...s.drafts, [key]: "Turn what I just did into a tool" } }));
+        set((s) => ({ focusTick: s.focusTick + 1 }));
+      } catch (err: any) {
+        set({ watch: WATCH_IDLE, notice: `Couldn't finish the recording: ${err.message}` });
+      }
+    },
+
+    cancelWatch() {
+      set({ watch: WATCH_IDLE });
+      rpc("watch.cancel").catch(() => {});
+    },
   };
 });
 
@@ -999,7 +1183,7 @@ export function writesAfter(thread: Thread, msgIndex: number): number {
 export function promptText(m: MessageParam): string {
   if (typeof m.content === "string") return m.content;
   return m.content
-    .filter((b): b is Extract<ContentBlockParam, { type: "text" }> => b.type === "text" && !b.text.startsWith("<sw_context>"))
+    .filter((b): b is Extract<ContentBlockParam, { type: "text" }> => b.type === "text" && !b.text.startsWith("<sw_context>") && !isAttachmentText(b.text))
     .map((b) => b.text)
     .join("\n\n");
 }

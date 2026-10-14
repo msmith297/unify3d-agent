@@ -587,3 +587,47 @@ export function ToolIcon({ name, size = 16 }: { name: string; size?: number }) {
     default: return <IconMacro size={size} />;
   }
 }
+
+/** Paper clip (attach files). */
+export function IconAttach(p: P) {
+  return (
+    <Svg {...p}>
+      <path
+        d="M10.8 4.6 5.6 9.8a1.4 1.4 0 0 0 2 2l5.4-5.4a2.6 2.6 0 0 0-3.7-3.7L3.8 8.2a3.8 3.8 0 0 0 5.4 5.4l4.3-4.3"
+        fill="none"
+        stroke="#8C96A2"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
+
+/** Eye with a record dot ("Watch me"). Pass recording to make the dot glow. */
+export function IconWatch({ recording, ...p }: P & { recording?: boolean }) {
+  return (
+    <Svg {...p}>
+      <path d="M1 7.5s2.4-4 6.5-4 6.5 4 6.5 4-2.4 4-6.5 4S1 7.5 1 7.5z" fill="#fff" stroke={C.gLine} />
+      <circle cx="7.5" cy="7.5" r="2.3" fill={C.bBot} stroke={C.bLine} />
+      <circle cx="12.6" cy="12.6" r="2.6" fill={recording ? "#E5302A" : "#C9CDD2"} stroke={recording ? C.rLine : C.gLine} />
+    </Svg>
+  );
+}
+
+/** Shaded cube (a 3D model file). */
+export function IconModelFile(p: P) {
+  const id = useIds("t", "l", "r");
+  return (
+    <Svg {...p}>
+      <defs>
+        <Grad id={id.t} top="#E9EEF4" bot="#C7D2DF" />
+        <Grad id={id.l} top="#B7C4D3" bot="#8496AB" />
+        <Grad id={id.r} top="#94A6BA" bot="#667A91" />
+      </defs>
+      <path d="M8 1.5 14 4.7 8 8 2 4.7z" fill={`url(#${id.t})`} stroke="#4A5868" strokeLinejoin="round" />
+      <path d="M2 4.7 8 8v6.5L2 11.3z" fill={`url(#${id.l})`} stroke="#4A5868" strokeLinejoin="round" />
+      <path d="M14 4.7 8 8v6.5l6-3.2z" fill={`url(#${id.r})`} stroke="#4A5868" strokeLinejoin="round" />
+    </Svg>
+  );
+}
