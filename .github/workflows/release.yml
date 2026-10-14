@@ -1,0 +1,76 @@
+# Builds the add-in and its Windows installer and publishes a GitHub Release for every version tag.
+#   git tag v0.2.0 && git push origin v0.2.0
+# The add-in's updater (src/SwAgent/Infrastructure/Updater.cs) reads the latest release: it downloads the
+# *-Setup-*.exe asset and checks it against the matching .sha256 asset. The release text becomes the
+# "What's new" shown in the update dialog - write it in RELEASE_NOTES.md before tagging.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (e.g. 0.2.0); builds the installer as an artifact without publishing"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version
+        id: v
+        shell: pwsh
+        run: |
+          $v = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}".TrimStart("v") } else { "${{ inputs.version }}" }
+          if ($v -notmatch '^\d+\.\d+\.\d+$') { throw "Version must look like 1.2.3 (got '$v')" }
+          "version=$v" >> $env:GITHUB_OUTPUT
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Build UI
+        working-directory: ui
+        run: |
+          npm ci
+          npm run build
+
+      - uses: microsoft/setup-msbuild@v2
+
+      - name: Build add-in
+        run: msbuild src/SwAgent/SwAgent.csproj -restore -nologo -v:minimal -p:Configuration=Release -p:Version=${{ steps.v.outputs.version }}
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force installer/redist | Out-Null
+          Invoke-WebRequest "https://go.microsoft.com/fwlink/p/?LinkId=2124703" -OutFile installer/redist/MicrosoftEdgeWebview2Setup.exe
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; }
+          & $iscc /DAppVersion=${{ steps.v.outputs.version }} installer/Unify3DAgent.iss
+          if ($LASTEXITCODE) { throw "Inno Setup failed" }
+          Get-ChildItem dist/*.exe | ForEach-Object {
+            "$((Get-FileHash $_ -Algorithm SHA256).Hash.ToLower())  $($_.Name)" | Set-Content -NoNewline -Encoding ascii "$($_.FullName).sha256"
+          }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ steps.v.outputs.version }}
+          path: dist/*
+
+      - name: Publish release
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $notes = if (Test-Path RELEASE_NOTES.md) { @("--notes-file", "RELEASE_NOTES.md") } else { @("--generate-notes") }
+          gh release create "${{ github.ref_name }}" (Get-ChildItem dist/*).FullName --title "${{ github.ref_name }}" @notes

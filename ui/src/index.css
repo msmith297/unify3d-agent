@@ -1,0 +1,461 @@
+@import "tailwindcss";
+
+/*
+  Visual language: SolidWorks itself. Colours come from src/lib/theme.ts, which derives the palette from the
+  SolidWorks PropertyManager background (read through the API) so the panel matches the Light, Medium and Dark
+  interface themes. These :root values are only the first-paint fallback (SolidWorks 2026 Dark).
+*/
+:root {
+  --bg: #494949;
+  --panel: #424242;
+  --card: #515151;
+  --card-2: #454545;
+  --line: #2f2f2f;
+  --line-strong: #232323;
+  --text: #eeeeee;
+  --text-2: #c6c6c6;
+  --text-3: #9d9d9d;
+  --accent: #4c9de3;
+  --accent-hover: #67acea;
+  --accent-soft: #4b5a69;
+  --accent-text: #ffffff;
+  --accent-top: #6db0ea;
+  --accent-border: #2a567d;
+  --ok: #62c774;
+  --warn: #ebbe4f;
+  --err: #f07272;
+  --err-soft: #5a4646;
+  --code-bg: #383838;
+  --user-bubble: #5a5a5a;
+  --btn-top: #626262;
+  --btn-bot: #4d4d4d;
+  --btn-top-hover: #6d6d6d;
+  --btn-border: #262626;
+  --input-bg: #363636;
+  --input-border: #212121;
+  --bevel-hi: rgba(255, 255, 255, 0.13);
+  --bevel-lo: rgba(0, 0, 0, 0.35);
+  --head-top: #5b5b5b;
+  --head-bot: #4a4a4a;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-card: var(--card);
+  --color-card-2: var(--card-2);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-text: var(--text);
+  --color-text-2: var(--text-2);
+  --color-text-3: var(--text-3);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-text: var(--accent-text);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-err: var(--err);
+  --color-err-soft: var(--err-soft);
+  --color-code: var(--code-bg);
+  --color-user: var(--user-bubble);
+  --color-input: var(--input-bg);
+  --color-input-border: var(--input-border);
+  --font-sans: "Segoe UI", "Segoe UI Variable Text", system-ui, sans-serif;
+  --font-mono: Consolas, "Cascadia Mono", monospace;
+}
+
+/* ---------- SolidWorks-style controls ----------
+   In the components layer so utility classes on an element (whitespace-normal, h-auto, ...) win over these defaults. */
+@layer components {
+
+
+/* Raised push button (PropertyManager / dialog buttons). */
+.sw-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 10px;
+  font-size: 12px;
+  color: var(--text);
+  border: 1px solid var(--btn-border);
+  border-radius: 3px;
+  background: linear-gradient(var(--btn-top), var(--btn-bot));
+  box-shadow: inset 0 1px 0 var(--bevel-hi), 0 1px 1px rgba(0, 0, 0, 0.15);
+  white-space: nowrap;
+}
+.sw-btn:hover:not(:disabled) {
+  background: linear-gradient(var(--btn-top-hover), var(--btn-bot));
+}
+.sw-btn:active:not(:disabled) {
+  background: linear-gradient(var(--btn-bot), var(--btn-top));
+  box-shadow: inset 0 1px 2px var(--bevel-lo);
+}
+.sw-btn:disabled {
+  opacity: 0.45;
+}
+.sw-btn-primary {
+  color: #fff;
+  border-color: var(--accent-border);
+  background: linear-gradient(var(--accent-top), var(--accent));
+  text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.25);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 1px 1px rgba(0, 0, 0, 0.2);
+}
+.sw-btn-primary:hover:not(:disabled) {
+  background: linear-gradient(var(--accent-top), var(--accent-hover));
+}
+.sw-btn-primary:active:not(:disabled) {
+  background: linear-gradient(var(--accent), var(--accent-top));
+}
+
+/* Flat toolbar button that gains a raised frame on hover (CommandManager style). */
+.sw-tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 4px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  color: var(--text-2);
+  background: transparent;
+}
+.sw-tool:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--btn-border);
+  background: linear-gradient(var(--btn-top), var(--btn-bot));
+  box-shadow: inset 0 1px 0 var(--bevel-hi);
+}
+.sw-tool:active:not(:disabled),
+.sw-tool[aria-pressed="true"] {
+  border-color: var(--btn-border);
+  background: linear-gradient(var(--btn-bot), var(--btn-top));
+  box-shadow: inset 0 1px 2px var(--bevel-lo);
+}
+.sw-tool:disabled {
+  opacity: 0.4;
+}
+
+/* Sunken edit box. */
+.sw-input {
+  color: var(--text);
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 2px;
+  box-shadow: inset 0 1px 2px var(--bevel-lo);
+  outline: none;
+}
+
+/* PropertyManager rollout (group box with a caret header). */
+.sw-rollout {
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--card);
+  box-shadow: inset 0 1px 0 var(--bevel-hi), var(--shadow);
+  overflow: hidden;
+}
+.sw-rollout-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 24px;
+  padding: 2px 8px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--text);
+  background: linear-gradient(var(--head-top), var(--head-bot));
+  border-bottom: 1px solid var(--line);
+  box-shadow: inset 0 1px 0 var(--bevel-hi);
+}
+.sw-rollout-head.collapsed {
+  border-bottom-color: transparent;
+}
+
+/* Horizontal etched separator. */
+.sw-etch {
+  border-top: 1px solid var(--line);
+  box-shadow: 0 1px 0 var(--bevel-hi);
+}
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 1.42;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* Text the user may want to copy. */
+.selectable,
+.md,
+textarea,
+input,
+pre {
+  user-select: text;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+button {
+  cursor: default;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Text fields show the caret; a focus ring on top of their own border is just noise. */
+textarea:focus-visible,
+input:focus-visible {
+  outline: none;
+}
+
+/* ---------- markdown ---------- */
+.md {
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.md > *:first-child {
+  margin-top: 0;
+}
+.md > *:last-child {
+  margin-bottom: 0;
+}
+.md p {
+  margin: 0.45em 0;
+}
+.md h1,
+.md h2,
+.md h3,
+.md h4 {
+  font-weight: 600;
+  margin: 0.9em 0 0.35em;
+  line-height: 1.3;
+}
+.md h1 {
+  font-size: 15px;
+}
+.md h2 {
+  font-size: 14px;
+}
+.md h3,
+.md h4 {
+  font-size: 13px;
+}
+.md ul,
+.md ol {
+  margin: 0.4em 0;
+  padding-left: 1.4em;
+}
+.md ul {
+  list-style: disc;
+}
+.md ol {
+  list-style: decimal;
+}
+.md li {
+  margin: 0.15em 0;
+}
+.md a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.md strong {
+  font-weight: 600;
+}
+.md code {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  background: var(--code-bg);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 0 3px;
+}
+.md pre {
+  background: var(--code-bg);
+  border: 1px solid var(--input-border);
+  box-shadow: inset 0 1px 2px var(--bevel-lo);
+  border-radius: 2px;
+  padding: 8px 10px;
+  overflow-x: auto;
+  margin: 0.5em 0;
+}
+.md pre code {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+.md table {
+  border-collapse: collapse;
+  margin: 0.5em 0;
+  font-size: 12px;
+  display: block;
+  overflow-x: auto;
+}
+.md th,
+.md td {
+  border: 1px solid var(--line);
+  padding: 3px 7px;
+  text-align: left;
+}
+.md th {
+  background: linear-gradient(var(--head-top), var(--head-bot));
+  font-weight: 600;
+}
+.md blockquote {
+  border-left: 3px solid var(--line-strong);
+  margin: 0.5em 0;
+  padding: 0 0 0 8px;
+  color: var(--text-2);
+}
+.md hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 0.8em 0;
+}
+
+/* ---------- highlight.js (C#-tuned, both themes) ---------- */
+.hljs-keyword,
+.hljs-built_in,
+.hljs-literal {
+  color: #0b5cad;
+}
+.hljs-type,
+.hljs-title.class_ {
+  color: #1b7f83;
+}
+.hljs-string {
+  color: #a3412a;
+}
+.hljs-number {
+  color: #7a3e9d;
+}
+.hljs-comment {
+  color: #5f8a5a;
+  font-style: italic;
+}
+.hljs-title.function_ {
+  color: #79581a;
+}
+:root[data-theme="dark"] .hljs-keyword,
+:root[data-theme="dark"] .hljs-built_in,
+:root[data-theme="dark"] .hljs-literal {
+  color: #6cb0ff;
+}
+:root[data-theme="dark"] .hljs-type,
+:root[data-theme="dark"] .hljs-title.class_ {
+  color: #5fd3c8;
+}
+:root[data-theme="dark"] .hljs-string {
+  color: #e9a27f;
+}
+:root[data-theme="dark"] .hljs-number {
+  color: #c49cf0;
+}
+:root[data-theme="dark"] .hljs-comment {
+  color: #7fae78;
+}
+:root[data-theme="dark"] .hljs-title.function_ {
+  color: #e2c27a;
+}
+
+/* ---------- motion ---------- */
+@keyframes caret {
+  50% {
+    opacity: 0;
+  }
+}
+.caret::after {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 12px;
+  margin-left: 2px;
+  vertical-align: -2px;
+  background: var(--accent);
+  animation: caret 1s steps(1) infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200px 0;
+  }
+  100% {
+    background-position: 200px 0;
+  }
+}
+.shimmer {
+  background: linear-gradient(90deg, var(--text-3) 0%, var(--text) 50%, var(--text-3) 100%);
+  background-size: 200px 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 1.6s linear infinite;
+}
+
+/* Brand wordmark: dark graphite artwork, lightened on dark backgrounds. */
+:root[data-theme="dark"] .brand-wordmark {
+  filter: invert(1) brightness(1.15) contrast(0.95);
+}
+
+/* Text size (lib/zoom.ts): content scales fully, header and composer half as much. */
+.zoom-content {
+  zoom: var(--zoom-content, 1);
+}
+.zoom-chrome {
+  zoom: var(--zoom-chrome, 1);
+}
+
+/* "Working..." dots after a step title. */
+.working-dots > span {
+  animation: working-dot 1.2s ease-in-out infinite;
+  opacity: 0.2;
+}
+.working-dots > span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.working-dots > span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+@keyframes working-dot {
+  0%, 80%, 100% {
+    opacity: 0.2;
+  }
+  40% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .working-dots > span { animation: none; opacity: 0.7; }
+  .shimmer,
+  .caret::after {
+    animation: none;
+  }
+}

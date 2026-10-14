@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>SwAgent</RootNamespace>
+    <AssemblyName>SwAgent</AssemblyName>
+    <Version>0.1.0</Version>
+    <!-- Copy every NuGet dependency next to SwAgent.dll; SolidWorks loads us via COM codebase. -->
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <!-- Registration needs admin rights, so it's done by scripts/register.ps1 instead of on every build. -->
+    <XCadRegDll>false</XCadRegDll>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591;MSB3270</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Xarial.XCad.SolidWorks" Version="0.8.3" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4258.31" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Scripting" Version="4.8.0" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="Microsoft.CSharp" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.Security" />
+    <Reference Include="Microsoft.VisualBasic" />
+    <Reference Include="System.Net.Http" />
+  </ItemGroup>
+
+  <!-- Brand mark (assets/brand), used for the add-in, task pane and ribbon icons. -->
+  <ItemGroup>
+    <EmbeddedResource Include="../../assets/brand/mark-128.png" LogicalName="Brand.mark-128.png" />
+  </ItemGroup>
+
+  <!-- Installs a downloaded update after SolidWorks exits (see Infrastructure/Updater.cs). -->
+  <ItemGroup>
+    <None Include="update.ps1" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!-- The built React UI (ui/dist) ships next to the dll as wwwroot. -->
+  <ItemGroup>
+    <None Include="..\..\ui\dist\**\*" Link="wwwroot\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" Condition="Exists('..\..\ui\dist\index.html')" />
+  </ItemGroup>
+
+</Project>

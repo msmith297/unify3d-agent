@@ -1,0 +1,13 @@
+bin/
+obj/
+node_modules/
+ui/dist/
+*.user
+.vs/
+dist/
+installer/redist/
+
+# Not for the public repo
+MECAGENT_TEARDOWN.md
+.claude/settings.local.json
+*.tsbuildinfo
