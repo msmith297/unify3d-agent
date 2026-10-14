@@ -6,7 +6,7 @@ import { BrandLogo } from "./Brand";
 import { FormCard } from "./FormCard";
 import { svgDataUrl } from "../lib/toolIcons";
 import { Caret } from "./SwIcons";
-import { ToolCard, statusFor, type ToolCall } from "./ToolCard";
+import { ToolCard, statusFor, toolTitle, type ToolCall } from "./ToolCard";
 import { highlights as pickHighlights } from "../agent/workSummary";
 import { MODEL_TAG, WATCH_TAG, currentThread, isPrompt, promptText, useStore, writesAfter, type RunState } from "../store";
 import { modelOption } from "../lib/models";
@@ -196,6 +196,38 @@ function foldTurn(segment: Item[], turn: TurnMeta | undefined, key: string): Ite
   return [group, ...segment.slice(last + 1)];
 }
 
+/**
+ * Trying something, seeing it fail and adjusting is normal agent work, not a failure. A failed call that the agent
+ * moved on from (anything after it in the turn, or the turn is still running) is shown quietly as "retried"; when
+ * the next attempt with the same title worked, the failed one is folded into it. Red stays only for a turn that
+ * ended on a failure.
+ */
+function quietFailures(segment: Item[], finished: boolean): Item[] {
+  const tools = segment.filter((it): it is Extract<Item, { kind: "tool" }> => it.kind === "tool");
+  const drop = new Set<string>();
+  const retries = new Map<string, number>();
+  tools.forEach((it, i) => {
+    if (!it.call.result?.is_error) return;
+    const later = tools.slice(i + 1);
+    if (later.length === 0 && finished) return; // the turn ended here: a real failure
+    const title = toolTitle(it.call.name, it.call.input);
+    const retry = later.find((l) => toolTitle(l.call.name, l.call.input) === title);
+    if (retry && retry.call.result && !retry.call.result.is_error) {
+      drop.add(it.key);
+      retries.set(retry.key, (retries.get(retry.key) ?? 0) + 1 + (retries.get(it.key) ?? 0));
+    }
+  });
+  return segment
+    .filter((it) => !drop.has(it.key))
+    .map((it) => {
+      if (it.kind !== "tool") return it;
+      const i = tools.findIndex((t) => t.key === it.key);
+      const soft = !!it.call.result?.is_error && (i < tools.length - 1 || !finished);
+      const n = retries.get(it.key);
+      return soft || n ? { ...it, call: { ...it.call, soft, retries: n } } : it;
+    });
+}
+
 /** Flatten API messages (+ the live stream) into display items. */
 function buildItems(thread: Thread, run: RunState | undefined, showProgress: boolean): Item[] {
   const items: Item[] = [];
@@ -215,6 +247,7 @@ function buildItems(thread: Thread, run: RunState | undefined, showProgress: boo
   let segment: Item[] = [];
   const flushSegment = (promptIdx: number, finished: boolean) => {
     const turn = footerAfter.get(promptIdx);
+    segment = quietFailures(segment, finished);
     items.push(...(finished && promptIdx >= 0 ? foldTurn(segment, turn, `w${promptIdx}`) : segment));
     segment = [];
   };
