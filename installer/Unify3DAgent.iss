@@ -14,7 +14,8 @@
 #ifndef AppVersion
   #define AppVersion "0.0.0"
 #endif
-#define AddInGuid "{6D2B1C1E-4A0F-4F1E-9C7B-3E5A8D2F7B41}"
+; Inno reads "{" as a constant: the GUID's opening brace is doubled.
+#define AddInGuid "{{6D2B1C1E-4A0F-4F1E-9C7B-3E5A8D2F7B41}"
 #define SourceDir "..\src\SwAgent\bin\Release\net48"
 
 [Setup]
