@@ -80,6 +80,12 @@ namespace SwAgent.Scripting
         /// <summary>Write a line to the cell's output (Console.WriteLine works too).</summary>
         public void Print(object value) => Output.AppendLine(ValueFormatter.Format(value));
 
+        /// <summary>
+        /// Stop with a message for the user, e.g. Fail("Select a planar face first"). In a tool's macro this is shown in
+        /// the status bar instead of handing the run to the agent.
+        /// </summary>
+        public void Fail(string message) => throw new MacroInputException(message);
+
         /// <summary>Millimeters to meters (the API's length unit).</summary>
         public double mm(double value) => value / 1000.0;
 
@@ -208,5 +214,13 @@ namespace SwAgent.Scripting
         public override void Write(char value) => _target.Append(value);
         public override void Write(string value) => _target.Append(value);
         public override void WriteLine(string value) => _target.AppendLine(value);
+    }
+
+    /// <summary>A macro stopped because its input (usually the selection) is not what it needs; the message is for the user.</summary>
+    public sealed class MacroInputException : Exception
+    {
+        public MacroInputException(string message) : base(message)
+        {
+        }
     }
 }

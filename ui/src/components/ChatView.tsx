@@ -3,6 +3,7 @@ import { ArrowDown, X } from "lucide-react";
 import { IconCancel, IconCopy, IconEdit, IconError, IconEye, IconOk, IconQuestion, IconResend, IconShield, ToolIcon } from "./SwIcons";
 import { Markdown } from "./Markdown";
 import { BrandLogo } from "./Brand";
+import { svgDataUrl } from "../lib/toolIcons";
 import { Caret } from "./SwIcons";
 import { ToolCard, statusFor, type ToolCall } from "./ToolCard";
 import { highlights as pickHighlights } from "../agent/workSummary";
@@ -423,18 +424,21 @@ function PromptBubble({
   );
 }
 
-/** The user's words; a leading "[Run tool: name]" is shown as a tool chip instead of raw text. */
+/** The user's words; a leading "[Run workflow: name]" / "[Run tool: name]" is shown as a chip instead of raw text. */
 function PromptText({ text }: { text: string }) {
   const tools = useStore((s) => s.userTools);
-  const m = /^\[Run tool: ([a-z0-9-]+)\]\s*([\s\S]*)$/.exec(text);
-  const tool = m ? tools.find((t) => t.name === m[1]) : undefined;
-  const body = m ? m[2] : text;
+  const m = /^\[Run (tool|workflow): ([a-z0-9-]+)\]\s*([\s\S]*)$/.exec(text);
+  const tool = m ? tools.find((t) => t.name === m[2]) : undefined;
+  const body = m ? m[3] : text;
+  const label = tool?.kind === "tool" ? "Tool" : tool?.kind === "workflow" ? "Workflow" : m?.[1] === "tool" ? "Tool" : "Workflow";
   return (
     <div className="selectable max-w-[88%] rounded-[3px] border border-line bg-user px-2.5 py-1.5 text-[12px] text-text shadow-[inset_0_1px_0_var(--bevel-hi),var(--shadow)]">
       {m && (
         <div className={`flex items-center gap-1.5 font-semibold ${body ? "mb-1" : ""}`}>
-          <ToolIcon name={tool?.icon ?? "macro"} size={14} />
-          <span>Run tool: {tool?.title ?? m[1]}</span>
+          {tool?.iconSvg ? <img src={svgDataUrl(tool.iconSvg)} alt="" width={14} height={14} /> : <ToolIcon name={tool?.icon ?? "macro"} size={14} />}
+          <span>
+            {label}: {tool?.title ?? m[2]}
+          </span>
         </div>
       )}
       {body && <div className="whitespace-pre-wrap">{body}</div>}

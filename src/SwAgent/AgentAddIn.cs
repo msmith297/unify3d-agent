@@ -35,7 +35,7 @@ namespace SwAgent
         internal AgentController Controller { get; private set; }
 
         private ISwTaskPane<ChatPaneControl> _pane;
-        private UserToolRibbon _toolRibbon;
+        private UnifyRibbon _ribbon;
 
         public override void OnConnect()
         {
@@ -62,15 +62,15 @@ namespace SwAgent
                 Application.Documents.RegisterHandler(() => new ChatDocumentHandler());
                 Application.Documents.DocumentActivated += doc => Controller.OnDocumentActivated(doc);
 
-                CommandManager.AddCommandGroup<AgentCommands_e>().CommandClick += OnCommand;
+                // Right-click menus come from xCAD; the ribbon tab, menu and toolbar are UnifyRibbon.
                 CommandManager.AddContextMenu<FaceContextCommands_e>().CommandClick += _ => AskAboutSelection();
                 CommandManager.AddContextMenu<EdgeContextCommands_e>().CommandClick += _ => AskAboutSelection();
                 CommandManager.AddContextMenu<FeatureContextCommands_e>().CommandClick += _ => AskAboutSelection();
 
-                // The user's own tools get a ribbon tab of their own, rebuilt as they are saved or changed.
-                _toolRibbon = new UserToolRibbon(((Xarial.XCad.SolidWorks.UI.Commands.ISwCommandManager)CommandManager).CmdMgr);
-                _toolRibbon.Rebuild();
-                UserTools.Changed += _toolRibbon.Invalidate;
+                // One "Unify3D" tab: panel commands and the user's tools, rebuilt as tools are saved or changed.
+                _ribbon = new UnifyRibbon(((Xarial.XCad.SolidWorks.UI.Commands.ISwCommandManager)CommandManager).CmdMgr);
+                _ribbon.Rebuild();
+                UserTools.Changed += _ribbon.Invalidate;
 
                 _pane = this.CreateTaskPaneWinForm<ChatPaneControl>(new TaskPaneSpec
                 {
@@ -102,55 +102,54 @@ namespace SwAgent
             control.Initialize();
         }
 
-        private void OnCommand(AgentCommands_e cmd)
-        {
-            ShowPane();
-            switch (cmd)
-            {
-                case AgentCommands_e.OpenChat:
-                    Controller.SendCommand("focus");
-                    break;
-                case AgentCommands_e.NewChat:
-                    Controller.SendCommand("newChat");
-                    break;
-                case AgentCommands_e.AskAboutSelection:
-                    AskAboutSelection();
-                    break;
-                case AgentCommands_e.AttachView:
-                    Controller.SendCommand("attachView");
-                    break;
-                case AgentCommands_e.Settings:
-                    Controller.SendCommand("openSettings");
-                    break;
-            }
-        }
-
-        /// <summary>Ribbon callback for an "Agent Tools" button (SolidWorks calls it by name; see UserToolRibbon).</summary>
-        public void OnUserToolClick(string arg)
+        /// <summary>Callback for every Unify3D ribbon/menu/toolbar command (SolidWorks calls it by name; see UnifyRibbon).</summary>
+        public void OnUnifyCommand(string arg)
         {
             try
             {
-                ShowPane();
-                if (UserToolRibbon.IsNewTool(arg))
+                var tool = _ribbon?.ToolFor(arg);
+                if (tool != null)
                 {
-                    Controller.SendCommand("newTool");
+                    // Tools run in place, like a native command: no panel, unless the agent has to step in.
+                    _ = Controller.RunToolAsync(tool, ShowPane);
                     return;
                 }
-                var name = _toolRibbon?.ToolAt(arg);
-                if (name != null) Controller.SendCommand("runTool", new { tool = name });
+                ShowPane();
+                switch (arg)
+                {
+                    case "chat":
+                        Controller.SendCommand("focus");
+                        break;
+                    case "newchat":
+                        Controller.SendCommand("newChat");
+                        break;
+                    case "ask":
+                        AskAboutSelection();
+                        break;
+                    case "view":
+                        Controller.SendCommand("attachView");
+                        break;
+                    case "newtool":
+                        Controller.SendCommand("newTool");
+                        break;
+                    case "options":
+                        Controller.SendCommand("openSettings");
+                        break;
+                }
             }
             catch (Exception ex)
             {
-                Log.Error("Running a tool from the ribbon failed", ex);
+                Log.Error($"Unify3D command '{arg}' failed", ex);
             }
         }
 
-        /// <summary>Ribbon enable state: tools need an open document; "New Tool" is always available.</summary>
-        public int OnUserToolEnable(string arg)
+        /// <summary>Enable state: tools and document commands need an open document.</summary>
+        public int OnUnifyEnable(string arg)
         {
             try
             {
-                return UserToolRibbon.IsNewTool(arg) || Application.Sw.ActiveDoc != null ? 1 : 0;
+                var needsDoc = arg.StartsWith("t") || arg == "ask" || arg == "view";
+                return !needsDoc || Application.Sw.ActiveDoc != null ? 1 : 0;
             }
             catch
             {
@@ -184,10 +183,10 @@ namespace SwAgent
             Log.Info("Unify3D Agent disconnecting");
             SoundMuter.RestoreNow();
             Controller?.InstallPendingUpdateOnExit();
-            if (_toolRibbon != null)
+            if (_ribbon != null)
             {
-                UserTools.Changed -= _toolRibbon.Invalidate;
-                _toolRibbon.Dispose();
+                UserTools.Changed -= _ribbon.Invalidate;
+                _ribbon.Dispose();
             }
             Controller?.Dispose();
             Instance = null;

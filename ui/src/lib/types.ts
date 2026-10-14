@@ -54,6 +54,8 @@ export interface Thread {
   autoApprove?: boolean;
   /** Selection references [S1]... captured with the user's messages: id -> SolidWorks persistent reference (base64). */
   selRefs?: Record<string, string>;
+  /** "tools": the per-document chat where ribbon tools run when the agent has to step in. */
+  kind?: "tools";
 }
 
 /** What the add-in stores inside the SolidWorks file. */
@@ -140,6 +142,12 @@ export interface UserToolInfo {
   iconSvg?: string | null;
   /** Whether the ribbon PNG is up to date (false: the panel renders it). */
   hasPng?: boolean;
+  /** "workflow": big procedure, Workflows menu. "tool": quick ribbon command (agentic macro). */
+  kind?: "workflow" | "tool";
+  /** A tool's verified macro exists (runs directly, without the agent). */
+  hasMacro?: boolean;
+  /** Model for agent-run steps, if the tool chose one. */
+  model?: string | null;
 }
 
 export interface SelectionItem {

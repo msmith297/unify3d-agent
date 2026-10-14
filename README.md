@@ -9,7 +9,7 @@ SolidWorks API. Each document keeps its own conversations, stored **inside the .
 ```
 SLDWORKS.exe
  └─ SwAgent.dll  (C# .NET Framework 4.8 add-in, xCAD.NET)
-     ├─ Ribbon tabs "Unify3D" and "Unify3D Tools", right-click "Ask Unify3D" on faces/edges/features
+     ├─ Ribbon tab "Unify3D" (panel commands + your Tools), right-click "Ask Unify3D" on faces/edges/features
      ├─ Task Pane ─ WebView2 (separate Chromium processes)
      │               └─ React + TypeScript UI  ── agent loop ──▶ Claude API (@anthropic-ai/sdk)
      │                        ▲ JSON-RPC over postMessage │ tool calls
@@ -18,6 +18,17 @@ SLDWORKS.exe
      │   search_sw_api · get_sw_api_type · list_open_documents · undo · rebuild   (+ ask_user, UI-side)
      └─ Chat storage: third-party stream "SwAgent.Chat.v1" inside each document
 ```
+
+## Workflows and tools
+
+- **Workflows** are larger saved procedures (e.g. building a compression mold). Run them from the **Workflows** menu in
+  the chat panel; the agent follows the saved instructions.
+- **Tools** (agentic macros) are quick commands on the **Unify3D** ribbon tab, assignable to hotkeys in
+  Tools > Customize > Keyboard (category *Unify3D*). A tool carries a verified C# macro that runs directly on the current
+  selection as one undo step - no AI round trip. If it has no macro yet or the macro breaks, the agent finishes the job
+  in the background *Tool runs* chat and repairs the macro.
+
+Both are created with the agent and stored in `%APPDATA%\SwAgent\tools\<name>\` (`TOOL.md`, optional `macro.cs`, `icon.svg`).
 
 ## How it works
 

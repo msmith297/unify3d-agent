@@ -70,7 +70,7 @@ export interface AgentRunOptions {
   tools: ToolDef[];
   approval: ApprovalMode;
   realisticAppearance: boolean;
-  userTools: { name: string; title: string; description: string }[];
+  userTools: { name: string; title: string; description: string; kind?: string }[];
   signal: AbortSignal;
   cb: AgentCallbacks;
 }

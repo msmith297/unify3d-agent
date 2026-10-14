@@ -94,6 +94,8 @@ interface State {
   setIncludeSelection(v: boolean): void;
   toggleSelItem(index: number): void;
   runUserTool(name: string): Promise<void>;
+  /** A ribbon tool the agent has to run (no macro yet, or the macro failed). Runs in the background "Tool runs" chat. */
+  runQuickTool(name: string, failure?: string): Promise<void>;
   deleteUserTool(name: string): Promise<void>;
   startMarkup(): Promise<void>;
   setMarkup(patch: { tool?: MarkupTool; color?: string }): void;
@@ -123,6 +125,9 @@ export function isAgentSelection(s: { selection: Record<string, SelectionItem[]>
   const items = s.selection[docKey] ?? [];
   return items.length > 0 && s.agentSel[docKey] === selSig(items);
 }
+
+/** Model for ribbon tools the agent runs: fast enough to feel like a command, capable enough to fix a macro. */
+const QUICK_MODEL = "claude-sonnet-5-5";
 
 /** Stable empty array for selectors (a fresh [] each call would re-render forever). */
 export const EMPTY: never[] = [];
@@ -205,6 +210,7 @@ export const useStore = create<State>((set, get) => {
     docKey: string,
     threadId: string,
     hasMarkup: boolean,
+    opts: { noView?: boolean } = {},
   ): Promise<{ blocks: ContentBlockParam[]; refs: Record<string, string> }> => {
     const s = get();
     const doc = s.docs[docKey];
@@ -241,7 +247,7 @@ export const useStore = create<State>((set, get) => {
 
     if (hasMarkup) {
       lines.push("The image attached above is the user's markup: strokes, arrows and circles drawn over their current view.");
-    } else if (s.settings.shareView && doc.type !== "other") {
+    } else if (s.settings.shareView && !opts.noView && doc.type !== "other") {
       const shot = await rpc<ToolRunResult>("tools.run", {
         docKey,
         threadId,
@@ -491,15 +497,23 @@ export const useStore = create<State>((set, get) => {
             set({ panel: "settings" });
             break;
           case "runTool": {
-            // A tool button on the SolidWorks ribbon.
-            const tool = (args as { tool?: string } | undefined)?.tool;
-            set({ panel: "chat" });
-            if (tool && !s.runs[currentThread(s)?.id ?? ""]) void s.runUserTool(tool);
+            // A ribbon tool the add-in couldn't run on its own (no macro yet, or the macro failed).
+            const { tool, failure } = (args as { tool?: string; failure?: string } | undefined) ?? {};
+            if (!tool) break;
+            const info = s.userTools.find((t) => t.name === tool);
+            if (info?.kind === "workflow") {
+              set({ panel: "chat" });
+              if (!s.runs[currentThread(s)?.id ?? ""]) void s.runUserTool(tool);
+            } else void s.runQuickTool(tool, failure);
             break;
           }
           case "newTool": {
             const key = draftKey(s);
-            set({ panel: "chat", drafts: { ...s.drafts, [key]: "Help me create a new tool that " }, focusTick: s.focusTick + 1 });
+            set({
+              panel: "chat",
+              drafts: { ...s.drafts, [key]: "Help me create a new tool (a quick ribbon command) that " },
+              focusTick: s.focusTick + 1,
+            });
             break;
           }
           case "attachView":
@@ -772,9 +786,60 @@ export const useStore = create<State>((set, get) => {
     },
 
     async runUserTool(name) {
-      // Whatever is typed in the composer becomes the tool's notes/inputs.
+      // Whatever is typed in the composer becomes the workflow's notes/inputs.
       const notes = (get().drafts[draftKey(get())] ?? "").trim();
-      await get().send(`[Run tool: ${name}]${notes ? `\n${notes}` : ""}`);
+      await get().send(`[Run workflow: ${name}]${notes ? `\n${notes}` : ""}`);
+    },
+
+    async runQuickTool(name, failure) {
+      const s0 = get();
+      const docKey = s0.activeDocKey ?? s0.viewKey;
+      await loadChat(docKey);
+      const tool = get().userTools.find((t) => t.name === name);
+      let thread = get().chats[docKey]?.data.threads.find((t) => t.kind === "tools");
+      if (thread && get().runs[thread.id]) return; // one tool run at a time per document
+      if (!thread) {
+        // A separate chat, so quick runs never interrupt (or switch) the conversation the user is in.
+        const created: Thread = {
+          id: uid(),
+          title: "Tool runs",
+          kind: "tools",
+          createdAt: now(),
+          updatedAt: now(),
+          model: QUICK_MODEL,
+          effort: "low",
+          autoApprove: true, // the user clicked the button: that is the approval
+          messages: [],
+          turns: [],
+        };
+        updateSlot(docKey, (d) => ({ ...d, threads: [...d.threads, created] }));
+        thread = created;
+      }
+      const threadId = thread.id;
+      const model = tool?.model || QUICK_MODEL;
+      const text = failure
+        ? `[Run tool: ${name}]\nThe tool's macro failed:\n${failure.slice(0, 4000)}`
+        : `[Run tool: ${name}]\nThis tool has no macro yet.`;
+      const ctx = await buildContext(docKey, threadId, false, { noView: true });
+      updateThread(docKey, threadId, (t) => {
+        const last = t.messages[t.messages.length - 1];
+        const blocks: ContentBlockParam[] = [{ type: "text", text }, ...ctx.blocks];
+        const messages: MessageParam[] =
+          last && last.role === "user"
+            ? [...t.messages.slice(0, -1), { role: "user", content: [...asBlocks(last.content), ...blocks] }]
+            : [...t.messages, { role: "user", content: blocks }];
+        return {
+          ...t,
+          model,
+          effort: "low",
+          messages,
+          selRefs: { ...(t.selRefs ?? {}), ...ctx.refs },
+          turns: [...t.turns, { at: now(), msgIndex: messages.length - 1, model, effort: "low", usage: { ...ZERO_USAGE } }],
+        };
+      });
+      await persist(docKey);
+      if (failure) set({ notice: `${tool?.title ?? name}: the macro hit a problem, so the agent is finishing the job (see the "Tool runs" chat).` });
+      await startRun(docKey, threadId);
     },
 
     async deleteUserTool(name) {

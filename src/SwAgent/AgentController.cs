@@ -321,6 +321,82 @@ namespace SwAgent
 
         // ---- helpers ----
 
+        // ---- tools (ribbon buttons / hotkeys) ----
+
+        /// <summary>
+        /// Run one of the user's Tools the way a native command runs: its macro executes directly on the active
+        /// document and current selection as one undo step, with progress in the status bar - no panel, no AI round
+        /// trip. A tool without a macro, or whose macro breaks, is handed to the agent (in the panel's "Tool runs"
+        /// chat) to finish the job and repair the macro. A Fail("...") in the macro is the user's to fix and only
+        /// shows its message.
+        /// </summary>
+        public async Task RunToolAsync(string name, Action showPane)
+        {
+            var info = UserTools.ListTools().FirstOrDefault(t => (string)t["name"] == name);
+            if (info == null) return;
+            var title = (string)info["title"];
+            var macro = UserTools.ReadMacro(name);
+            if (macro == null)
+            {
+                Status($"Unify3D \u25B8 {title}: working on it...");
+                SendCommand("runTool", new { tool = name });
+                return;
+            }
+            if (!(_app.Documents.Active is ISwDocument doc))
+            {
+                Status($"Unify3D \u25B8 {title}: open a document first");
+                return;
+            }
+
+            Status($"Unify3D \u25B8 {title}...");
+            var threadId = "tool:" + name;
+            var watch = Stopwatch.StartNew();
+            try
+            {
+                var result = await _scripts.Execute(new ToolContext(_app, doc, threadId, _tools),
+                    new ScriptHost.ExecuteInput { Title = title, Kind = "change", Code = macro });
+                var text = string.Join("\n", result.Content.Where(c => (string)c["type"] == "text").Select(c => (string)c["text"]));
+                if (!result.IsError)
+                {
+                    var value = System.Text.RegularExpressions.Regex.Match(text, @"--- return value ---\s*\n(.+)");
+                    Status($"Unify3D \u25B8 {title}: {(value.Success ? value.Groups[1].Value.Trim().Trim('"') : "done")}  ({watch.Elapsed.TotalSeconds:0.0} s, Ctrl+Z to undo)");
+                    Log.Info($"Tool '{name}' ran its macro in {watch.ElapsedMilliseconds} ms");
+                    return;
+                }
+                var userError = System.Text.RegularExpressions.Regex.Match(text, @"MacroInputException: (.+)");
+                if (userError.Success)
+                {
+                    Status($"Unify3D \u25B8 {title}: {userError.Groups[1].Value.Trim()}");
+                    return;
+                }
+                Log.Warn($"Tool '{name}' macro failed:\n{text}");
+                Status($"Unify3D \u25B8 {title}: the macro hit a problem - the agent is finishing the job");
+                showPane?.Invoke();
+                SendCommand("runTool", new { tool = name, failure = text });
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Tool '{name}' failed", ex);
+                Status($"Unify3D \u25B8 {title}: {ex.Message}");
+            }
+            finally
+            {
+                _scripts.Reset(threadId);
+            }
+        }
+
+        private void Status(string text)
+        {
+            try
+            {
+                ((IFrame)_app.Sw.Frame())?.SetStatusBarText(text);
+            }
+            catch
+            {
+                // Cosmetic only.
+            }
+        }
+
         // ---- updates ----
 
         /// <summary>Open documents with unsaved changes; those never saved can't be saved without asking for a name.</summary>

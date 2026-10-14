@@ -54,8 +54,22 @@ namespace SwAgent.Tools
             [ToolParam("Id: lowercase letters, digits and dashes, e.g. \"add-mounting-holes\". Saving an existing id replaces that tool.", Required = true)]
             public string Name { get; set; }
 
-            [ToolParam("Short title shown on the tool button, e.g. \"Add mounting holes\".", Required = true)]
+            [ToolParam("Short title shown on the button / in the menu, e.g. \"Add mounting holes\".", Required = true)]
             public string Title { get; set; }
+
+            [ToolParam("\"workflow\" (default): a larger, multi-step procedure run from the Workflows menu in the chat, e.g. building a whole mold. " +
+                       "\"tool\": a small, fast command that extends manual modelling - a button on the Unify3D ribbon tab the user can put on a hotkey; " +
+                       "give it a macro so it runs instantly.")]
+            public string Kind { get; set; }
+
+            [ToolParam("Tools only: the verified C# that does the whole job (same globals as execute_csharp: swApp, Model, Print, mm(), deg(), ...). " +
+                       "It runs directly when the button is clicked - no AI round trip, one undo step - so it must read its inputs from the live " +
+                       "selection (Model.SelectionManager) or use fixed defaults, never Ref(\"S1\"). For a wrong or missing selection call " +
+                       "Fail(\"Select a planar face first\") (shown to the user in the status bar). End with a short result string, e.g. \"Added 4 holes\".")]
+            public string Macro { get; set; }
+
+            [ToolParam("Model for agent-run steps of this tool or workflow: claude-haiku-5-5 (fastest), claude-sonnet-5-5 (default for tools) or claude-opus-5-5. Omit for the default.")]
+            public string Model { get; set; }
 
             [ToolParam("One or two sentences: what the tool does and what the user should select or provide before running it.", Required = true)]
             public string Description { get; set; }
@@ -105,6 +119,12 @@ namespace SwAgent.Tools
             [ToolParam("New button title.")]
             public string Title { get; set; }
 
+            [ToolParam("Tools only: the verified C# that does the whole job (same globals as execute_csharp: swApp, Model, Print, mm(), deg(), ...). " +
+                       "It runs directly when the button is clicked - no AI round trip, one undo step - so it must read its inputs from the live " +
+                       "selection (Model.SelectionManager) or use fixed defaults, never Ref(\"S1\"). For a wrong or missing selection call " +
+                       "Fail(\"Select a planar face first\") (shown to the user in the status bar). End with a short result string, e.g. \"Added 4 holes\"." + " Replaces the tool's whole macro.")]
+            public string Macro { get; set; }
+
             [ToolParam("An icon designed for this tool, as SVG markup: viewBox=\"0 0 16 16\", drawn to read clearly at 16-20 px next to SolidWorks' own " +
                        "commands - a simple pictogram of what the tool makes or does (e.g. a mold block with a cavity, a plate with holes), " +
                        "SolidWorks style: flat fills with subtle top-to-bottom gradients, 0.75-1 px darker outlines, steel greys plus one accent " +
@@ -113,17 +133,17 @@ namespace SwAgent.Tools
             public string IconSvg { get; set; }
         }
 
-        [AgentTool("list_user_tools","List the user's saved tools (custom reusable procedures) with their descriptions.")]
+        [AgentTool("list_user_tools", "List the user's saved workflows and tools with their descriptions.")]
         public ToolResult List(ToolContext ctx, NoInput input)
         {
             var tools = ListTools();
             return ToolResult.Ok(tools.Count == 0
                 ? "The user has no saved tools yet."
-                : string.Join("\n", tools.Select(t => $"- {t["name"]}: {t["title"]} - {t["description"]}")));
+                : string.Join("\n", tools.Select(t => $"- {t["name"]} ({t["kind"]}): {t["title"]} - {t["description"]}")));
         }
 
         [AgentTool("read_user_tool",
-            "Load a user tool's full instructions (TOOL.md) and its file list, or one of its extra files. Read a tool before " +
+            "Load a workflow's or tool's full instructions (TOOL.md) and its file list, or one of its files (e.g. macro.cs). Read it before " +
             "running it, and before editing it.")]
         public ToolResult Read(ToolContext ctx, ReadInput input)
         {
@@ -140,13 +160,14 @@ namespace SwAgent.Tools
         }
 
         [AgentTool("save_user_tool",
-            "Create or update one of the user's tools. Only save when the user asked for a tool (or agreed to save one). " +
+            "Create or update one of the user's workflows or tools (kind). Only save when the user asked for one (or agreed to save one). " +
             "Before saving, settle with the user what the inputs are and what should be fixed vs. adjustable.")]
         public ToolResult Save(ToolContext ctx, SaveInput input)
         {
             var name = (input.Name ?? "").Trim().ToLowerInvariant();
             if (!NamePattern.IsMatch(name)) return ToolResult.Error("Name must be 2-48 characters: lowercase letters, digits and dashes.");
             var icon = Icons.Contains(input.Icon) ? input.Icon : "macro";
+            var kind = string.Equals((input.Kind ?? "").Trim(), "tool", StringComparison.OrdinalIgnoreCase) ? "tool" : "workflow";
             var dir = Directory.CreateDirectory(Path.Combine(Root, name)).FullName;
             var md = Path.Combine(dir, "TOOL.md");
             var created = File.Exists(md) ? ReadFrontMatter(File.ReadAllText(md)).TryGetValue("created", out var c) ? c : Now() : Now();
@@ -156,7 +177,9 @@ namespace SwAgent.Tools
             sb.AppendLine($"name: {name}");
             sb.AppendLine($"title: {OneLine(input.Title)}");
             sb.AppendLine($"description: {OneLine(input.Description)}");
+            sb.AppendLine($"kind: {kind}");
             sb.AppendLine($"icon: {icon}");
+            if (!string.IsNullOrWhiteSpace(input.Model)) sb.AppendLine($"model: {OneLine(input.Model)}");
             sb.AppendLine($"created: {created}");
             sb.AppendLine($"updated: {Now()}");
             sb.AppendLine("---");
@@ -165,6 +188,7 @@ namespace SwAgent.Tools
             File.WriteAllText(md, sb.ToString(), new UTF8Encoding(false));
 
             WriteIcon(dir, input.IconSvg, iconChanged: !string.IsNullOrWhiteSpace(input.IconSvg) || input.Icon != null);
+            WriteMacro(dir, input.Macro);
 
             foreach (var f in input.Files ?? new ToolFile[0])
             {
@@ -174,23 +198,30 @@ namespace SwAgent.Tools
             }
             Log.Info($"Saved user tool '{name}'");
             Changed?.Invoke();
-            return ToolResult.Ok($"Saved tool '{name}' ({input.Title}) to {dir}. It is now a button on the 'Unify3D Tools' ribbon tab in SolidWorks " +
-                                 $"and in the Unify3D panel's Tools menu{(File.Exists(Path.Combine(dir, "icon.svg")) ? ", with its icon" : " (default toolbox icon - pass icon_svg to give it its own)")}. " +
-                                 "Clicking it runs the tool on the active document.");
+            var hasIcon = File.Exists(Path.Combine(dir, "icon.svg"));
+            if (kind == "tool")
+            {
+                var hasMacro = File.Exists(Path.Combine(dir, "macro.cs"));
+                return ToolResult.Ok($"Saved tool '{name}' ({input.Title}). It is a button on the 'Unify3D' ribbon tab{(hasIcon ? " with its icon" : " (default icon - pass icon_svg)")}; " +
+                                     "the user can assign it a hotkey (Tools > Customize > Keyboard, category Unify3D). " +
+                                     (hasMacro ? "Clicking it runs the macro directly on the current selection." : "It has no macro yet, so each click asks the agent - add a verified macro to make it instant."));
+            }
+            return ToolResult.Ok($"Saved workflow '{name}' ({input.Title}). It is in the Workflows menu of the Unify3D chat panel{(hasIcon ? ", with its icon" : "")}.");
         }
 
         [AgentTool("edit_user_tool",
-            "Make a targeted change to an existing user tool - add a note or rule, or replace specific passages - without " +
-            "rewriting the rest. Prefer this over save_user_tool for small changes to long tools. Read the tool first.")]
+            "Make a targeted change to an existing workflow or tool - add a note or rule, replace specific passages, or replace a tool's macro - " +
+            "without rewriting the rest. Prefer this over save_user_tool for small changes. Read it first.")]
         public ToolResult Edit(ToolContext ctx, EditInput input)
         {
             var dir = ToolDir(input.Name, mustExist: true);
             var md = Path.Combine(dir, "TOOL.md");
             if (!File.Exists(md)) throw new ToolException($"Tool '{input.Name}' has no TOOL.md.");
             if (string.IsNullOrWhiteSpace(input.Append) && (input.Replacements?.Length ?? 0) == 0 && string.IsNullOrWhiteSpace(input.Description) &&
-                string.IsNullOrWhiteSpace(input.Title) && string.IsNullOrWhiteSpace(input.IconSvg))
+                string.IsNullOrWhiteSpace(input.Title) && string.IsNullOrWhiteSpace(input.IconSvg) && string.IsNullOrWhiteSpace(input.Macro))
                 throw new ToolException("Nothing to change: pass append, replacements, description, title or icon_svg.");
             if (!string.IsNullOrWhiteSpace(input.IconSvg)) WriteIcon(dir, input.IconSvg, iconChanged: true);
+            WriteMacro(dir, input.Macro);
 
             var text = File.ReadAllText(md).Replace("\r\n", "\n");
             var lines = text.Split('\n');
@@ -254,6 +285,19 @@ namespace SwAgent.Tools
             }
         }
 
+        private static void WriteMacro(string dir, string macro)
+        {
+            if (string.IsNullOrWhiteSpace(macro)) return;
+            File.WriteAllText(Path.Combine(dir, "macro.cs"), macro.Replace("\r\n", "\n").Trim() + "\n", new UTF8Encoding(false));
+        }
+
+        /// <summary>A tool's macro, or null if it has none.</summary>
+        public static string ReadMacro(string name)
+        {
+            var path = Path.Combine(ToolDir(name, mustExist: true), "macro.cs");
+            return File.Exists(path) ? File.ReadAllText(path) : null;
+        }
+
         /// <summary>The panel rendered the tool's icon to PNG for the ribbon.</summary>
         public static void SetIconPng(string name, byte[] png)
         {
@@ -290,6 +334,9 @@ namespace SwAgent.Tools
                         ["title"] = fm.TryGetValue("title", out var t) ? t : name,
                         ["description"] = fm.TryGetValue("description", out var d) ? d : "",
                         ["icon"] = fm.TryGetValue("icon", out var i) && Icons.Contains(i) ? i : "macro",
+                        ["kind"] = fm.TryGetValue("kind", out var k) && k == "tool" ? "tool" : "workflow",
+                        ["hasMacro"] = File.Exists(Path.Combine(dir, "macro.cs")),
+                        ["model"] = fm.TryGetValue("model", out var m) ? m : null,
                         ["updated"] = fm.TryGetValue("updated", out var u) ? u : File.GetLastWriteTimeUtc(md).ToString("o"),
                         ["iconSvg"] = ReadIconSvg(dir),
                         ["hasPng"] = File.Exists(Path.Combine(dir, "icon.png")),
