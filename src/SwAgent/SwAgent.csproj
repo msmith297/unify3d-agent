@@ -8,7 +8,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <RootNamespace>SwAgent</RootNamespace>
     <AssemblyName>SwAgent</AssemblyName>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <!-- Copy every NuGet dependency next to SwAgent.dll; SolidWorks loads us via COM codebase. -->
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <!-- Registration needs admin rights, so it's done by scripts/register.ps1 instead of on every build. -->
