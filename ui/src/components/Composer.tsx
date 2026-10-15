@@ -7,6 +7,7 @@ import {
   IconAttach,
   IconCamera,
   IconDocs,
+  IconEye,
   IconModelFile,
   IconWarning,
   IconWatch,
@@ -41,6 +42,7 @@ export function Composer() {
   const watch = useStore((s) => s.watch);
   const canWatch = useStore((s) => s.docs[s.viewKey]?.type === "part" || s.docs[s.viewKey]?.type === "assembly");
   const focusTick = useStore((s) => s.focusTick);
+  const overlayCount = useStore((s) => s.overlayCount);
   const { setDraft, send, stop, attachView, addAttachment, removeAttachment, setThreadModel, setThreadEffort, startMarkup, pickFiles, startWatch } =
     useStore.getState();
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -163,6 +165,11 @@ export function Composer() {
         <Dropdown<Effort> title="Effort" value={effort} items={EFFORTS.map((e) => ({ id: e.id, label: e.label, note: e.note }))} onChange={setThreadEffort} disabled={running} />
         <ToolsPalette disabled={running || markupActive} />
         <div className="flex-1" />
+        {overlayCount > 0 && (
+          <button type="button" className="sw-btn mr-1 !h-[22px] !px-1.5 text-[11px]" onClick={() => useStore.getState().clearOverlay()} title="Remove what the agent drew on your view">
+            <IconEye size={12} /> Clear overlay
+          </button>
+        )}
         <IconButton title="Attach images, PDFs or 3D models (or drop them here)" onClick={pickFiles} disabled={markupActive}>
           <IconAttach />
         </IconButton>

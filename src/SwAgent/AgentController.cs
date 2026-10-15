@@ -126,6 +126,17 @@ namespace SwAgent
             _bridge = bridge;
 
             bridge.Register("app.getState", p => GetState());
+            // The agent's drawings on the view (SceneOverlay): the panel shows a Clear button and clears on the next message.
+            bridge.Register("overlay.clear", p =>
+            {
+                UI.SceneOverlay.ClearAll();
+                return null;
+            });
+            if (!_overlaySubscribed)
+            {
+                _overlaySubscribed = true; // the bridge is attached again when the panel reloads
+                UI.SceneOverlay.Changed += count => Safe.Run("Overlay notice", () => _bridge?.Emit("overlay.changed", new JObject { ["count"] = count }));
+            }
             // The panel needs the user to see it (a tool run asks a question or needs approval).
             bridge.Register("app.showPane", p =>
             {
@@ -811,8 +822,11 @@ namespace SwAgent
             _markup = null;
         }
 
+        private bool _overlaySubscribed;
+
         public void Dispose()
         {
+            Safe.Run("Clear the overlay", UI.SceneOverlay.ClearAll);
             StopWatch();
             CloseMarkup();
             _themeTimer.Dispose();

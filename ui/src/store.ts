@@ -122,6 +122,9 @@ interface State {
   startNewTool(spec: NewToolSpec): Promise<void>;
   /** When this SolidWorks session started (or the panel, with older add-ins): ms since epoch. */
   sessionStart: number;
+  /** Items the agent has drawn on the user's view (show_overlay); 0 when nothing is shown. */
+  overlayCount: number;
+  clearOverlay(): void;
   setThreadModel(model: string): void;
   setThreadEffort(effort: Effort): void;
   setDraft(text: string): void;
@@ -612,6 +615,8 @@ export const useStore = create<State>((set, get) => {
 
   /** Add a prompt (text, attachments, the user's selection and view) to a thread and run the agent. */
   const submitPrompt = async (docKey: string, threadId: string, trimmed: string, attachments: Attachment[]) => {
+    // The agent's drawings on the view belong to the conversation so far: a new message starts clean.
+    if (get().overlayCount > 0) get().clearOverlay();
     const blocks: ContentBlockParam[] = [];
     if (trimmed) blocks.push({ type: "text", text: trimmed });
     for (const a of attachments) blocks.push(...attachmentBlocks(a));
@@ -641,6 +646,12 @@ export const useStore = create<State>((set, get) => {
   return {
     booted: false,
     sessionStart: Date.now(),
+    overlayCount: 0,
+
+    clearOverlay() {
+      set({ overlayCount: 0 });
+      rpc("overlay.clear").catch(() => {});
+    },
     bootError: null,
     host: null,
     settings: DEFAULT_SETTINGS,
@@ -715,6 +726,8 @@ export const useStore = create<State>((set, get) => {
       } catch (err: any) {
         set({ bootError: err?.message ?? String(err) });
       }
+
+      on("overlay.changed", (p: { count: number }) => set({ overlayCount: p?.count ?? 0 }));
 
       on("doc.activated", (doc: DocInfo) => {
         set((s) => ({ docs: { ...s.docs, [doc.key]: doc }, activeDocKey: doc.key }));

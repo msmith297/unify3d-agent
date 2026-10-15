@@ -60,6 +60,7 @@ namespace SwAgent
                 tools.RegisterAll(new LibraryTools());
                 tools.RegisterAll(scripts);
                 tools.RegisterAll(new ToolTester(scripts));
+                tools.RegisterAll(new OverlayTools());
                 Controller = new AgentController(Application, tools, scripts);
                 if (crash != null)
                 {
