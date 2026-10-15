@@ -38,6 +38,14 @@ export interface ChatSlot {
   recovered: boolean;
 }
 
+/** A follow-up typed while the agent was working: sent when the run ends, or at its next step with "Send now". */
+export interface QueuedMessage {
+  id: string;
+  text: string;
+  attachments: Attachment[];
+  now?: boolean;
+}
+
 export interface RunState {
   docKey: string;
   threadId: string;
@@ -89,6 +97,11 @@ interface State {
   agentSel: Record<string, string>;
   markup: { active: boolean; tool: MarkupTool; color: string; strokes: number };
   runs: Record<string, RunState>;
+  /** Follow-ups per thread, waiting for the running turn. */
+  queue: Record<string, QueuedMessage[]>;
+  queueSendNow(threadId: string, id: string): void;
+  queueEdit(threadId: string, id: string): void;
+  queueRemove(threadId: string, id: string): void;
   drafts: Record<string, string>;
   attachments: Record<string, Attachment[]>;
   panel: "chat" | "settings";
@@ -267,6 +280,16 @@ export function watchBlocks(w: WatchResult): ContentBlockParam[] {
   ];
 }
 
+/** Follow-ups delivered mid-run ("Send now"): text and attachments, after the tool results. */
+function queuedBlocks(q: QueuedMessage[]): ContentBlockParam[] {
+  const blocks: ContentBlockParam[] = [];
+  for (const m of q) {
+    if (m.text) blocks.push({ type: "text", text: m.text });
+    for (const a of m.attachments) blocks.push(...attachmentBlocks(a));
+  }
+  return blocks;
+}
+
 /** Content blocks for whatever is attached to a message. */
 function attachmentBlocks(a: Attachment): ContentBlockParam[] {
   switch (a.kind) {
@@ -433,6 +456,7 @@ export const useStore = create<State>((set, get) => {
       runs: { ...s.runs, [threadId]: { docKey, threadId, live: null, runningToolId: null, approval: null, question: null, controller, ...extra } },
     }));
     const started = performance.now();
+    let outcome = "end_turn";
     const selectionAtStart = selSig(get().selection[docKey] ?? []);
     rpc("agent.activity", { running: true }).catch(() => {});
     const turnIndex = thread.turns.length - 1;
@@ -493,12 +517,21 @@ export const useStore = create<State>((set, get) => {
               toolUseId,
               refs: get().chats[docKey]?.data.threads.find((t) => t.id === threadId)?.selRefs ?? {},
             }),
+          takeSteering: () => {
+            const q = get().queue[threadId] ?? [];
+            const now = q.filter((m) => m.now);
+            if (now.length === 0) return null;
+            set((s) => ({ queue: { ...s.queue, [threadId]: (s.queue[threadId] ?? []).filter((m) => !m.now) } }));
+            return queuedBlocks(now);
+          },
           isAutoApproved: () => !!get().chats[docKey]?.data.threads.find((t) => t.id === threadId)?.autoApprove,
           setAutoApproved: () => updateThread(docKey, threadId, (t) => ({ ...t, autoApprove: true })),
         },
       });
       patchTurn({ stop: result.stop, error: result.error, durationMs: Math.round(performance.now() - started) });
+      outcome = result.stop;
     } catch (err: any) {
+      outcome = "error";
       const status = err?.status;
       const message =
         status === 401 ? "The API key was rejected. Check it in Settings."
@@ -523,7 +556,56 @@ export const useStore = create<State>((set, get) => {
         }));
       }
       await persist(docKey);
+      flushQueue(docKey, threadId, outcome);
     }
+  };
+
+  /**
+   * After a run: queued follow-ups go out together as the next prompt. If the user pressed Stop they go back into
+   * the composer instead (nothing is lost, nothing is sent behind their back); after an error they wait.
+   */
+  const flushQueue = (docKey: string, threadId: string, outcome: string) => {
+    const q = get().queue[threadId] ?? [];
+    if (q.length === 0 || outcome === "error") return;
+    set((s) => ({ queue: { ...s.queue, [threadId]: [] } }));
+    const text = q.map((m) => m.text).filter(Boolean).join("\n\n");
+    const attachments = q.flatMap((m) => m.attachments);
+    if (outcome === "aborted") {
+      set((s) => ({
+        drafts: { ...s.drafts, [threadId]: [text, s.drafts[threadId]].filter(Boolean).join("\n\n") },
+        attachments: { ...s.attachments, [threadId]: [...attachments, ...(s.attachments[threadId] ?? [])] },
+      }));
+      return;
+    }
+    void submitPrompt(docKey, threadId, text, attachments);
+  };
+
+  /** Add a prompt (text, attachments, the user's selection and view) to a thread and run the agent. */
+  const submitPrompt = async (docKey: string, threadId: string, trimmed: string, attachments: Attachment[]) => {
+    const blocks: ContentBlockParam[] = [];
+    if (trimmed) blocks.push({ type: "text", text: trimmed });
+    for (const a of attachments) blocks.push(...attachmentBlocks(a));
+    const ctx = await buildContext(docKey, threadId, attachments.some((a) => a.kind === "image" && a.name === MARKUP_NAME));
+    blocks.push(...ctx.blocks);
+
+    updateThread(docKey, threadId, (t) => {
+      const last = t.messages[t.messages.length - 1];
+      // After a stopped or failed turn the history can end on a user message; extend it rather than
+      // sending two user messages in a row (no assistant output follows it, so nothing is invalidated).
+      const messages: MessageParam[] =
+        last && last.role === "user"
+          ? [...t.messages.slice(0, -1), { role: "user", content: [...asBlocks(last.content), ...blocks] }]
+          : [...t.messages, { role: "user", content: blocks }];
+      const msgIndex = messages.length - 1;
+      return {
+        ...t,
+        messages,
+        selRefs: { ...(t.selRefs ?? {}), ...ctx.refs },
+        turns: [...t.turns, { at: now(), msgIndex, model: t.model, effort: t.effort, usage: { ...ZERO_USAGE } }],
+      };
+    });
+    await persist(docKey);
+    await startRun(docKey, threadId);
   };
 
   return {
@@ -550,6 +632,7 @@ export const useStore = create<State>((set, get) => {
     agentSel: {},
     markup: { active: false, tool: "pen", color: MARKUP_COLORS[0], strokes: 0 },
     runs: {},
+    queue: {},
     drafts: {},
     attachments: {},
     panel: "chat",
@@ -842,7 +925,17 @@ export const useStore = create<State>((set, get) => {
       if (!trimmed && attachments.length === 0) return;
 
       let thread = currentThread(get());
-      if (thread && get().runs[thread.id]) return; // already running
+      if (thread && get().runs[thread.id]) {
+        // The agent is working: queue it (sent when the turn ends, or at the next step with "Send now").
+        const queued: QueuedMessage = { id: uid(), text: trimmed, attachments };
+        const id = thread.id;
+        set((s) => ({
+          queue: { ...s.queue, [id]: [...(s.queue[id] ?? []), queued] },
+          drafts: { ...s.drafts, [dKey]: "" },
+          attachments: { ...s.attachments, [dKey]: [] },
+        }));
+        return;
+      }
       const settings = get().settings;
       if (!thread) {
         thread = {
@@ -865,30 +958,34 @@ export const useStore = create<State>((set, get) => {
         drafts: { ...s.drafts, [dKey]: "", [threadId]: "" },
         attachments: { ...s.attachments, [dKey]: [], [threadId]: [] },
       }));
-      const blocks: ContentBlockParam[] = [];
-      if (trimmed) blocks.push({ type: "text", text: trimmed });
-      for (const a of attachments) blocks.push(...attachmentBlocks(a));
-      const ctx = await buildContext(docKey, threadId, attachments.some((a) => a.kind === "image" && a.name === MARKUP_NAME));
-      blocks.push(...ctx.blocks);
+      await submitPrompt(docKey, threadId, trimmed, attachments);
+    },
 
-      updateThread(docKey, threadId, (t) => {
-        const last = t.messages[t.messages.length - 1];
-        // After a stopped or failed turn the history can end on a user message; extend it rather than
-        // sending two user messages in a row (no assistant output follows it, so nothing is invalidated).
-        const messages: MessageParam[] =
-          last && last.role === "user"
-            ? [...t.messages.slice(0, -1), { role: "user", content: [...asBlocks(last.content), ...blocks] }]
-            : [...t.messages, { role: "user", content: blocks }];
-        const msgIndex = messages.length - 1;
-        return {
-          ...t,
-          messages,
-          selRefs: { ...(t.selRefs ?? {}), ...ctx.refs },
-          turns: [...t.turns, { at: now(), msgIndex, model: t.model, effort: t.effort, usage: { ...ZERO_USAGE } }],
-        };
-      });
-      await persist(docKey);
-      await startRun(docKey, threadId);
+    queueSendNow(threadId, id) {
+      const q = get().queue[threadId] ?? [];
+      if (!get().runs[threadId]) {
+        // Nothing running (e.g. the turn failed): send the queue now.
+        const docKey = get().viewKey;
+        set((s) => ({ queue: { ...s.queue, [threadId]: [] } }));
+        void submitPrompt(docKey, threadId, q.map((m) => m.text).filter(Boolean).join("\n\n"), q.flatMap((m) => m.attachments));
+        return;
+      }
+      set((s) => ({ queue: { ...s.queue, [threadId]: q.map((m) => (m.id === id ? { ...m, now: true } : m)) } }));
+    },
+
+    queueEdit(threadId, id) {
+      const m = (get().queue[threadId] ?? []).find((x) => x.id === id);
+      if (!m) return;
+      set((s) => ({
+        queue: { ...s.queue, [threadId]: (s.queue[threadId] ?? []).filter((x) => x.id !== id) },
+        drafts: { ...s.drafts, [threadId]: [s.drafts[threadId], m.text].filter(Boolean).join("\n") },
+        attachments: { ...s.attachments, [threadId]: [...(s.attachments[threadId] ?? []), ...m.attachments] },
+        focusTick: s.focusTick + 1,
+      }));
+    },
+
+    queueRemove(threadId, id) {
+      set((s) => ({ queue: { ...s.queue, [threadId]: (s.queue[threadId] ?? []).filter((x) => x.id !== id) } }));
     },
 
     async resendFrom(msgIndex, editedText) {

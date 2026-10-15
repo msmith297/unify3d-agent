@@ -12,6 +12,7 @@ import {
   IconWatch,
   Spinner,
   IconCancel,
+  IconEdit,
   IconMarkup,
   IconOk,
   IconSelect,
@@ -23,7 +24,7 @@ import {
   IconToolPen,
   IconUndo,
 } from "./SwIcons";
-import { EMPTY, MARKUP_COLORS, MARKUP_NAME, currentThread, draftKey, isAgentSelection, useStore, type MarkupTool } from "../store";
+import { EMPTY, MARKUP_COLORS, MARKUP_NAME, currentThread, draftKey, isAgentSelection, useStore, type MarkupTool, type QueuedMessage } from "../store";
 import { EFFORTS, MODELS } from "../lib/models";
 import { isHosted, rpc } from "../lib/bridge";
 import type { Attachment, Effort, FileEntry, ImageMediaType } from "../lib/types";
@@ -48,7 +49,8 @@ export function Composer() {
   const model = thread?.model ?? settings.defaultModel;
   const effort = thread?.effort ?? settings.defaultEffort;
   const reading = attachments.some((a) => a.kind === "model" && a.status === "reading");
-  const canSend = !running && !markupActive && !reading && (draft.trim().length > 0 || attachments.length > 0);
+  // While the agent works, Enter queues the message (see QueuedList).
+  const canSend = !markupActive && !reading && (draft.trim().length > 0 || attachments.length > 0);
 
   // Files dropped anywhere on the panel must not make the WebView navigate to them.
   useEffect(() => {
@@ -128,6 +130,7 @@ export function Composer() {
           Drop images, PDFs or 3D models (STL, STEP, 3MF, IGES, SLDPRT...)
         </div>
       )}
+      {thread && <QueuedList threadId={thread.id} running={running} />}
       {watch.active || watch.busy ? <WatchBar /> : markupActive ? <MarkupBar /> : hasDoc && <SelectionChips />}
 
       <div className="sw-input">
@@ -150,7 +153,7 @@ export function Composer() {
               submit();
             }
           }}
-          placeholder={hasDoc ? "Ask a question or describe a change…" : "Ask anything, or open a document first…"}
+          placeholder={running ? "Add a follow-up - it's queued until the agent finishes…" : hasDoc ? "Ask a question or describe a change…" : "Ask anything, or open a document first…"}
           className="block max-h-[160px] min-h-[36px] w-full resize-none bg-transparent px-2 pb-1 pt-1.5 text-[12px] leading-[1.42] text-text outline-none placeholder:text-text-3"
         />
       </div>
@@ -184,20 +187,58 @@ export function Composer() {
           </>
         )}
         {running ? (
-          <button type="button" onClick={() => stop()} title="Stop" className="sw-btn !h-6 !px-2">
-            <IconStop size={13} /> Stop
-          </button>
+          <>
+            {canSend && (
+              <button type="button" onClick={submit} title="Queue this message (Enter): it's sent when the agent finishes" className="sw-btn sw-btn-primary mr-1 !h-6 !px-2.5">
+                <IconSend size={13} /> Queue
+              </button>
+            )}
+            <button type="button" onClick={() => stop()} title="Stop" className="sw-btn !h-6 !px-2">
+              <IconStop size={13} /> Stop
+            </button>
+          </>
         ) : (
           <button type="button" onClick={submit} disabled={!canSend} title={reading ? "Waiting for the 3D model to be read" : "Send (Enter)"} className="sw-btn sw-btn-primary !h-6 !px-2.5">
             <IconSend size={13} /> Send
           </button>
         )}
       </div>
-      {settings.approval !== "ask" && (
-        <div className="mt-0.5 px-1 text-[10.5px] text-text-3">
-          {settings.approval === "auto" ? "Code runs without asking. Each change is one undo step." : "Read-only: the agent can't change the model."}
+    </div>
+  );
+}
+
+/**
+ * Follow-ups typed while the agent works. They go out together when the turn ends; "Send now" hands one to the
+ * agent at its next step without stopping it. Edit puts it back in the composer.
+ */
+function QueuedList({ threadId, running }: { threadId: string; running: boolean }) {
+  const queue = useStore((s) => s.queue[threadId] ?? (EMPTY as unknown as QueuedMessage[]));
+  const { queueSendNow, queueEdit, queueRemove } = useStore.getState();
+  if (queue.length === 0) return null;
+  return (
+    <div className="mb-1.5 flex flex-col gap-1">
+      {queue.map((m) => (
+        <div key={m.id} className="sw-rollout flex items-start gap-1.5 px-2 py-1 text-[11.5px]">
+          <div className="min-w-0 flex-1">
+            <div className="line-clamp-2 whitespace-pre-wrap break-words text-text">{m.text || `${m.attachments.length} attachment${m.attachments.length === 1 ? "" : "s"}`}</div>
+            <div className="text-[10.5px] text-text-3">
+              {m.now ? "Sending at the agent's next step…" : running ? "Queued - sent when the agent finishes" : "Waiting to be sent"}
+              {m.text && m.attachments.length > 0 && ` · ${m.attachments.length} attachment${m.attachments.length === 1 ? "" : "s"}`}
+            </div>
+          </div>
+          {!m.now && (
+            <button className="sw-btn !h-5 shrink-0 !px-1.5 text-[11px]" onClick={() => queueSendNow(threadId, m.id)} title="Give this to the agent at its next step, without stopping it">
+              Send now
+            </button>
+          )}
+          <button className="sw-tool !h-5 !min-w-5 shrink-0" onClick={() => queueEdit(threadId, m.id)} title="Edit (moves it back into the message box)">
+            <IconEdit size={11} />
+          </button>
+          <button className="sw-tool !h-5 !min-w-5 shrink-0" onClick={() => queueRemove(threadId, m.id)} title="Remove from the queue">
+            <IconCancel size={10} />
+          </button>
         </div>
-      )}
+      ))}
     </div>
   );
 }

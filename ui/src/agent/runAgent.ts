@@ -103,6 +103,8 @@ export type ApprovalDecision = { decision: "run" | "always" | "reject"; note?: s
 
 export interface AgentCallbacks {
   getMessages(): MessageParam[];
+  /** Follow-ups the user chose to "Send now": delivered with the next tool results, without stopping the run. */
+  takeSteering?(): ContentBlockParam[] | null;
   /** Append to the thread and persist. History is append-only - never edit earlier messages. */
   append(message: MessageParam): Promise<void>;
   setLive(blocks: LiveBlock[] | null): void;
@@ -335,7 +337,8 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
         }
         results.push(await executeTool(tu, opts));
       }
-      await cb.append({ role: "user", content: results });
+      const steer = signal.aborted ? null : cb.takeSteering?.();
+      await cb.append({ role: "user", content: steer?.length ? [...results, ...steer] : results });
       if (signal.aborted) return { stop: "aborted" };
     }
     return { stop: "iteration_limit", error: "Stopped after 200 steps." };
