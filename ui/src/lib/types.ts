@@ -193,7 +193,7 @@ export interface ToolRunPayload {
     items?: { type: string; label: string; detail: string; ref?: string }[];
     files?: FileEntry[];
   }[];
-  context?: { model?: string; history?: string; view?: string; failure?: string; handoff?: string; macroOutput?: string };
+  context?: { model?: string; history?: string; view?: string; failure?: string; handoff?: string; hybrid?: string; macroOutput?: string };
   /** Older add-ins: the macro's failure report. */
   failure?: string;
 }
@@ -216,6 +216,8 @@ export interface UserToolInfo {
   model?: string | null;
   /** Tools: an agent finishes the job after the macro (false: the macro is the whole tool). */
   agent?: boolean;
+  /** hardcoded | agent | hybrid. */
+  runStyle?: "hardcoded" | "agent" | "hybrid";
   /** Tools: fast | balanced | high | max. */
   intelligence?: Tier;
   hasInputs?: boolean;

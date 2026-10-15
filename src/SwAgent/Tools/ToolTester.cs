@@ -25,6 +25,33 @@ namespace SwAgent.Tools
             _scripts = scripts;
         }
 
+        public sealed class RunMacroInput
+        {
+            [ToolParam("The tool's name.", Required = true)]
+            public string Name { get; set; }
+
+            [ToolParam("Optional: a modified version of the tool's macro to run instead (same Inputs, e.g. with one rule changed for this " +
+                       "case). Omit to run the saved macro as it is.")]
+            public string Code { get; set; }
+        }
+
+        [AgentTool("run_tool_macro",
+            "Run a saved tool's macro on the chat's document with the inputs from the user's latest run of that tool (its PropertyManager " +
+            "values and selections; the defaults and the current selection if it hasn't run). One undo step. Hybrid tools: run the macro as " +
+            "it is when it fits the case, or pass code with a modified version. Returns the macro's report.")]
+        public async Task<ToolResult> RunMacro(ToolContext ctx, RunMacroInput input)
+        {
+            var spec = ToolSpec.Load((input.Name ?? "").Trim().ToLowerInvariant());
+            if (spec == null) return ToolResult.Error($"No tool named '{input.Name}'.");
+            var code = string.IsNullOrWhiteSpace(input.Code) ? spec.Macro : input.Code;
+            if (code == null) return ToolResult.Error($"'{spec.Name}' has no macro.");
+            var model = ctx.RequireModel();
+            if (!ToolRunner.LastInputs.TryGetValue(spec.Name, out var inputs))
+                inputs = ToolPage.TryFromSelection(spec, model, ToolPage.CurrentSelection(model), forTest: true) ?? new ToolInputs();
+            using (CrashGuard.Enter("macro", spec.Name, spec.Title, code))
+                return await _scripts.RunMacroAsync(ctx, spec.Title + (input.Code == null ? "" : " (modified)"), code, inputs);
+        }
+
         public sealed class TestInput
         {
             [ToolParam("The tool's name.", Required = true)]

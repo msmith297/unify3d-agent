@@ -35,6 +35,10 @@ namespace SwAgent.Tools
     {
         private const int HistoryBudget = 24000;
 
+        /// <summary>The inputs of each tool's latest run (hybrid tools' agent runs the macro with them via run_tool_macro).</summary>
+        internal static readonly System.Collections.Concurrent.ConcurrentDictionary<string, ToolInputs> LastInputs =
+            new System.Collections.Concurrent.ConcurrentDictionary<string, ToolInputs>();
+
         private readonly ISwApplication _app;
         private readonly ToolRegistry _tools;
         private readonly ScriptHost _scripts;
@@ -88,7 +92,7 @@ namespace SwAgent.Tools
                         }
                     };
                     var pageTask = page.ShowAsync(_scripts);
-                    // 2a. While the user fills the page in: what doesn't depend on their inputs (Built tools: only if needed, below).
+                    // 2a. While the user fills the page in: what doesn't depend on their inputs (hard-coded tools: only if needed, below).
                     if (spec.Agent && !spec.AgentFallback) await CaptureModelContextAsync(spec, ctx, context);
                     inputs = await pageTask;
                     if (inputs == null)
@@ -102,9 +106,17 @@ namespace SwAgent.Tools
                     await CaptureModelContextAsync(spec, ctx, context);
                 }
 
-                // 3. The hard-coded part.
+                // 3. The hard-coded part. Hybrid tools leave it to the agent (run_tool_macro), with these inputs.
+                LastInputs[spec.Name] = inputs;
                 string macroOutput = null;
-                if (spec.Macro != null && spec.Paused.Contains("macro"))
+                if (spec.Hybrid)
+                {
+                    context["hybrid"] = "Hybrid tool: look at the inputs, the view and the model first. If the saved macro fits this case, run it with " +
+                                        $"run_tool_macro(name \"{spec.Name}\") - one call, it uses these inputs. If the case needs something different (another " +
+                                        "shape, an extra request in the note), read the macro with read_user_tool and run a modified version with " +
+                                        "run_tool_macro(code: ...), or write custom code. Then verify the tool's acceptance checks.";
+                }
+                else if (spec.Macro != null && spec.Paused.Contains("macro"))
                 {
                     // SolidWorks closed while this macro ran last time: don't run it blind again.
                     context["failure"] = "This tool's macro is paused because SolidWorks closed (crashed) while it was running last time. " +
@@ -140,7 +152,7 @@ namespace SwAgent.Tools
                             context["handoff"] = "The macro handed this case to you: " + handoff.Groups[1].Value.Trim() + "\n\nMacro output:\n" + text;
                         else
                             context["failure"] = text;
-                        // Built tools capture the model context only when the agent is actually needed.
+                        // Hard-coded tools capture the model context only when the agent is actually needed.
                         if (spec.AgentFallback) await CaptureModelContextAsync(spec, ctx, context);
                     }
                     else

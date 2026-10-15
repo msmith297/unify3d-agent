@@ -22,11 +22,26 @@ const USAGE: { id: string; label: string; hint: string }[] = [
   { id: "let me add a note or reference files (images, PDFs, 3D models) each run", label: "Notes / reference files", hint: "Type or dictate instructions, attach references" },
 ];
 
-const STYLES: { id: NewToolSpec["style"]; label: string; hint: string }[] = [
-  { id: "auto", label: "Recommend one", hint: "The agent picks after hearing what it does" },
-  { id: "built", label: "Built", hint: "Code does it from your rules - seconds, same result every time" },
-  { id: "smart", label: "Smart", hint: "The agent does it each run - for jobs needing judgement" },
-  { id: "instant", label: "Instant", hint: "A plain macro for simple, fixed jobs" },
+const STYLES: { id: NewToolSpec["style"]; label: string; hint: string; build: string }[] = [
+  { id: "auto", label: "Recommend one", hint: "The agent suggests a style after hearing what the tool does", build: "" },
+  {
+    id: "hardcoded",
+    label: "Hard coded",
+    hint: "Fast to use and repeatable. Can fail on edge cases it wasn't written for.",
+    build: "Longest to build for complex tasks (tens of minutes)",
+  },
+  {
+    id: "agent",
+    label: "Agent in the loop",
+    hint: "The tool holds a skill; the agent writes the code each run from your context.",
+    build: "Quick to build (minutes); each run takes ~30-90 s",
+  },
+  {
+    id: "hybrid",
+    label: "Hybrid",
+    hint: "The agent checks your context, then runs the hard-coded macro, a modified version, or custom code. Most versatile.",
+    build: "Longest to build",
+  },
 ];
 
 export function NewToolWizard() {
@@ -158,7 +173,8 @@ export function NewToolWizard() {
                 }`}
               >
                 <span className="text-[11.5px] font-semibold text-text">{s.label}</span>
-                <span className="text-[10.5px] leading-snug text-text-3">{s.hint}</span>
+                <span className="text-[10.5px] leading-snug text-text-2">{s.hint}</span>
+                {s.build && <span className="mt-0.5 text-[10px] leading-snug text-text-3">{s.build}</span>}
               </button>
             ))}
           </div>

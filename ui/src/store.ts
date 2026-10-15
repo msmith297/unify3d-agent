@@ -247,6 +247,7 @@ function stageToolPrompt(p: ToolRunPayload, label: string, refBase: number): { b
   if (c.handoff) contextLines.unshift(`${c.handoff.slice(0, 6000)}
 
 Finish this case yourself. If it is a case the macro should cover, extend the macro (edit_user_tool) afterwards.`);
+  if (c.hybrid) contextLines.unshift(c.hybrid);
   if (c.failure) contextLines.unshift(`The tool's macro failed - finish the job, then fix the macro (edit_user_tool) so the next run works:\n${c.failure.slice(0, 4000)}`);
   if (c.macroOutput) contextLines.unshift(`Output of the tool's macro (already run):\n${c.macroOutput.slice(0, 6000)}`);
   if (c.model) contextLines.push(`Model:\n${c.model}`);
@@ -1403,7 +1404,7 @@ export interface NewToolSpec {
   what: string;
   from: "describe" | "chat" | "watch";
   usage: string[];
-  style: "auto" | "built" | "smart" | "instant";
+  style: "auto" | "hardcoded" | "agent" | "hybrid";
   name: string;
 }
 
@@ -1414,10 +1415,10 @@ export function newToolPrompt(t: NewToolSpec): string {
     watch: "the recording of what I do (the watch log attached to this message)",
   }[t.from];
   const style = {
-    auto: "recommend one (Built for rule-based geometry, Smart only when each run needs judgement, Instant for trivial jobs)",
-    built: "Built - the macro does the whole job from the rules and checks it; the agent only for cases it can't handle",
-    smart: "Smart - the agent does the job each run",
-    instant: "Instant - macro only",
+    auto: "recommend one of hard coded / agent in the loop / hybrid, with roughly how long each would take to build",
+    hardcoded: "hard coded - the saved macro does the whole job (the agent only rescues a failure)",
+    agent: "agent in the loop - the tool holds the skill; the agent writes the code each run from my context",
+    hybrid: "hybrid - the agent looks at my context, then runs the hard-coded macro as is, a modified version, or custom code",
   }[t.style];
   const lines = [
     `[New tool] ${t.what.trim() || "(see below)"}`,

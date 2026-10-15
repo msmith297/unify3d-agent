@@ -102,7 +102,7 @@ namespace SwAgent.Scripting
         public void Fail(string message) => throw new MacroInputException(message);
 
         /// <summary>
-        /// In a Built tool's macro: hand the job to the agent for a case the code doesn't cover (e.g. an unusual shape),
+        /// In a hard-coded or hybrid tool's macro: hand the job to the agent for a case the code doesn't cover (e.g. an unusual shape),
         /// with what you found so far. The agent finishes it at the tool's intelligence level.
         /// </summary>
         public void NeedsAgent(string why) => throw new AgentHandoffException(why);
@@ -251,7 +251,7 @@ namespace SwAgent.Scripting
         }
     }
 
-    /// <summary>A Built tool's macro handing a case it doesn't cover to the agent (NeedsAgent).</summary>
+    /// <summary>A hard-coded tool's macro handing a case it doesn't cover to the agent (NeedsAgent).</summary>
     public sealed class AgentHandoffException : Exception
     {
         public AgentHandoffException(string message) : base(message)
