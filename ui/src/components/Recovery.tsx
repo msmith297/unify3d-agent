@@ -13,6 +13,7 @@ export function CrashNotice() {
   if (!crash) return null;
   const what =
     crash.kind === "preview" ? `the preview of “${crash.title ?? crash.tool}”`
+    : crash.kind === "page" ? `the page of the tool “${crash.title ?? crash.tool}”`
     : crash.kind === "macro" ? `the tool “${crash.title ?? crash.tool}”`
     : `the agent's step “${crash.title ?? "C# code"}”`;
   return (

@@ -38,6 +38,16 @@ namespace SwAgent.UI
         private readonly SynchronizationContext _ui = SynchronizationContext.Current;
 
         private IPropertyManagerPage2 _page;
+
+        /// <summary>
+        /// Every group box and control of the page, held for as long as the page is open. If .NET's garbage collector
+        /// releases one (labels and groups we don't otherwise touch), SolidWorks frees it while the page still uses
+        /// it, and the next read of a control on the page crashes SolidWorks. A large allocation - such as compiling
+        /// the preview two seconds after the page opens - is exactly when that collection happens.
+        /// </summary>
+        private readonly List<object> _keep = new List<object>();
+
+        private IDisposable _guard;
         private readonly Dictionary<int, Field> _fields = new Dictionary<int, Field>();
         private readonly List<Field> _ordered = new List<Field>();
         private int _nextId = 10;
@@ -106,8 +116,19 @@ namespace SwAgent.UI
                 _page.SetMessage3(_spec.Description, (int)swPropertyManagerPageMessageVisibility.swMessageBoxVisible,
                     (int)swPropertyManagerPageMessageExpanded.swMessageBoxExpand, _spec.Title);
 
-            Build();
-            _page.Show2(0);
+            // From here until the page closes, a SolidWorks crash is attributed to this tool's page (see CrashGuard).
+            _guard = CrashGuard.Enter("page", _spec.Name, _spec.Title, _spec.Preview ?? _spec.Macro);
+            try
+            {
+                Build();
+                _page.Show2(0);
+            }
+            catch
+            {
+                _guard.Dispose();
+                _guard = null;
+                throw;
+            }
             Preselect();
             UpdateOkButton();
 
@@ -144,7 +165,7 @@ namespace SwAgent.UI
                 var caption = string.IsNullOrWhiteSpace(input.Group) ? (type == "selection" ? "Selections" : type == "text" || type == "files" ? "Context" : "Parameters") : input.Group;
                 if (!groups.TryGetValue(caption, out var group))
                 {
-                    group = (IPropertyManagerPageGroup)_page.AddGroupBox(groupId++, caption,
+                    group = (IPropertyManagerPageGroup)Group(groupId++, caption,
                         (int)(swAddGroupBoxOptions_e.swGroupBoxOptions_Visible | swAddGroupBoxOptions_e.swGroupBoxOptions_Expanded));
                     groups[caption] = group;
                 }
@@ -155,11 +176,11 @@ namespace SwAgent.UI
 
             if (_spec.Agent)
             {
-                var group = (IPropertyManagerPageGroup)_page.AddGroupBox(groupId, "Unify3D Agent", (int)swAddGroupBoxOptions_e.swGroupBoxOptions_Visible);
+                var group = (IPropertyManagerPageGroup)Group(groupId, "Unify3D Agent", (int)swAddGroupBoxOptions_e.swGroupBoxOptions_Visible);
                 AddLabel(group, "Intelligence");
                 var id = _nextId++;
                 _tierBoxId = id;
-                _tierBox = (IPropertyManagerPageCombobox)group.AddControl2(id, (short)swPropertyManagerPageControlType_e.swControlType_Combobox, "Intelligence",
+                _tierBox = (IPropertyManagerPageCombobox)Control(group, id, (short)swPropertyManagerPageControlType_e.swControlType_Combobox, "Intelligence",
                     (short)swPropertyManagerPageControlLeftAlign_e.swControlAlign_Indent, ControlOptions,
                     "How much intelligence the agent uses for this tool: Fast (quickest), Balanced, or Max (hardest problems).");
                 _tierBox.AddItems(TierNames);
@@ -167,11 +188,25 @@ namespace SwAgent.UI
             }
         }
 
+        private IPropertyManagerPageGroup Group(int id, string caption, int options)
+        {
+            var group = (IPropertyManagerPageGroup)_page.AddGroupBox(id, caption, options);
+            _keep.Add(group);
+            return group;
+        }
+
+        private object Control(IPropertyManagerPageGroup group, int id, short type, string caption, short align, int options, string tip)
+        {
+            var control = group.AddControl2(id, type, caption, align, options, tip);
+            _keep.Add(control);
+            return control;
+        }
+
         private static int ControlOptions => (int)(swAddControlOptions_e.swControlOptions_Visible | swAddControlOptions_e.swControlOptions_Enabled);
 
         private void AddLabel(IPropertyManagerPageGroup group, string text)
         {
-            group.AddControl2(_nextId++, (short)swPropertyManagerPageControlType_e.swControlType_Label, text,
+            Control(group, _nextId++, (short)swPropertyManagerPageControlType_e.swControlType_Label, text,
                 (short)swPropertyManagerPageControlLeftAlign_e.swControlAlign_LeftEdge, ControlOptions, "");
         }
 
@@ -185,7 +220,7 @@ namespace SwAgent.UI
                 case "selection":
                 {
                     f.Id = _nextId++;
-                    var box = (IPropertyManagerPageSelectionbox)group.AddControl2(f.Id, (short)swPropertyManagerPageControlType_e.swControlType_Selectionbox,
+                    var box = (IPropertyManagerPageSelectionbox)Control(group, f.Id, (short)swPropertyManagerPageControlType_e.swControlType_Selectionbox,
                         s.Label, indent, ControlOptions, tip);
                     var filters = SelectFilters(s.Filter);
                     if (filters.Length > 0) box.SetSelectionFilters(filters);
@@ -203,7 +238,7 @@ namespace SwAgent.UI
                 {
                     AddLabel(group, s.Label);
                     f.Id = _nextId++;
-                    var box = (IPropertyManagerPageNumberbox)group.AddControl2(f.Id, (short)swPropertyManagerPageControlType_e.swControlType_Numberbox,
+                    var box = (IPropertyManagerPageNumberbox)Control(group, f.Id, (short)swPropertyManagerPageControlType_e.swControlType_Numberbox,
                         s.Label, indent, ControlOptions, tip);
                     var unit = (s.Unit ?? "length").ToLowerInvariant();
                     if (f.Type == "integer")
@@ -223,7 +258,7 @@ namespace SwAgent.UI
                 case "checkbox":
                 {
                     f.Id = _nextId++;
-                    var box = (IPropertyManagerPageCheckbox)group.AddControl2(f.Id, (short)swPropertyManagerPageControlType_e.swControlType_Checkbox,
+                    var box = (IPropertyManagerPageCheckbox)Control(group, f.Id, (short)swPropertyManagerPageControlType_e.swControlType_Checkbox,
                         s.Label, (short)swPropertyManagerPageControlLeftAlign_e.swControlAlign_LeftEdge, ControlOptions, tip);
                     box.Checked = string.Equals(s.Default, "true", StringComparison.OrdinalIgnoreCase);
                     f.Control = box;
@@ -233,7 +268,7 @@ namespace SwAgent.UI
                 {
                     AddLabel(group, s.Label);
                     f.Id = _nextId++;
-                    var box = (IPropertyManagerPageCombobox)group.AddControl2(f.Id, (short)swPropertyManagerPageControlType_e.swControlType_Combobox,
+                    var box = (IPropertyManagerPageCombobox)Control(group, f.Id, (short)swPropertyManagerPageControlType_e.swControlType_Combobox,
                         s.Label, indent, ControlOptions, tip);
                     var choices = s.Choices ?? new string[0];
                     if (choices.Length > 0) box.AddItems(choices);
@@ -250,7 +285,7 @@ namespace SwAgent.UI
                     for (var i = 0; i < choices.Length; i++)
                     {
                         var id = _nextId++;
-                        var opt = (IPropertyManagerPageOption)group.AddControl2(id, (short)swPropertyManagerPageControlType_e.swControlType_Option,
+                        var opt = (IPropertyManagerPageOption)Control(group, id, (short)swPropertyManagerPageControlType_e.swControlType_Option,
                             choices[i], indent, ControlOptions, tip);
                         opt.Checked = choices[i] == s.Default || (s.Default == null && i == 0);
                         f.Options.Add(opt);
@@ -262,7 +297,7 @@ namespace SwAgent.UI
                 {
                     AddLabel(group, s.Label);
                     f.Id = _nextId++;
-                    var box = (IPropertyManagerPageTextbox)group.AddControl2(f.Id, (short)swPropertyManagerPageControlType_e.swControlType_Textbox,
+                    var box = (IPropertyManagerPageTextbox)Control(group, f.Id, (short)swPropertyManagerPageControlType_e.swControlType_Textbox,
                         s.Label, (short)swPropertyManagerPageControlLeftAlign_e.swControlAlign_LeftEdge, ControlOptions,
                         (tip.Length > 0 ? tip + " " : "") + "(Win+H to dictate)");
                     box.Style = (int)swPropMgrPageTextBoxStyle_e.swPropMgrPageTextBoxStyle_Multiline;
@@ -275,14 +310,14 @@ namespace SwAgent.UI
                 {
                     AddLabel(group, s.Label);
                     f.Id = _nextId++;
-                    f.FileList = (IPropertyManagerPageListbox)group.AddControl2(f.Id, (short)swPropertyManagerPageControlType_e.swControlType_Listbox,
+                    f.FileList = (IPropertyManagerPageListbox)Control(group, f.Id, (short)swPropertyManagerPageControlType_e.swControlType_Listbox,
                         s.Label, (short)swPropertyManagerPageControlLeftAlign_e.swControlAlign_LeftEdge, ControlOptions, tip);
                     f.FileList.Height = 40;
                     f.AddButtonId = _nextId++;
-                    group.AddControl2(f.AddButtonId, (short)swPropertyManagerPageControlType_e.swControlType_Button, "Add file...",
+                    Control(group, f.AddButtonId, (short)swPropertyManagerPageControlType_e.swControlType_Button, "Add file...",
                         (short)swPropertyManagerPageControlLeftAlign_e.swControlAlign_LeftEdge, ControlOptions, "Add " + AcceptText(s.Accept));
                     f.ClearButtonId = _nextId++;
-                    group.AddControl2(f.ClearButtonId, (short)swPropertyManagerPageControlType_e.swControlType_Button, "Clear",
+                    Control(group, f.ClearButtonId, (short)swPropertyManagerPageControlType_e.swControlType_Button, "Clear",
                         (short)swPropertyManagerPageControlLeftAlign_e.swControlAlign_LeftEdge, ControlOptions, "Remove all files");
                     _fields[f.AddButtonId] = f;
                     _fields[f.ClearButtonId] = f;
@@ -457,10 +492,10 @@ namespace SwAgent.UI
             {
                 HidePreview();
                 if (!RequiredSatisfied()) return;
-                var globals = new ScriptGlobals { swApp = _sw, Model = _model, Inputs = Collect(withRefs: false) };
                 // If SolidWorks dies in here, the next start knows it was this tool's preview and pauses it.
                 using (CrashGuard.Enter("preview", _spec.Name, _spec.Title, _spec.Preview))
                 {
+                    var globals = new ScriptGlobals { swApp = _sw, Model = _model, Inputs = Collect(withRefs: false) };
                     await _previewRunner(globals);
                     _shownBodies.AddRange(PreviewDisplay.Show(_model, globals.PreviewBodies));
                 }
@@ -528,6 +563,9 @@ namespace SwAgent.UI
         {
             var result = _result;
             _page = null;
+            _keep.Clear();
+            _guard?.Dispose();
+            _guard = null;
             // Let SolidWorks finish closing the page before the tool starts working.
             if (_ui != null) _ui.Post(_ => _done.TrySetResult(result), null);
             else _done.TrySetResult(result);

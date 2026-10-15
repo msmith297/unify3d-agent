@@ -66,12 +66,14 @@ namespace SwAgent
                     // panel offers to have the agent find and fix the cause.
                     var tool = (string)crash["tool"];
                     var kind = (string)crash["kind"];
-                    if (tool != null && (kind == "preview" || kind == "macro"))
+                    if (tool != null && (kind == "preview" || kind == "macro" || kind == "page"))
                     {
                         try
                         {
-                            UserTools.SetValue(tool, "paused", kind);
-                            crash["paused"] = kind;
+                            // A crash while the tool's page was open: its live preview is the likely cause.
+                            var part = kind == "page" ? "preview" : kind;
+                            UserTools.SetValue(tool, "paused", part);
+                            crash["paused"] = part;
                         }
                         catch (Exception ex)
                         {

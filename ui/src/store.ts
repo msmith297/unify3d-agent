@@ -1063,6 +1063,7 @@ export const useStore = create<State>((set, get) => {
       get().dismissCrash();
       const what =
         c.kind === "preview" ? `the live preview of the tool "${c.tool}"`
+        : c.kind === "page" ? `the tool "${c.tool}" while its PropertyManager page was open`
         : c.kind === "macro" ? `the macro of the tool "${c.tool}"`
         : `your code "${c.title ?? "a C# cell"}"`;
       const lines = [
