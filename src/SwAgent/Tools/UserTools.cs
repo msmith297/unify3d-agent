@@ -74,8 +74,9 @@ namespace SwAgent.Tools
             [ToolParam("Tools: the inputs of its PropertyManager page (shown on the left like a native command). Omit for tools that just act on the selection.")]
             public ToolInputSpec[] Inputs { get; set; }
 
-            [ToolParam("Tools: true (default) if an agent finishes the job after the macro (the macro then only prepares and gathers data); " +
-                       "false if the macro does everything and no agent is ever needed.")]
+            [ToolParam("Tools: run style. true (Smart, default) - an agent does the job each run from TOOL.md's rules and pre-recorded snippets; the macro, if any, " +
+                       "only gathers data or does fixed steps. Use it for anything involving judgement or varied geometry. false (Instant) - only for genuinely " +
+                       "mechanical jobs a short, verified macro (~150 lines or less, no geometry algorithms) does completely. When unsure, true.")]
             public bool? Agent { get; set; }
 
             [ToolParam("Tools with an agent: how much intelligence the job needs - fast (simple, mechanical), balanced (default) or max (hard geometry reasoning). " +
@@ -154,8 +155,9 @@ namespace SwAgent.Tools
             [ToolParam("Tools: replace the inputs of its PropertyManager page (shown on the left like a native command). Omit for tools that just act on the selection.")]
             public ToolInputSpec[] Inputs { get; set; }
 
-            [ToolParam("Tools: true (default) if an agent finishes the job after the macro (the macro then only prepares and gathers data); " +
-                       "false if the macro does everything and no agent is ever needed.")]
+            [ToolParam("Tools: run style. true (Smart, default) - an agent does the job each run from TOOL.md's rules and pre-recorded snippets; the macro, if any, " +
+                       "only gathers data or does fixed steps. Use it for anything involving judgement or varied geometry. false (Instant) - only for genuinely " +
+                       "mechanical jobs a short, verified macro (~150 lines or less, no geometry algorithms) does completely. When unsure, true.")]
             public bool? Agent { get; set; }
 
             [ToolParam("Tools with an agent: how much intelligence the job needs - fast (simple, mechanical), balanced (default) or max (hard geometry reasoning). " +

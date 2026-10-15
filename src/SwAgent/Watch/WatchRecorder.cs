@@ -143,17 +143,17 @@ namespace SwAgent.Watch
 
         private void Attach()
         {
-            _changeTimer.Tick += (s, e) =>
+            _changeTimer.Tick += Safe.Tick("Watch: change check", () =>
             {
                 _changeTimer.Stop();
                 _ = CheckNowAsync();
-            };
-            _selectionTimer.Tick += (s, e) =>
+            });
+            _selectionTimer.Tick += Safe.Tick("Watch: selection", () =>
             {
                 _selectionTimer.Stop();
                 RecordSelection();
-            };
-            _pollTimer.Tick += (s, e) => Poll();
+            });
+            _pollTimer.Tick += Safe.Tick("Watch: poll", Poll);
             switch (_model)
             {
                 case PartDoc part:

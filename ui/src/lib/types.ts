@@ -125,7 +125,7 @@ export interface HostState {
 }
 
 export interface CrashInfo {
-  kind: "preview" | "macro" | "cell" | "page";
+  kind: "preview" | "macro" | "cell" | "page" | "addin";
   tool?: string | null;
   title?: string;
   code?: string;

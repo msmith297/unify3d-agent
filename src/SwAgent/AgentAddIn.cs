@@ -45,6 +45,7 @@ namespace SwAgent
             ChatDocument.PruneBackups();
             SoundMuter.RestoreNow(); // if SolidWorks crashed while the agent was working
             var crash = CrashGuard.Recover(); // ...or while a tool's preview / macro or an agent cell was running
+            Safe.InstallLastChance();
 
             try
             {

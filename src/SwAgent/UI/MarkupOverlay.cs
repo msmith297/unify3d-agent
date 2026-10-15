@@ -1,4 +1,5 @@
 using System;
+using SwAgent.Infrastructure;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -48,7 +49,7 @@ namespace SwAgent.UI
             StartPosition = FormStartPosition.Manual;
             Cursor = Cursors.Cross;
             KeyPreview = true;
-            _follow.Tick += (s, e) => FollowView();
+            _follow.Tick += Safe.Tick("Markup follow view", () => FollowView());
         }
 
         public Tool CurrentTool { get; set; } = Tool.pen;

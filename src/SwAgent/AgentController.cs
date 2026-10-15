@@ -65,14 +65,14 @@ namespace SwAgent
             _app = app;
             _tools = tools;
             _scripts = scripts;
-            _selectionTimer.Tick += (s, e) =>
+            _selectionTimer.Tick += Safe.Tick("Selection update", () =>
             {
                 _selectionTimer.Stop();
                 if (_selectionSource != null) EmitSelection(_selectionSource);
-            };
+            });
 
             // SolidWorks raises no event when the interface theme changes, so poll the (cheap) preferences.
-            _themeTimer.Tick += (s, e) =>
+            _themeTimer.Tick += Safe.Tick("Theme poll", () =>
             {
                 var theme = ReadTheme();
                 var json = theme?.ToString(Newtonsoft.Json.Formatting.None);
@@ -80,24 +80,24 @@ namespace SwAgent
                 _lastTheme = json;
                 _bridge?.Emit("theme.changed", theme);
                 ThemeChanged?.Invoke(theme);
-            };
+            });
             _themeTimer.Start();
 
-            Updates.Changed += () =>
+            Updates.Changed += () => Safe.Run("Update notice", () =>
             {
                 _bridge?.Emit("update.changed", Updates.ToJson());
                 // Auto-update: fetch new versions in the background; they install when SolidWorks closes.
                 if (AutoUpdate && Updates.Status == Updater.State.Available) _ = Updates.DownloadAsync();
-            };
-            _updateTimer.Tick += (s, e) => _ = Updates.CheckAsync();
+            });
+            _updateTimer.Tick += Safe.Tick("Update check", () => _ = Updates.CheckAsync());
             _updateTimer.Start();
             var firstCheck = new Timer { Interval = 15000 }; // after start-up has settled
-            firstCheck.Tick += (s, e) =>
+            firstCheck.Tick += Safe.Tick("First update check", () =>
             {
                 firstCheck.Stop();
                 firstCheck.Dispose();
                 _ = Updates.CheckAsync();
-            };
+            });
             firstCheck.Start();
 
             // DocumentActivated isn't raised for File > New (and can be missed during start-up): follow the
@@ -353,11 +353,11 @@ namespace SwAgent
 
         // ---- document lifecycle (called by ChatDocumentHandler / xCAD events) ----
 
-        public void OnChatReadFromFile(ChatDocumentHandler handler) => _bridge?.Emit("doc.chatChanged", new JObject { ["key"] = handler.Chat.Key });
+        public void OnChatReadFromFile(ChatDocumentHandler handler) => Safe.Run("Chat read", () => _bridge?.Emit("doc.chatChanged", new JObject { ["key"] = handler.Chat.Key }));
 
         public void OnDocumentOpened(ChatDocumentHandler handler) => _docs[handler.Chat.Key] = handler;
 
-        public void OnDocumentClosed(ChatDocumentHandler handler)
+        public void OnDocumentClosed(ChatDocumentHandler handler) => Safe.Run("Document closed", () =>
         {
             if (handler.Chat == null) return;
             _docs.Remove(handler.Chat.Key);
@@ -368,26 +368,26 @@ namespace SwAgent
                 _bridge?.Emit("watch.ended", new JObject { ["reason"] = "The document was closed, so Watch me stopped recording." });
             }
             _bridge?.Emit("doc.closed", new JObject { ["key"] = handler.Chat.Key });
-        }
+        });
 
-        public void OnDocumentActivated(IXDocument doc)
+        public void OnDocumentActivated(IXDocument doc) => Safe.Run("Document activated", () =>
         {
             var handler = HandlerFor(doc);
             if (handler == null) return;
             _bridge?.Emit("doc.activated", DocInfo(handler));
             EmitSelection(handler);
-        }
+        });
 
         public void OnDocumentSaved(ChatDocumentHandler handler)
         {
             // Title/path change after Save As; refresh once SolidWorks has finished the save.
             var t = new Timer { Interval = 700 };
-            t.Tick += (s, e) =>
+            t.Tick += Safe.Tick("Refresh after save", () =>
             {
                 t.Stop();
                 t.Dispose();
                 if (_docs.ContainsKey(handler.Chat.Key)) _bridge?.Emit("doc.updated", DocInfo(handler));
-            };
+            });
             t.Start();
         }
 
