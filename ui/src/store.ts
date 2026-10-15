@@ -48,6 +48,10 @@ export interface RunState {
   /** Ribbon tool runs: the tool's title (shown in the "executing" banner) and when it started. */
   label?: string;
   startedAt?: number;
+  /** When the current request to the model started (the thinking timer). */
+  requestStartedAt?: number;
+  /** A status line, e.g. a stalled connection being retried. */
+  status?: string | null;
 }
 
 /** The last ribbon tool run's outcome, shown briefly in the banner. */
@@ -474,6 +478,8 @@ export const useStore = create<State>((set, get) => {
               }),
             })),
           approve: (req) => new Promise<ApprovalDecision>((resolve) => updateRun(threadId, { approval: { ...req, resolve } })),
+          onRequest: (at) => updateRun(threadId, { requestStartedAt: at }),
+          onStatus: (text) => updateRun(threadId, { status: text }),
           ask: (toolUseId, question, options, form) =>
             new Promise<string>((resolve) => updateRun(threadId, { question: { toolUseId, question, options, form, resolve } })),
           runTool: (name, input) =>

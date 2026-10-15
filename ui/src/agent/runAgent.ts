@@ -93,6 +93,10 @@ export interface AgentCallbacks {
   addUsage(usage: Usage): void;
   approve(req: ApprovalRequest): Promise<ApprovalDecision>;
   ask(toolUseId: string, question: string, options: string[], form?: FormSpec): Promise<string>;
+  /** A request to the model started (for the "Thinking... 1m 20s" timer). */
+  onRequest?(startedAt: number): void;
+  /** A status line for the user (e.g. a stalled connection being retried), or null to clear it. */
+  onStatus?(text: string | null): void;
   runTool(name: string, input: unknown): Promise<ToolRunResult>;
   isAutoApproved(): boolean;
   setAutoApproved(): void;
@@ -130,10 +134,38 @@ const CLEAR_OLD_TOOL_USES = {
   exclude_tools: ["ask_user", "ask_form", "read_user_tool"],
 };
 
+/** No bytes at all (not even keep-alive pings) for this long means the connection is dead, not thinking. */
+const STALL_MS = 90_000;
+
 /** Runs the agent until it ends its turn, is stopped, or fails. */
 export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
   const { cb, signal } = opts;
-  const client = new Anthropic({ apiKey: opts.apiKey, dangerouslyAllowBrowser: true, maxRetries: 3 });
+  // Liveness: every byte the API sends - text, thinking or the keep-alive pings it sends while the model thinks -
+  // counts. A long think keeps the connection busy; a silent connection is stalled.
+  const liveness = { last: Date.now() };
+  const client = new Anthropic({
+    apiKey: opts.apiKey,
+    dangerouslyAllowBrowser: true,
+    maxRetries: 3,
+    fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+      const res = await fetch(input, init);
+      liveness.last = Date.now();
+      if (!res.body) return res;
+      const reader = res.body.getReader();
+      const body = new ReadableStream<Uint8Array>({
+        async pull(controller) {
+          const { done, value } = await reader.read();
+          liveness.last = Date.now();
+          if (done) controller.close();
+          else controller.enqueue(value);
+        },
+        cancel(reason) {
+          return reader.cancel(reason);
+        },
+      });
+      return new Response(body, { status: res.status, statusText: res.statusText, headers: res.headers });
+    },
+  });
   const m = modelOption(opts.model);
 
   const betas = ["thinking-binding-controls-2026-08-01", "context-management-2025-06-27"];
@@ -149,9 +181,24 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
 
   const system = buildSystemPrompt({ realisticAppearance: opts.realisticAppearance, userTools: opts.userTools });
   let malformedRetries = 0;
+  let stallRetries = 0;
   try {
     for (let iteration = 0; iteration < 200; iteration++) {
       if (signal.aborted) return { stop: "aborted" };
+
+      // One controller per request, so a stalled request can be dropped and re-sent without stopping the run.
+      const request = new AbortController();
+      const onAbort = () => request.abort();
+      signal.addEventListener("abort", onAbort);
+      let stalled = false;
+      liveness.last = Date.now();
+      cb.onRequest?.(Date.now());
+      const watchdog = setInterval(() => {
+        if (Date.now() - liveness.last > STALL_MS) {
+          stalled = true;
+          request.abort();
+        }
+      }, 5000);
 
       const stream = client.beta.messages.stream(
         {
@@ -175,7 +222,7 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
           ...(m.fallbacks ? { fallbacks: "default" as const } : {}),
           betas,
         },
-        { signal },
+        { signal: request.signal },
       );
 
       const live: LiveBlock[] = [];
@@ -189,6 +236,10 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
       };
 
       let message: Anthropic.Beta.Messages.BetaMessage;
+      const endRequest = () => {
+        clearInterval(watchdog);
+        signal.removeEventListener("abort", onAbort);
+      };
       try {
         for await (const ev of stream) {
           if (ev.type === "content_block_start") {
@@ -210,15 +261,30 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
         }
         message = await stream.finalMessage();
         malformedRetries = 0;
+        stallRetries = 0;
+        endRequest();
       } catch (err) {
+        endRequest();
         if (frame) cancelAnimationFrame(frame);
-        if (signal.aborted || err instanceof Anthropic.APIUserAbortError) return { stop: "aborted" };
+        if (signal.aborted) return { stop: "aborted" };
+        if (stalled) {
+          // Nothing (not even keep-alive pings) for a long time: the connection is dead. Nothing was appended, so
+          // sending the same request again is safe.
+          if (stallRetries++ < 2) {
+            cb.setLive(null);
+            cb.onStatus?.(`The connection to Claude went quiet - retrying (${stallRetries}/2)...`);
+            continue;
+          }
+          throw new Error("The connection to Claude stopped responding. Check your internet connection, then press Retry.");
+        }
+        if (err instanceof Anthropic.APIUserAbortError) return { stop: "aborted" };
         // With eager input streaming, unparseable tool JSON rejects finalMessage. Re-issue that turn (nothing was appended).
         if (!(err instanceof Anthropic.APIError) && malformedRetries++ < 2) continue;
         throw err;
       }
       if (frame) cancelAnimationFrame(frame);
       cb.setLive(null);
+      cb.onStatus?.(null);
 
       const u = message.usage;
       const input = u.input_tokens ?? 0;

@@ -111,7 +111,7 @@ function renderItem(item: Item, thread: Thread, run: RunState | undefined, onIma
         </div>
       );
     case "thinking":
-      return <div className="pl-1 text-[12px] shimmer">Thinking…</div>;
+      return <ThinkingIndicator run={run} />;
     case "text":
       return (
         <div className="selectable px-0.5 text-text">
@@ -233,6 +233,31 @@ function quietFailures(segment: Item[], finished: boolean): Item[] {
       const n = retries.get(it.key);
       return soft || n ? { ...it, call: { ...it.call, soft, retries: n } } : it;
     });
+}
+
+/** "Thinking..." with how long the model has been at it, so a long think never looks like a hang. */
+function ThinkingIndicator({ run }: { run: RunState | undefined }) {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => tick((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const seconds = run?.requestStartedAt ? Math.floor((Date.now() - run.requestStartedAt) / 1000) : 0;
+  const time = seconds >= 60 ? `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s` : `${seconds}s`;
+  return (
+    <div className="flex flex-col gap-0.5 pl-1 text-[12px]">
+      <div>
+        <span className="shimmer">{seconds >= 45 ? "Thinking it through" : "Thinking"}</span>
+        <span className="working-dots text-text-3">
+          <span>.</span>
+          <span>.</span>
+          <span>.</span>
+        </span>
+        {seconds >= 5 && <span className="text-text-3"> {time}</span>}
+      </div>
+      {run?.status && <div className="text-[11px] text-text-3">{run.status}</div>}
+    </div>
+  );
 }
 
 /** The newest successful save/edit of a tool in the chat: the restart offer goes under it, once. */
