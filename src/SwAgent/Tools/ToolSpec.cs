@@ -72,7 +72,13 @@ namespace SwAgent.Tools
         /// <summary>An agent finishes the job (otherwise the macro is the whole tool).</summary>
         public bool Agent;
 
-        /// <summary>fast | balanced | max: how much intelligence the agent part needs.</summary>
+        /// <summary>
+        /// "agent: fallback" (run style Built): the macro does the whole job and checks it; the agent only steps in when
+        /// the macro fails or calls NeedsAgent(...). Agent is true too, so the agent is available for that.
+        /// </summary>
+        public bool AgentFallback;
+
+        /// <summary>fast | balanced | high | max: how much intelligence the agent part needs.</summary>
         public string Intelligence;
 
         /// <summary>"missing": skip the PropertyManager page when everything required is already selected. "always": always show it.</summary>
@@ -88,7 +94,7 @@ namespace SwAgent.Tools
         public string Macro;
         public string Preview;
 
-        public static readonly string[] Tiers = { "fast", "balanced", "max" };
+        public static readonly string[] Tiers = { "fast", "balanced", "high", "max" };
 
         public static ToolSpec Load(string name)
         {
@@ -110,6 +116,7 @@ namespace SwAgent.Tools
             };
             // A tool without a macro can only work through the agent.
             spec.Agent = spec.Macro == null || !string.Equals(Get("agent", "true"), "false", StringComparison.OrdinalIgnoreCase);
+            spec.AgentFallback = spec.Macro != null && string.Equals(Get("agent", "true"), "fallback", StringComparison.OrdinalIgnoreCase);
             spec.Intelligence = Tiers.Contains(Get("intelligence")) ? Get("intelligence") : "balanced";
             spec.Confirm = Get("confirm", "missing") == "always" ? "always" : "missing";
             spec.Paused = new HashSet<string>((Get("paused", "") ?? "").Split(new[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries));

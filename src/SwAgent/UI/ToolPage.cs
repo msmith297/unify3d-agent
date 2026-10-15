@@ -28,7 +28,7 @@ namespace SwAgent.UI
     public sealed class ToolPage : IPropertyManagerPage2Handler9
     {
         private const int PreviewBudgetMs = 350;
-        private static readonly string[] TierNames = { "Fast", "Balanced", "Max" };
+        private static readonly string[] TierNames = { "Fast", "Balanced", "High", "Max" };
 
         private readonly ISldWorks _sw;
         private readonly IModelDoc2 _model;
@@ -182,7 +182,7 @@ namespace SwAgent.UI
                 _tierBoxId = id;
                 _tierBox = (IPropertyManagerPageCombobox)Control(group, id, (short)swPropertyManagerPageControlType_e.swControlType_Combobox, "Intelligence",
                     (short)swPropertyManagerPageControlLeftAlign_e.swControlAlign_Indent, ControlOptions,
-                    "How much intelligence the agent uses for this tool: Fast (quickest), Balanced, or Max (hardest problems).");
+                    "How much intelligence the agent uses for this tool: Fast (quickest), Balanced, High (careful), or Max (hardest problems).");
                 _tierBox.AddItems(TierNames);
                 _tierBox.CurrentSelection = (short)Math.Max(0, Array.IndexOf(ToolSpec.Tiers, _spec.Intelligence));
             }

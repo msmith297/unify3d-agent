@@ -88,8 +88,8 @@ namespace SwAgent.Tools
                         }
                     };
                     var pageTask = page.ShowAsync(_scripts);
-                    // 2a. While the user fills the page in: what doesn't depend on their inputs.
-                    if (spec.Agent) await CaptureModelContextAsync(spec, ctx, context);
+                    // 2a. While the user fills the page in: what doesn't depend on their inputs (Built tools: only if needed, below).
+                    if (spec.Agent && !spec.AgentFallback) await CaptureModelContextAsync(spec, ctx, context);
                     inputs = await pageTask;
                     if (inputs == null)
                     {
@@ -97,7 +97,7 @@ namespace SwAgent.Tools
                         return;
                     }
                 }
-                else if (spec.Agent)
+                else if (spec.Agent && !spec.AgentFallback)
                 {
                     await CaptureModelContextAsync(spec, ctx, context);
                 }
@@ -125,7 +125,7 @@ namespace SwAgent.Tools
                         _status($"Unify3D ▸ {spec.Title}: {userError.Groups[1].Value.Trim()}");
                         return;
                     }
-                    if (!result.IsError && !spec.Agent)
+                    if (!result.IsError && (!spec.Agent || spec.AgentFallback))
                     {
                         var value = Regex.Match(text, @"--- return value ---\s*\n(.+)");
                         _status($"Unify3D ▸ {spec.Title}: {(value.Success ? value.Groups[1].Value.Trim().Trim('"') : "done")}  ({watch.Elapsed.TotalSeconds:0.0} s, Ctrl+Z to undo)");
@@ -134,8 +134,14 @@ namespace SwAgent.Tools
                     }
                     if (result.IsError)
                     {
-                        Log.Warn($"Tool '{name}' macro failed:\n{text}");
-                        context["failure"] = text;
+                        var handoff = Regex.Match(text, @"(?:AgentHandoffException|NeedsAgent): (.+)");
+                        Log.Warn($"Tool '{name}' macro {(handoff.Success ? "handed over to the agent" : "failed")}:\n{text}");
+                        if (handoff.Success)
+                            context["handoff"] = "The macro handed this case to you: " + handoff.Groups[1].Value.Trim() + "\n\nMacro output:\n" + text;
+                        else
+                            context["failure"] = text;
+                        // Built tools capture the model context only when the agent is actually needed.
+                        if (spec.AgentFallback) await CaptureModelContextAsync(spec, ctx, context);
                     }
                     else
                     {

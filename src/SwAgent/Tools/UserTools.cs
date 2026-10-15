@@ -22,6 +22,22 @@ namespace SwAgent.Tools
 
         private static readonly Regex NamePattern = new Regex("^[a-z0-9][a-z0-9-]{1,47}$");
 
+        /// <summary>Front matter "agent:" value: true (smart), fallback (built) or false (instant; needs a macro).</summary>
+        private static string AgentValue(string runStyle, bool? agent, bool hasMacro)
+        {
+            switch ((runStyle ?? "").Trim().ToLowerInvariant())
+            {
+                case "built":
+                case "fallback":
+                    return hasMacro ? "fallback" : "true";
+                case "instant":
+                    return hasMacro ? "false" : "true";
+                case "smart":
+                    return "true";
+            }
+            return agent == false && hasMacro ? "false" : "true";
+        }
+
         public static string Root => Directory.CreateDirectory(Path.Combine(Paths.RoamingDir, "tools")).FullName;
 
         /// <summary>Raised after a tool is saved or deleted (the UI refreshes its palette and the agent's index).</summary>
@@ -74,12 +90,14 @@ namespace SwAgent.Tools
             [ToolParam("Tools: the inputs of its PropertyManager page (shown on the left like a native command). Omit for tools that just act on the selection.")]
             public ToolInputSpec[] Inputs { get; set; }
 
-            [ToolParam("Tools: run style. true (Smart, default) - an agent does the job each run from TOOL.md's rules and pre-recorded snippets; the macro, if any, " +
-                       "only gathers data or does fixed steps. Use it for anything involving judgement or varied geometry. false (Instant) - only for genuinely " +
-                       "mechanical jobs a short, verified macro (~150 lines or less, no geometry algorithms) does completely. When unsure, true.")]
+            [ToolParam("Tools: run style - built | smart | instant (overrides agent). built: the macro does the whole job from the rules and checks its result; the agent " +
+                       "only steps in when the macro fails or calls NeedsAgent(\"why\"). smart: an agent does the job every run. instant: macro only, no agent ever.")]
+            public string RunStyle { get; set; }
+
+            [ToolParam("Older form of run_style: true = smart, false = instant. Prefer run_style.")]
             public bool? Agent { get; set; }
 
-            [ToolParam("Tools with an agent: how much intelligence the job needs - fast (simple, mechanical), balanced (default) or max (hard geometry reasoning). " +
+            [ToolParam("Tools with an agent: how much intelligence the job needs - fast (simple, mechanical), balanced (default), high (careful geometry work) or max (hardest reasoning). " +
                        "Maps to the user's provider (e.g. Claude Haiku / Sonnet / Opus); the user can change it in the tool's page.")]
             public string Intelligence { get; set; }
 
@@ -155,12 +173,14 @@ namespace SwAgent.Tools
             [ToolParam("Tools: replace the inputs of its PropertyManager page (shown on the left like a native command). Omit for tools that just act on the selection.")]
             public ToolInputSpec[] Inputs { get; set; }
 
-            [ToolParam("Tools: run style. true (Smart, default) - an agent does the job each run from TOOL.md's rules and pre-recorded snippets; the macro, if any, " +
-                       "only gathers data or does fixed steps. Use it for anything involving judgement or varied geometry. false (Instant) - only for genuinely " +
-                       "mechanical jobs a short, verified macro (~150 lines or less, no geometry algorithms) does completely. When unsure, true.")]
+            [ToolParam("Tools: run style - built | smart | instant (overrides agent). built: the macro does the whole job from the rules and checks its result; the agent " +
+                       "only steps in when the macro fails or calls NeedsAgent(\"why\"). smart: an agent does the job every run. instant: macro only, no agent ever.")]
+            public string RunStyle { get; set; }
+
+            [ToolParam("Older form of run_style: true = smart, false = instant. Prefer run_style.")]
             public bool? Agent { get; set; }
 
-            [ToolParam("Tools with an agent: how much intelligence the job needs - fast (simple, mechanical), balanced (default) or max (hard geometry reasoning). " +
+            [ToolParam("Tools with an agent: how much intelligence the job needs - fast (simple, mechanical), balanced (default), high (careful geometry work) or max (hardest reasoning). " +
                        "Maps to the user's provider (e.g. Claude Haiku / Sonnet / Opus); the user can change it in the tool's page.")]
             public string Intelligence { get; set; }
 
@@ -236,7 +256,7 @@ namespace SwAgent.Tools
             if (!string.IsNullOrWhiteSpace(input.Model)) sb.AppendLine($"model: {OneLine(input.Model)}");
             if (kind == "tool")
             {
-                sb.AppendLine($"agent: {(input.Agent == false && !string.IsNullOrWhiteSpace(input.Macro) ? "false" : "true")}");
+                sb.AppendLine($"agent: {AgentValue(input.RunStyle, input.Agent, !string.IsNullOrWhiteSpace(input.Macro))}");
                 sb.AppendLine($"intelligence: {(ToolSpec.Tiers.Contains(input.Intelligence) ? input.Intelligence : "balanced")}");
                 sb.AppendLine($"confirm: {(input.Confirm == "always" ? "always" : "missing")}");
                 if (input.Context?.Length > 0) sb.AppendLine($"context: {string.Join(", ", input.Context.Select(c => c.Trim().ToLowerInvariant()))}");
@@ -282,7 +302,7 @@ namespace SwAgent.Tools
             if (!File.Exists(md)) throw new ToolException($"Tool '{input.Name}' has no TOOL.md.");
             if (string.IsNullOrWhiteSpace(input.Append) && (input.Replacements?.Length ?? 0) == 0 && string.IsNullOrWhiteSpace(input.Description) &&
                 string.IsNullOrWhiteSpace(input.Title) && string.IsNullOrWhiteSpace(input.IconSvg) && string.IsNullOrWhiteSpace(input.Macro) &&
-                string.IsNullOrWhiteSpace(input.Preview) && input.Inputs == null && input.Agent == null && input.Intelligence == null &&
+                string.IsNullOrWhiteSpace(input.Preview) && input.Inputs == null && input.Agent == null && input.RunStyle == null && input.Intelligence == null &&
                 input.Confirm == null && input.Context == null)
                 throw new ToolException("Nothing to change: pass append, replacements, description, title, icon_svg, macro, preview, inputs or a tool setting.");
             if (!string.IsNullOrWhiteSpace(input.IconSvg)) WriteIcon(dir, input.IconSvg, iconChanged: true);
@@ -312,7 +332,7 @@ namespace SwAgent.Tools
                 SetHeader(header, "updated", Now());
                 if (!string.IsNullOrWhiteSpace(input.Description)) SetHeader(header, "description", OneLine(input.Description));
                 if (!string.IsNullOrWhiteSpace(input.Title)) SetHeader(header, "title", OneLine(input.Title));
-                if (input.Agent != null) SetHeader(header, "agent", input.Agent == false ? "false" : "true");
+                if (input.RunStyle != null || input.Agent != null) SetHeader(header, "agent", AgentValue(input.RunStyle, input.Agent, true));
                 if (ToolSpec.Tiers.Contains(input.Intelligence)) SetHeader(header, "intelligence", input.Intelligence);
                 if (input.Confirm == "always" || input.Confirm == "missing") SetHeader(header, "confirm", input.Confirm);
                 if (input.Context?.Length > 0) SetHeader(header, "context", string.Join(", ", input.Context.Select(c => c.Trim().ToLowerInvariant())));
@@ -439,6 +459,7 @@ namespace SwAgent.Tools
                         ["hasMacro"] = File.Exists(Path.Combine(dir, "macro.cs")),
                         ["model"] = fm.TryGetValue("model", out var m) ? m : null,
                         ["agent"] = !fm.TryGetValue("agent", out var ag) || ag != "false" || !File.Exists(Path.Combine(dir, "macro.cs")),
+                        ["runStyle"] = !File.Exists(Path.Combine(dir, "macro.cs")) ? "smart" : ag == "false" ? "instant" : ag == "fallback" ? "built" : "smart",
                         ["intelligence"] = fm.TryGetValue("intelligence", out var tier) && ToolSpec.Tiers.Contains(tier) ? tier : "balanced",
                         ["hasInputs"] = File.Exists(Path.Combine(dir, "inputs.json")),
                         ["hasPreview"] = File.Exists(Path.Combine(dir, "preview.cs")),

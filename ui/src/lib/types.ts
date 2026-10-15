@@ -157,7 +157,7 @@ export interface ToolRunResult {
 
 /** A user-created tool (a saved, reusable procedure the agent runs). */
 /** How much intelligence a tool needs; mapped to a model per provider (lib/models.ts). */
-export type Tier = "fast" | "balanced" | "max";
+export type Tier = "fast" | "balanced" | "high" | "max";
 
 /** One question of an ask_form questionnaire. */
 export interface FormField {
@@ -189,7 +189,7 @@ export interface ToolRunPayload {
     items?: { type: string; label: string; detail: string; ref?: string }[];
     files?: FileEntry[];
   }[];
-  context?: { model?: string; history?: string; view?: string; failure?: string; macroOutput?: string };
+  context?: { model?: string; history?: string; view?: string; failure?: string; handoff?: string; macroOutput?: string };
   /** Older add-ins: the macro's failure report. */
   failure?: string;
 }
@@ -212,7 +212,7 @@ export interface UserToolInfo {
   model?: string | null;
   /** Tools: an agent finishes the job after the macro (false: the macro is the whole tool). */
   agent?: boolean;
-  /** Tools: fast | balanced | max. */
+  /** Tools: fast | balanced | high | max. */
   intelligence?: Tier;
   hasInputs?: boolean;
   hasPreview?: boolean;
