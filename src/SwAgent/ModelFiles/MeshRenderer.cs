@@ -37,6 +37,22 @@ namespace SwAgent.ModelFiles
             new ViewSpec { Name = "from below", Dir = new[] { 0.8, -1, 1 }, Up = new[] { 0.0, 1, 0 } },
         };
 
+        /// <summary>Extra per-triangle data for rendering a live SolidWorks model (see LiveModelMesh).</summary>
+        internal sealed class RenderOptions
+        {
+            /// <summary>ARGB colour per triangle (the face / body / part colour), instead of the per-shell palette.</summary>
+            public int[] TriColor;
+
+            /// <summary>Triangles to highlight (the user's selection, [S1] references...).</summary>
+            public bool[] Highlight;
+
+            /// <summary>Frame the view on these triangles only (close-ups); null frames the whole model.</summary>
+            public bool[] Focus;
+        }
+
+        /// <summary>SolidWorks-like selection highlight.</summary>
+        private static readonly int HighlightColor = Rgb(66, 150, 255);
+
         private const int Supersample = 2;
         private static readonly int[] Palette =
         {
@@ -83,7 +99,7 @@ namespace SwAgent.ModelFiles
             }
         }
 
-        public static Bitmap RenderView(Mesh mesh, int[] triShell, ViewSpec view, char up, int width, int height, CancellationToken ct = default)
+        public static Bitmap RenderView(Mesh mesh, int[] triShell, ViewSpec view, char up, int width, int height, CancellationToken ct = default, RenderOptions opts = null)
         {
             int w = width * Supersample, h = height * Supersample;
             var (d, right, u) = Basis(view, up);
@@ -92,6 +108,17 @@ namespace SwAgent.ModelFiles
             var p = mesh.Positions;
             var idx = mesh.Indices;
             var nv = mesh.VertexCount;
+            bool[] frame = null;
+            if (opts?.Focus != null)
+            {
+                frame = new bool[nv];
+                for (var t = 0; t < mesh.TriangleCount && t < opts.Focus.Length; t++)
+                {
+                    if (!opts.Focus[t]) continue;
+                    frame[idx[t * 3]] = frame[idx[t * 3 + 1]] = frame[idx[t * 3 + 2]] = true;
+                }
+                if (!frame.Any(f => f)) frame = null;
+            }
             var sx = new float[nv];
             var sy = new float[nv];
             var sz = new float[nv];
@@ -104,6 +131,7 @@ namespace SwAgent.ModelFiles
                 sx[i] = (float)a;
                 sy[i] = (float)b;
                 sz[i] = (float)(x * d[0] + y * d[1] + z * d[2]);
+                if (frame != null && !frame[i]) continue;
                 if (a < minX) minX = a;
                 if (a > maxX) maxX = a;
                 if (b < minY) minY = b;
@@ -111,7 +139,7 @@ namespace SwAgent.ModelFiles
             }
             var rangeX = Math.Max(maxX - minX, 1e-9);
             var rangeY = Math.Max(maxY - minY, 1e-9);
-            var scale = Math.Min(w * 0.84 / rangeX, h * 0.80 / rangeY);
+            var scale = Math.Min(w * (frame != null ? 0.7 : 0.84) / rangeX, h * (frame != null ? 0.66 : 0.80) / rangeY);
             double cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
             for (var i = 0; i < nv; i++)
             {
@@ -149,7 +177,10 @@ namespace SwAgent.ModelFiles
                 var diffuse = Math.Max(0, nx * light[0] + ny * light[1] + nz * light[2]);
                 var sky = 0.5 + 0.5 * (nx * u[0] + ny * u[1] + nz * u[2]);
                 var intensity = Math.Min(1.08, 0.34 + 0.56 * diffuse + 0.14 * sky);
-                var baseColor = Palette[(triShell != null && t < triShell.Length ? triShell[t] : 0) % Palette.Length];
+                var baseColor = opts?.TriColor != null && t < opts.TriColor.Length
+                    ? opts.TriColor[t]
+                    : Palette[(triShell != null && t < triShell.Length ? triShell[t] : 0) % Palette.Length];
+                if (opts?.Highlight != null && t < opts.Highlight.Length && opts.Highlight[t]) baseColor = Lerp(baseColor, HighlightColor, 0.7);
                 shade[t] = Scale(baseColor, intensity);
             }
 
@@ -242,7 +273,7 @@ namespace SwAgent.ModelFiles
                     var w0 = ((x1 - px) * (y2 - py) - (x2 - px) * (y1 - py)) * inv;
                     var w1 = ((x2 - px) * (y0 - py) - (x0 - px) * (y2 - py)) * inv;
                     var w2 = 1 - w0 - w1;
-                    if (w0 < 0 || w1 < 0 || w2 < 0) continue;
+                    if (w0 < -1e-4f || w1 < -1e-4f || w2 < -1e-4f) continue; // tolerance closes pinholes on shared triangle edges
                     var z = w0 * z0 + w1 * z1 + w2 * z2;
                     var i = y * w + x;
                     if (z <= depth[i]) continue;
