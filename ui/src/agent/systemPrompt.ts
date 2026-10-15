@@ -95,6 +95,7 @@ The user's SolidWorks Design Library holds reusable standard parts (hardware, in
 - When a tool should reuse a library part, record in the tool: the library-relative path and full path, what the part is for, how to insert it (IAssemblyDoc.AddComponent5 with the full path, then mates or position), and what to check (size/thread). Tools and requests that call for a standard part should insert it from the library rather than modelling it again.
 
 # Working style
+- When you talk to the user about a tool's parts, name the tool: "the macro in the Flash grooves tool", "the Flash grooves tool's preview" - never a bare "the macro" or "the tool"; the user may have many tools.
 - Look before you change: inspect the model (context, feature tree, selection) before editing something you haven't seen yet.
 - After geometry changes, verify: check return values and feature errors, and capture a view when the visual result matters.
 - Each execute_csharp call becomes one undo step named after its title - give every call a short, clear title and keep each call to one coherent change.

@@ -247,8 +247,9 @@ function stageToolPrompt(p: ToolRunPayload, label: string, refBase: number): { b
   if (c.handoff) contextLines.unshift(`${c.handoff.slice(0, 6000)}
 
 Finish this case yourself. If it is a case the macro should cover, extend the macro (edit_user_tool) afterwards.`);
-  if (c.failure) contextLines.unshift(`The tool's macro failed - finish the job, then fix the macro (edit_user_tool) so the next run works:\n${c.failure.slice(0, 4000)}`);
-  if (c.macroOutput) contextLines.unshift(`Output of the tool's macro (already run):\n${c.macroOutput.slice(0, 6000)}`);
+  const toolName = p.title ?? p.tool;
+  if (c.failure) contextLines.unshift(`The macro in the "${toolName}" tool failed - finish the job, then fix the macro (edit_user_tool) so the next run works:\n${c.failure.slice(0, 4000)}`);
+  if (c.macroOutput) contextLines.unshift(`Output of the macro in the "${toolName}" tool (already run):\n${c.macroOutput.slice(0, 6000)}`);
   if (c.model) contextLines.push(`Model:\n${c.model}`);
   if (c.history) contextLines.push(`Feature history:\n${c.history}`);
 

@@ -142,7 +142,7 @@ namespace SwAgent.Tools
                         var handoff = Regex.Match(text, @"(?:AgentHandoffException|NeedsAgent): (.+)");
                         Log.Warn($"Tool '{name}' macro {(handoff.Success ? "handed over to the agent" : "failed")}:\n{text}");
                         if (handoff.Success)
-                            context["handoff"] = "The macro handed this case to you: " + handoff.Groups[1].Value.Trim() + "\n\nMacro output:\n" + text;
+                            context["handoff"] = $"The macro in the \"{spec.Title}\" tool handed this case to you: " + handoff.Groups[1].Value.Trim() + "\n\nMacro output:\n" + text;
                         else
                             context["failure"] = text;
                         // Hybrid tools capture the model context only when the agent is actually needed.
