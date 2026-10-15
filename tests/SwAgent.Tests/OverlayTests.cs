@@ -20,5 +20,15 @@ namespace SwAgent.Tests
             Assert.InRange(p.X, px - 3, px + 3); // the probe printed the transform rounded to 4 decimals
             Assert.InRange(p.Y, py - 3, py + 3);
         }
+
+        [Fact]
+        public void Ray_hits_are_read_by_record_length()
+        {
+            // 2 hits, 9 values each: [body, ray, type, x, y, z, nx, ny, nz]
+            var data = new double[] { 0, 3, 1, 0.1, 0.2, 0.3, 0, 0, 1, 1, 7, 1, 0.4, 0.5, 0.6, 0, 1, 0 };
+            Assert.Equal(new[] { 3, 7 }, SceneOverlay.RayIndexes(data, 2, 10, 2));
+            // Data that fits no known layout must not be guessed at.
+            Assert.Throws<System.InvalidOperationException>(() => System.Linq.Enumerable.ToList(SceneOverlay.RayIndexes(new double[] { 0.5, 2.5, 1 }, 1, 10, 2)));
+        }
     }
 }
