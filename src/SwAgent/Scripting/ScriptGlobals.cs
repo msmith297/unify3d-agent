@@ -101,6 +101,12 @@ namespace SwAgent.Scripting
         /// </summary>
         public void Fail(string message) => throw new MacroInputException(message);
 
+        /// <summary>
+        /// Reliable measuring helpers: Geo.EdgePoints(edge), Geo.LoopPoints(loop), Geo.Frame(planarFace) (u/v/n frame),
+        /// Geo.LoopUV(loop, frame), Geo.Distance(point|loop, edge|edges|loop), Geo.Inside(uv, polygon), Geo.Box(uv).
+        /// </summary>
+        public Geometry Geo { get; } = new Geometry();
+
         /// <summary>Millimeters to meters (the API's length unit).</summary>
         public double mm(double value) => value / 1000.0;
 

@@ -72,8 +72,10 @@ namespace SwAgent.Scripting
             "Run C# against the live SolidWorks API (full COM API: ISldWorks, IModelDoc2, IFeatureManager, ISketchManager, " +
             "IModelDocExtension, ...). Use for everything the other tools don't cover: creating sketches and features, " +
             "editing dimensions, assemblies and mates, drawings, custom properties, exports. Lengths are meters and angles " +
-            "radians (use mm()/deg()). Each call is recorded as one undo step. Returns console output, the last expression's " +
-            "value, compile errors with line numbers, or the exception.")]
+            "radians (use mm()/deg()). Each call is recorded as one undo step. Measuring helpers: Geo.EdgePoints(edge), " +
+            "Geo.LoopPoints(loop), Geo.Frame(planarFace) -> u/v/n frame (ToUV, ToModel, Height), Geo.LoopUV(loop, frame), " +
+            "Geo.Distance(point or loop, edge/edges/loop), Geo.Inside(uv, polygon), Geo.Box(uv) - use them instead of hand-written " +
+            "edge sampling. Returns console output, the last expression's value, compile errors with line numbers, or the exception.")]
         public async Task<ToolResult> Execute(ToolContext ctx, ExecuteInput input)
         {
             var session = _sessions.GetOrAdd(ctx.ThreadId ?? "default", _ => new Session());
