@@ -17,7 +17,7 @@ namespace SwAgent.Infrastructure
                 var reopen = !string.IsNullOrEmpty(reopenPath) && File.Exists(reopenPath)
                     ? $" -ArgumentList @('\"{Quote(reopenPath)}\"')"
                     : "";
-                var script = $"Wait-Process -Id {me.Id} -Timeout 600 -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2; " +
+                var script = $"Wait-Process -Id {me.Id} -Timeout 600 -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 800; " +
                              $"Start-Process -FilePath '{Quote(exe)}'{reopen}";
                 // Encoded, so paths with spaces or quotes can't break the command line.
                 var encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(script));

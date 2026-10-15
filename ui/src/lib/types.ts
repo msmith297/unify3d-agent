@@ -83,6 +83,8 @@ export interface Settings {
   theme: Theme;
   markDocumentDirty: boolean;
   showProgress: boolean;
+  /** How much the agent writes in its replies. */
+  verbosity: "low" | "medium" | "high";
   /** Ask the agent to give parts real materials and realistic colours/appearances. */
   realisticAppearance: boolean;
   /** Attach a screenshot of the user's current view to every message. */
@@ -122,6 +124,13 @@ export interface HostState {
   crash?: CrashInfo | null;
   /** Tools changed since SolidWorks started; the ribbon picks them up after a restart. */
   ribbonStale?: boolean;
+  /** What the panel handed over before "Save and restart" (or an update restart), once. */
+  resume?: ResumePanel | null;
+}
+
+/** Panel state carried across a restart: unsent drafts per thread / new-chat slot. */
+export interface ResumePanel {
+  drafts?: Record<string, string>;
 }
 
 export interface CrashInfo {

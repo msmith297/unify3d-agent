@@ -5,6 +5,7 @@ import { DEFAULT_SETTINGS, SETTINGS_VERSION, tierModel } from "./lib/models";
 import type {
   Attachment,
   ChatData,
+  ResumePanel,
   ContentBlockParam,
   DocInfo,
   Effort,
@@ -449,6 +450,7 @@ export const useStore = create<State>((set, get) => {
         tools: get().tools,
         approval: get().settings.approval,
         realisticAppearance: get().settings.realisticAppearance,
+        verbosity: get().settings.verbosity ?? "medium",
         userTools: get().userTools,
         signal: controller.signal,
         cb: {
@@ -569,6 +571,11 @@ export const useStore = create<State>((set, get) => {
           rpc("settings.save", settings);
         }
         if (host.update) set({ update: host.update });
+        if (host.resume) {
+          // Back from "Save and restart": the documents reopen on their own (the add-in); bring back unsent drafts.
+          set((s) => ({ drafts: { ...s.drafts, ...(host.resume?.drafts ?? {}) }, notice: "SolidWorks restarted - reopening your documents where you left off." }));
+          setTimeout(() => set((s) => (s.notice?.startsWith("SolidWorks restarted") ? { notice: null } : {})), 8000);
+        }
         set({ crash: host.crash ?? null, ribbonStale: !!host.ribbonStale });
         set({
           host,
@@ -1090,7 +1097,7 @@ export const useStore = create<State>((set, get) => {
     },
 
     async saveAndRestart() {
-      const r = await rpc<{ ok: boolean; reason?: string }>("app.saveAndRestart", { saveDocuments: true }).catch((e) => ({ ok: false, reason: String(e?.message ?? e) }));
+      const r = await rpc<{ ok: boolean; reason?: string }>("app.saveAndRestart", { saveDocuments: true, panel: resumePanel() }).catch((e) => ({ ok: false, reason: String(e?.message ?? e) }));
       return r.ok ? null : r.reason ?? "SolidWorks couldn't be restarted.";
     },
 
@@ -1244,6 +1251,12 @@ export function writesAfter(thread: Thread, msgIndex: number): number {
     for (const b of m.content) if (b.type === "tool_use" && WRITE_TOOLS.has(b.name)) n++;
   }
   return n;
+}
+
+/** What the panel hands over across a restart (see ResumeSession in the add-in). */
+export function resumePanel(): ResumePanel {
+  const drafts = Object.fromEntries(Object.entries(useStore.getState().drafts).filter(([, v]) => v?.trim()));
+  return { drafts };
 }
 
 /** The tool_use ids of the agent's code cells after a message (the add-in's undo ledger knows them). */

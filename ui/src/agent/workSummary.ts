@@ -24,6 +24,7 @@ const MINOR_TOOLS = new Set([
   "rebuild",
   "undo",
   "test_tool",
+  "offer_restart",
 ]);
 
 const LOOKUPS = new Set(["search_sw_api", "get_sw_api_type", "read_user_tool", "list_user_tools", "design_library"]);

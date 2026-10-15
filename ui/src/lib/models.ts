@@ -37,6 +37,7 @@ export const DEFAULT_SETTINGS: Settings = {
   markDocumentDirty: true,
   showProgress: true,
   realisticAppearance: true,
+  verbosity: "medium",
   shareView: true,
   muteErrorSounds: true,
   zoom: 1,

@@ -7,7 +7,7 @@ import { rpc } from "../lib/bridge";
 import { EFFORTS, MODELS } from "../lib/models";
 import { SW_THEME_NAMES } from "../lib/theme";
 import { Caret, IconAgent, IconGear, IconHistory, IconKey, IconOk, IconPart, IconRebuild, IconShield, IconUpdate } from "./SwIcons";
-import type { ApprovalMode, Effort, Theme } from "../lib/types";
+import type { ApprovalMode, Effort, Settings, Theme } from "../lib/types";
 
 /** Options page laid out like a SolidWorks PropertyManager: stacked rollouts. */
 export function SettingsPanel() {
@@ -79,6 +79,17 @@ export function SettingsPanel() {
           </Field>
           <Field label="Effort">
             <Select<Effort> value={settings.defaultEffort} onChange={(v) => saveSettings({ defaultEffort: v })} options={EFFORTS.map((e) => [e.id, `${e.label} - ${e.note}`])} />
+          </Field>
+          <Field label="Replies">
+            <Select<Settings["verbosity"]>
+              value={settings.verbosity ?? "medium"}
+              onChange={(v) => saveSettings({ verbosity: v })}
+              options={[
+                ["low", "Brief - just the result and what you need to do"],
+                ["medium", "Normal - result, key choices, what to check"],
+                ["high", "Detailed - full explanation, tests and alternatives"],
+              ]}
+            />
           </Field>
         </Rollout>
 

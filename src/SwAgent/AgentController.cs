@@ -137,7 +137,7 @@ namespace SwAgent
                 Crash = null;
                 return null;
             });
-            bridge.RegisterAsync("app.saveAndRestart", async p => await SaveAndRestart((bool?)p?["saveDocuments"] == true));
+            bridge.RegisterAsync("app.saveAndRestart", async p => await SaveAndRestart((bool?)p?["saveDocuments"] == true, p?["panel"] as JObject));
             bridge.Register("userTools.run", p =>
             {
                 // From the panel (e.g. right after creating a tool, before the ribbon has its button).
@@ -151,7 +151,7 @@ namespace SwAgent
                 return Updates.ToJson();
             });
             bridge.Register("update.unsavedDocuments", p => UnsavedDocuments());
-            bridge.RegisterAsync("update.restartAndInstall", async p => await RestartAndInstall((bool?)p?["saveDocuments"] == true));
+            bridge.RegisterAsync("update.restartAndInstall", async p => await RestartAndInstall((bool?)p?["saveDocuments"] == true, p?["panel"] as JObject));
             bridge.Register("apiKey.get", p => new JObject { ["key"] = SettingsStore.GetApiKey() });
             bridge.Register("apiKey.set", p =>
             {
@@ -495,7 +495,7 @@ namespace SwAgent
         /// Download (if needed), save open documents, start the install helper and close SolidWorks; the helper
         /// installs and starts SolidWorks again. Returns { ok } or { ok: false, reason, unsaved }.
         /// </summary>
-        private async Task<JObject> RestartAndInstall(bool saveDocuments)
+        private async Task<JObject> RestartAndInstall(bool saveDocuments, JObject panel)
         {
             if (Updates.Status == Updater.State.Available && !await Updates.DownloadAsync())
                 return new JObject { ["ok"] = false, ["reason"] = Updates.Error };
@@ -516,6 +516,7 @@ namespace SwAgent
                     return new JObject { ["ok"] = false, ["reason"] = $"Couldn't save {d["title"]} ({(swFileSaveError_e)errors}). Save it yourself, then try again." };
             }
 
+            ResumeSession.Save(_app.Sw, panel); // the installer starts SolidWorks again; pick up where the user left off
             if (!Updates.LaunchInstaller(restartSolidWorks: true))
                 return new JObject { ["ok"] = false, ["reason"] = Updates.Error };
             UpdateHelperStarted = true;
@@ -533,10 +534,10 @@ namespace SwAgent
         }
 
         /// <summary>
-        /// Save open documents and restart SolidWorks (new tools only reach the ribbon at start-up). The active
-        /// document is reopened. Returns { ok } or { ok: false, reason, unsaved } like RestartAndInstall.
+        /// Save open documents and restart SolidWorks (new tools only reach the ribbon at start-up). Everything is
+        /// reopened where the user left off (ResumeSession). Returns { ok } or { ok: false, reason, unsaved } like RestartAndInstall.
         /// </summary>
-        private Task<JObject> SaveAndRestart(bool saveDocuments)
+        private Task<JObject> SaveAndRestart(bool saveDocuments, JObject panel)
         {
             var unsaved = UnsavedDocuments();
             if (unsaved.Any(d => (bool)d["untitled"]))
@@ -561,6 +562,7 @@ namespace SwAgent
             {
                 // Nothing to reopen.
             }
+            ResumeSession.Save(_app.Sw, panel);
             if (!RestartHelper.Launch(reopen)) return Task.FromResult(new JObject { ["ok"] = false, ["reason"] = "Couldn't start the restart helper." });
 
             var exit = new Timer { Interval = 500 };
@@ -598,6 +600,7 @@ namespace SwAgent
                 ["docs"] = new JArray(_docs.Values.Where(IsVisible).Select(DocInfo)),
                 ["logFile"] = Log.CurrentFile,
                 ["swTheme"] = ReadTheme(),
+                ["resume"] = ResumeSession.TakePanel(),
             };
         }
 

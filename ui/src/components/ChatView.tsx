@@ -38,6 +38,7 @@ type Item =
   | { kind: "progress"; key: string; text: string }
   | { kind: "text"; key: string; text: string; streaming?: boolean }
   | { kind: "tool"; key: string; call: ToolCall }
+  | { kind: "restart"; key: string; reason?: string; title?: string }
   | { kind: "question"; key: string; call: ToolCall }
   | { kind: "footer"; key: string; turn: TurnMeta; isLast: boolean }
   | { kind: "work"; key: string; items: Item[]; highlights: Item[]; steps: number; durationMs?: number; breakdown: string; more: number }
@@ -126,16 +127,14 @@ function renderItem(item: Item, thread: Thread, run: RunState | undefined, onIma
           <ToolCard call={item.call} status={statusFor(item.call, run)} onImage={onImage}>
             {run?.approval?.toolUseId === item.call.id && <ApprovalCard threadId={thread.id} />}
           </ToolCard>
-          {(item.call.name === "save_user_tool" || item.call.name === "edit_user_tool") &&
-            item.call.result &&
-            !item.call.result.is_error &&
-            item.call.id === lastToolSave(thread) && <RestartCard title={item.call.input?.title} />}
         </>
       );
     case "question":
       return item.call.name === "ask_form" ? <FormCard call={item.call} threadId={thread.id} run={run} /> : <QuestionCard call={item.call} threadId={thread.id} run={run} />;
     case "footer":
       return <TurnFooter turn={item.turn} isLast={item.isLast} running={!!run} />;
+    case "restart":
+      return <RestartCard reason={item.reason} title={item.title} />;
     case "work":
       return <WorkGroup item={item} thread={thread} run={run} onImage={onImage} />;
   }
@@ -271,16 +270,24 @@ function ThinkingIndicator({ run }: { run: RunState | undefined }) {
 }
 
 /** The newest successful save/edit of a tool in the chat: the restart offer goes under it, once. */
-function lastToolSave(thread: Thread): string | undefined {
+/**
+ * The Save and restart button under the last reply: when the agent asked for it (offer_restart), or - as a safety net -
+ * when the last turn saved a tool (RestartCard then shows only if the ribbon really is out of date).
+ */
+function restartOffer(thread: Thread): { reason?: string; title?: string } | null {
+  let savedTool: string | undefined;
   for (let i = thread.messages.length - 1; i >= 0; i--) {
     const m = thread.messages[i];
+    if (isPrompt(m)) break;
     if (m.role !== "assistant" || typeof m.content === "string") continue;
-    for (let j = m.content.length - 1; j >= 0; j--) {
-      const b = m.content[j];
-      if (b.type === "tool_use" && (b.name === "save_user_tool" || b.name === "edit_user_tool") && (b.input as { kind?: string })?.kind !== "workflow") return b.id;
+    for (const b of m.content) {
+      if (b.type !== "tool_use") continue;
+      const input = b.input as { reason?: string; kind?: string; title?: string };
+      if (b.name === "offer_restart") return { reason: input?.reason };
+      if ((b.name === "save_user_tool" || b.name === "edit_user_tool") && input?.kind !== "workflow") savedTool ??= input?.title ?? "";
     }
   }
-  return undefined;
+  return savedTool !== undefined ? { title: savedTool || undefined } : null;
 }
 
 /** Flatten API messages (+ the live stream) into display items. */
@@ -308,6 +315,10 @@ function buildItems(thread: Thread, run: RunState | undefined, showProgress: boo
   };
   const flushFooter = (promptIdx: number) => {
     flushSegment(promptIdx, true);
+    if (promptIdx === lastPrompt) {
+      const offer = restartOffer(thread);
+      if (offer) items.push({ kind: "restart", key: `r${promptIdx}`, ...offer });
+    }
     const turn = footerAfter.get(promptIdx);
     if (turn) items.push({ kind: "footer", key: `f${promptIdx}`, turn, isLast: promptIdx === lastPrompt });
   };
@@ -328,6 +339,7 @@ function buildItems(thread: Thread, run: RunState | undefined, showProgress: boo
       else if (b.type === "text" && b.text.trim()) segment.push({ kind: "text", key, text: b.text });
       else if (b.type === "tool_use") {
         const call: ToolCall = { id: b.id, name: b.name, input: b.input, result: results.get(b.id) };
+        if (call.name === "offer_restart") return; // shown as the button under the reply
         segment.push(call.name === "ask_user" || call.name === "ask_form" ? { kind: "question", key, call } : { kind: "tool", key, call });
       }
     });
@@ -350,7 +362,7 @@ function liveItems(live: LiveBlock[] | null, showProgress: boolean): Item[] {
     const key = `live${i}`;
     if (b.type === "thinking" && b.text.trim() && showProgress) out.push({ kind: "progress", key, text: b.text.trim() });
     else if (b.type === "text" && b.text) out.push({ kind: "text", key, text: b.text, streaming: i === live.length - 1 });
-    else if (b.type === "tool_use" && b.name !== "ask_user") {
+    else if (b.type === "tool_use" && b.name !== "ask_user" && b.name !== "offer_restart") {
       out.push({ kind: "tool", key, call: { id: b.id ?? key, name: b.name ?? "tool", input: undefined, partial: b.json ?? "" } });
     }
   });

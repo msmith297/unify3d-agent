@@ -84,6 +84,7 @@ namespace SwAgent
                     Controller.Crash = crash;
                 }
 
+                ResumeSession.RestoreWhenReady(Application.Sw); // after "Save and restart": reopen where the user left off
                 Application.Documents.RegisterHandler(() => new ChatDocumentHandler());
                 Application.Documents.DocumentActivated += doc => Controller.OnDocumentActivated(doc);
 

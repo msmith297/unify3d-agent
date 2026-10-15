@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { buildSystemPrompt } from "./systemPrompt";
+import { buildSystemPrompt, type Verbosity } from "./systemPrompt";
 import { modelOption } from "../lib/models";
 import type {
   ApprovalMode,
@@ -47,6 +47,23 @@ export const ASK_FORM_TOOL: ToolDef = {
       },
     },
     required: ["title", "fields"],
+  },
+};
+
+/** Handled in the UI: a "Save and restart SolidWorks" button at the end of the agent's reply. */
+export const OFFER_RESTART_TOOL: ToolDef = {
+  name: "offer_restart",
+  description:
+    "Show the user a 'Save and restart SolidWorks' button at the end of your reply. It saves the open documents, restarts SolidWorks " +
+    "and reopens everything where the user left off (documents, views, this chat). Use it whenever a change only takes effect after a " +
+    "restart (a new, renamed or deleted tool's ribbon button, a changed tool icon) instead of telling the user to restart. Don't use it as a hedge: changes " +
+    "to an existing tool's TOOL.md, macro, preview or inputs apply on its next run without a restart.",
+  input_schema: {
+    type: "object",
+    properties: {
+      reason: { type: "string", description: "One short sentence shown with the button, e.g. 'Restart to add Flash grooves to the Unify3D tab.'" },
+    },
+    required: ["reason"],
   },
 };
 
@@ -109,6 +126,7 @@ export interface AgentRunOptions {
   tools: ToolDef[];
   approval: ApprovalMode;
   realisticAppearance: boolean;
+  verbosity: Verbosity;
   userTools: { name: string; title: string; description: string; kind?: string }[];
   signal: AbortSignal;
   cb: AgentCallbacks;
@@ -131,7 +149,7 @@ const CLEAR_OLD_TOOL_USES = {
   keep: { type: "tool_uses" as const, value: 6 },
   clear_at_least: { type: "input_tokens" as const, value: 12000 },
   clear_tool_inputs: true,
-  exclude_tools: ["ask_user", "ask_form", "read_user_tool"],
+  exclude_tools: ["ask_user", "ask_form", "offer_restart", "read_user_tool"],
 };
 
 /** No bytes at all (not even keep-alive pings) for this long means the connection is dead, not thinking. */
@@ -172,14 +190,14 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
   if (m.progressUpdates) betas.push("thinking-display-updates-2026-08-18");
   if (m.fallbacks) betas.push("server-side-fallback-2026-07-01");
 
-  const tools: Anthropic.Beta.Messages.BetaToolUnion[] = [...opts.tools, ASK_USER_TOOL, ASK_FORM_TOOL].map((t) => ({
+  const tools: Anthropic.Beta.Messages.BetaToolUnion[] = [...opts.tools, ASK_USER_TOOL, ASK_FORM_TOOL, OFFER_RESTART_TOOL].map((t) => ({
     name: t.name,
     description: t.description,
     input_schema: t.input_schema,
     eager_input_streaming: true,
   }));
 
-  const system = buildSystemPrompt({ realisticAppearance: opts.realisticAppearance, userTools: opts.userTools });
+  const system = buildSystemPrompt({ realisticAppearance: opts.realisticAppearance, verbosity: opts.verbosity, userTools: opts.userTools });
   let malformedRetries = 0;
   let stallRetries = 0;
   try {
@@ -331,7 +349,8 @@ async function executeTool(tu: Anthropic.Beta.Messages.BetaToolUseBlock, opts: A
   const { cb } = opts;
   const err = (text: string): ToolResultBlockParam => ({ type: "tool_result", tool_use_id: tu.id, is_error: true, content: text });
 
-  const def = tu.name === ASK_USER_TOOL.name ? ASK_USER_TOOL : tu.name === ASK_FORM_TOOL.name ? ASK_FORM_TOOL : opts.tools.find((t) => t.name === tu.name);
+  const local = [ASK_USER_TOOL, ASK_FORM_TOOL, OFFER_RESTART_TOOL].find((t) => t.name === tu.name);
+  const def = local ?? opts.tools.find((t) => t.name === tu.name);
   if (!def) return err(`Unknown tool '${tu.name}'.`);
   const problem = validateInput(def, tu.input);
   if (problem) return err(`INVALID_INPUT: ${problem}. Re-issue the call with complete, valid JSON input.`);
@@ -340,6 +359,11 @@ async function executeTool(tu: Anthropic.Beta.Messages.BetaToolUseBlock, opts: A
     const form = tu.input as FormSpec;
     const answer = await cb.ask(tu.id, form.title, [], form);
     return { type: "tool_result", tool_use_id: tu.id, content: answer };
+  }
+
+  if (tu.name === OFFER_RESTART_TOOL.name) {
+    // The chat shows the button under the reply (ChatView); nothing else to do here.
+    return { type: "tool_result", tool_use_id: tu.id, content: "The Save and restart button is shown below your reply. Don't also tell the user to restart." };
   }
 
   if (tu.name === ASK_USER_TOOL.name) {

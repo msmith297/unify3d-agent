@@ -93,7 +93,27 @@ The user's SolidWorks Design Library holds reusable standard parts (hardware, in
 - Before writing code that edits the user's existing document, make sure the change is what they asked for. If you are unsure whether they want you to model at all, ask.
 - Don't save, close, overwrite or delete files, and don't modify documents other than this chat's, unless the user asks. Put exports in WorkDir unless the user names a location.
 - If an ambiguity would change the geometry (a dimension, which face, design intent), ask with ask_user; for minor details pick a sensible default and say what you chose.
-- Reply concisely: what changed (feature names, key dimensions), what you verified, and anything the user should check. Use markdown sparingly.`;
+- Never tell the user to restart SolidWorks in prose. When a change really needs a restart (a new, renamed or deleted tool's ribbon button, a changed tool icon), call offer_restart - it puts a Save and restart button under your reply. Edits to an existing tool apply on its next run, so don't suggest a restart "in case" it doesn't pick them up.`;
+
+export type Verbosity = "low" | "medium" | "high";
+
+const REPLIES: Record<Verbosity, string> = {
+  low: `
+
+# Replies (user preference: brief)
+- One to three sentences, or a few short bullets: the result, plus anything the user must do or decide.
+- Leave out how you got there - tests, attempts, internals - unless something failed or the user must know it. No headings.`,
+  medium: `
+
+# Replies (user preference: normal)
+- Lead with the result in a sentence or two. Then only what the user needs: key values you chose, anything to check or decide, the next step.
+- Mention verification in a few words ("checked: rebuilds clean, 4 grooves cut"), not as a story. Don't narrate what you tried, explain internals, restate the request or list every test.
+- Aim for under about 120 words. Use a short bullet list only for several separate points; headings only for long answers the user asked for.`,
+  high: `
+
+# Replies (user preference: detailed)
+- Explain fully: what changed and why, how you verified it, alternatives you considered, assumptions and limitations. Use headings and lists where they help.`,
+};
 
 const APPEARANCE_ON = `
 
@@ -110,8 +130,12 @@ const APPEARANCE_OFF = `
 Don't assign materials, colours or appearances unless the user asks for them.`;
 
 /** The full system prompt. Only changes when a setting that affects it changes, so caching holds within a chat. */
-export function buildSystemPrompt(opts: { realisticAppearance: boolean; userTools: { name: string; title: string; description: string; kind?: string }[] }): string {
-  return SYSTEM_PROMPT + (opts.realisticAppearance ? APPEARANCE_ON : APPEARANCE_OFF) + toolIndex(opts.userTools);
+export function buildSystemPrompt(opts: {
+  realisticAppearance: boolean;
+  verbosity?: Verbosity;
+  userTools: { name: string; title: string; description: string; kind?: string }[];
+}): string {
+  return SYSTEM_PROMPT + REPLIES[opts.verbosity ?? "medium"] + (opts.realisticAppearance ? APPEARANCE_ON : APPEARANCE_OFF) + toolIndex(opts.userTools);
 }
 
 /** One line per saved user tool, appended to the system prompt (changes only when tools are saved or deleted). */

@@ -44,12 +44,13 @@ export function CrashNotice() {
 }
 
 /** After a tool is saved: SolidWorks only adds ribbon buttons at start-up. */
-export function RestartCard({ title }: { title?: string }) {
+/** "Save and restart SolidWorks": asked for by the agent (reason), or after saving a tool while the ribbon is out of date. */
+export function RestartCard({ title, reason }: { title?: string; reason?: string }) {
   const stale = useStore((s) => s.ribbonStale);
   const saveAndRestart = useStore((s) => s.saveAndRestart);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  if (!stale) return null;
+  if (!reason && !stale) return null;
   return (
     <div className="sw-rollout flex flex-col gap-1.5 !border-accent px-2.5 py-2 text-[12px]">
       <div className="flex items-start gap-2">
@@ -57,8 +58,15 @@ export function RestartCard({ title }: { title?: string }) {
           <IconRebuild size={14} />
         </span>
         <span className="text-text">
-          <span className="font-semibold">Restart SolidWorks to add {title ? `“${title}”` : "the new tool"} to the Unify3D tab.</span>{" "}
-          <span className="text-text-2">SolidWorks only loads ribbon buttons when it starts. Until then you can run it from the Workflows menu.</span>
+          {reason ? (
+            <span className="font-semibold">{reason}</span>
+          ) : (
+            <>
+              <span className="font-semibold">Restart SolidWorks to add {title ? `“${title}”` : "the new tool"} to the Unify3D tab.</span>{" "}
+              <span className="text-text-2">SolidWorks only loads ribbon buttons when it starts.</span>
+            </>
+          )}{" "}
+          <span className="text-text-2">Your documents are saved and reopened where you left off.</span>
         </span>
       </div>
       {error && <div className="text-err">{error}</div>}
