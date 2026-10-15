@@ -29,6 +29,7 @@ import type {
   WatchEntry,
   WatchResult,
 } from "./lib/types";
+import { recordSession } from "./lib/sessions";
 import { WRITE_TOOLS, runAgent, type ApprovalDecision, type ApprovalRequest, type LiveBlock } from "./agent/runAgent";
 
 export interface ChatSlot {
@@ -630,7 +631,7 @@ export const useStore = create<State>((set, get) => {
         ...t,
         messages,
         selRefs: { ...(t.selRefs ?? {}), ...ctx.refs },
-        turns: [...t.turns, { at: now(), msgIndex, model: t.model, effort: t.effort, usage: { ...ZERO_USAGE } }],
+        turns: [...t.turns, { at: now(), session: get().sessionStart, msgIndex, model: t.model, effort: t.effort, usage: { ...ZERO_USAGE } }],
       };
     });
     await persist(docKey);
@@ -685,6 +686,7 @@ export const useStore = create<State>((set, get) => {
         }
         if (host.update) set({ update: host.update });
         if (host.sessionStart) set({ sessionStart: Date.parse(host.sessionStart) || Date.now() });
+        recordSession(get().sessionStart);
         if (host.resume) {
           // Back from "Save and restart": the documents reopen on their own (the add-in); bring back unsent drafts.
           set((s) => ({ drafts: { ...s.drafts, ...(host.resume?.drafts ?? {}) }, notice: "SolidWorks restarted - reopening your documents where you left off." }));
@@ -1191,7 +1193,7 @@ export const useStore = create<State>((set, get) => {
           effort,
           messages,
           selRefs: { ...(t.selRefs ?? {}), ...staged.refs },
-          turns: [...t.turns, { at: now(), msgIndex: messages.length - 1, model, effort, usage: { ...ZERO_USAGE } }],
+          turns: [...t.turns, { at: now(), session: get().sessionStart, msgIndex: messages.length - 1, model, effort, usage: { ...ZERO_USAGE } }],
         };
       });
       await persist(docKey);

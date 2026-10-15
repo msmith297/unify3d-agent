@@ -4,8 +4,10 @@ import { IconCancel, IconCopy, IconDocs, IconEdit, IconError, IconEye, IconModel
 import { Markdown } from "./Markdown";
 import { BrandLogo } from "./Brand";
 import { FormCard } from "./FormCard";
+import { Answered } from "./Answered";
 import { RestartCard } from "./Recovery";
 import { svgDataUrl } from "../lib/toolIcons";
+import { breakLabel, isBreak } from "../lib/sessions";
 import { Caret } from "./SwIcons";
 import { ToolCard, statusFor, toolTitle, type ToolCall } from "./ToolCard";
 import { breakdown, highlights as pickHighlights } from "../agent/workSummary";
@@ -39,6 +41,7 @@ type Item =
   | { kind: "text"; key: string; text: string; streaming?: boolean }
   | { kind: "tool"; key: string; call: ToolCall }
   | { kind: "restart"; key: string; id: string; reason?: string; title?: string }
+  | { kind: "divider"; key: string; label: string }
   | { kind: "question"; key: string; call: ToolCall }
   | { kind: "footer"; key: string; turn: TurnMeta; isLast: boolean }
   | { kind: "work"; key: string; items: Item[]; highlights: Item[]; steps: number; durationMs?: number; breakdown: string; more: number }
@@ -133,6 +136,14 @@ function renderItem(item: Item, thread: Thread, run: RunState | undefined, onIma
       return item.call.name === "ask_form" ? <FormCard call={item.call} threadId={thread.id} run={run} /> : <QuestionCard call={item.call} threadId={thread.id} run={run} />;
     case "footer":
       return <TurnFooter turn={item.turn} isLast={item.isLast} running={!!run} />;
+    case "divider":
+      return (
+        <div className="my-1 flex items-center gap-2 text-[10.5px] text-text-3" title="Messages above are from an earlier session">
+          <div className="h-px flex-1 bg-line-strong" />
+          <span className="shrink-0">{item.label}</span>
+          <div className="h-px flex-1 bg-line-strong" />
+        </div>
+      );
     case "restart":
       return <RestartCard reason={item.reason} title={item.title} onDismiss={() => useStore.getState().dismissRestart(thread.id, item.id)} />;
     case "work":
@@ -331,11 +342,17 @@ function buildItems(thread: Thread, run: RunState | undefined, showProgress: boo
   };
 
   let currentPrompt = -1;
+  let prevTurn: TurnMeta | undefined;
+  const sessionNow = useStore.getState().sessionStart;
   thread.messages.forEach((m, i) => {
     if (isPrompt(m)) {
       if (currentPrompt >= 0) flushFooter(currentPrompt);
       else flushSegment(-1, false);
       currentPrompt = i;
+      // Where an earlier SolidWorks session (or a day or more) ends: a divider labelled for the messages above it.
+      const turn = thread.turns.find((t) => t.msgIndex === i);
+      if (turn && prevTurn && isBreak(prevTurn, turn, sessionNow)) items.push({ kind: "divider", key: `d${i}`, label: breakLabel(prevTurn, sessionNow) });
+      if (turn) prevTurn = turn;
       items.push(promptItem(m, i));
       return;
     }
@@ -871,6 +888,13 @@ function QuestionCard({ call, threadId, run }: { call: ToolCall; threadId: strin
   const pending = run?.question?.toolUseId === call.id;
   const answered = typeof call.result?.content === "string" ? call.result.content : undefined;
   const options: string[] = call.input?.options ?? [];
+  if (!pending)
+    return (
+      <Answered question={String(call.input?.question ?? "")} answer={answered ?? null}>
+        <div className="selectable text-[12px] text-text-2">{call.input?.question}</div>
+        {options.length > 0 && <div className="mt-1 text-[11px] text-text-3">Options: {options.join(" · ")}</div>}
+      </Answered>
+    );
   return (
     <div className={`sw-rollout px-2 py-1.5 ${pending ? "!border-accent" : ""}`}>
       <div className="mb-1.5 flex items-start gap-2">

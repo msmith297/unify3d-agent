@@ -30,6 +30,8 @@ export interface Usage {
 /** Bookkeeping for one user turn (one press of Send), stored alongside the API messages. */
 export interface TurnMeta {
   at: string;
+  /** The SolidWorks session this turn ran in (its start time, ms) - for the "Last session" dividers. */
+  session?: number;
   /** Index of the user message this turn answers. */
   msgIndex: number;
   model: string;
