@@ -23,20 +23,19 @@ namespace SwAgent.Tools
         private static readonly Regex NamePattern = new Regex("^[a-z0-9][a-z0-9-]{1,47}$");
 
         /// <summary>
-        /// Front matter "agent:" value for a run style: hardcoded -> fallback (the macro does the job; the agent only rescues
-        /// a failure), agent -> true (the agent writes the code each run), hybrid -> hybrid (the agent decides: the macro as
-        /// it is, modified, or custom code). Older names: built = hardcoded, smart = agent, instant = macro only (false).
+        /// Front matter "agent:" value for a run style: hardcoded -> false (macro only), agent -> true (the agent writes the
+        /// code each run), hybrid -> hybrid (macro first; the agent takes over what it hands on, then improves it).
+        /// Older names: instant = hardcoded, smart = agent, built / fallback = hybrid.
         /// </summary>
         private static string AgentValue(string runStyle, bool? agent, bool hasMacro)
         {
             switch ((runStyle ?? "").Trim().ToLowerInvariant().Replace(" ", "").Replace("-", ""))
             {
-                case "hardcoded":
+                case "hybrid":
                 case "built":
                 case "fallback":
-                    return hasMacro ? "fallback" : "true";
-                case "hybrid":
                     return hasMacro ? "hybrid" : "true";
+                case "hardcoded":
                 case "instant":
                     return hasMacro ? "false" : "true";
                 case "agent":
@@ -99,10 +98,10 @@ namespace SwAgent.Tools
             [ToolParam("Tools: the inputs of its PropertyManager page (shown on the left like a native command). Omit for tools that just act on the selection.")]
             public ToolInputSpec[] Inputs { get; set; }
 
-            [ToolParam("Tools: run style - hardcoded | agent | hybrid. hardcoded: the saved macro does the whole job (fast; the agent only steps in if it " +
-                       "fails or calls NeedsAgent). agent: agent in the loop - the agent does the job each run from TOOL.md's skill, writing code from " +
-                       "the context. hybrid: the agent looks at the context, then runs the saved macro as it is (run_tool_macro), a modified version, " +
-                       "or custom code.")]
+            [ToolParam("Tools: run style - hardcoded | agent | hybrid. hardcoded: the macro is the whole tool; a case it wasn't written for stops " +
+                       "with its Fail message. agent: agent in the loop - the agent does the job each run from TOOL.md's skill, writing code from the " +
+                       "context. hybrid: the macro runs first and does the job when it fits; for a case it can't handle it calls NeedsAgent(\"why\") " +
+                       "and the agent takes over - adapts the code, finishes, then improves the macro so the tool learns.")]
             public string RunStyle { get; set; }
 
             [ToolParam("Older form of run_style: true = smart, false = instant. Prefer run_style.")]
@@ -184,10 +183,10 @@ namespace SwAgent.Tools
             [ToolParam("Tools: replace the inputs of its PropertyManager page (shown on the left like a native command). Omit for tools that just act on the selection.")]
             public ToolInputSpec[] Inputs { get; set; }
 
-            [ToolParam("Tools: run style - hardcoded | agent | hybrid. hardcoded: the saved macro does the whole job (fast; the agent only steps in if it " +
-                       "fails or calls NeedsAgent). agent: agent in the loop - the agent does the job each run from TOOL.md's skill, writing code from " +
-                       "the context. hybrid: the agent looks at the context, then runs the saved macro as it is (run_tool_macro), a modified version, " +
-                       "or custom code.")]
+            [ToolParam("Tools: run style - hardcoded | agent | hybrid. hardcoded: the macro is the whole tool; a case it wasn't written for stops " +
+                       "with its Fail message. agent: agent in the loop - the agent does the job each run from TOOL.md's skill, writing code from the " +
+                       "context. hybrid: the macro runs first and does the job when it fits; for a case it can't handle it calls NeedsAgent(\"why\") " +
+                       "and the agent takes over - adapts the code, finishes, then improves the macro so the tool learns.")]
             public string RunStyle { get; set; }
 
             [ToolParam("Older form of run_style: true = smart, false = instant. Prefer run_style.")]
@@ -472,7 +471,7 @@ namespace SwAgent.Tools
                         ["hasMacro"] = File.Exists(Path.Combine(dir, "macro.cs")),
                         ["model"] = fm.TryGetValue("model", out var m) ? m : null,
                         ["agent"] = !fm.TryGetValue("agent", out var ag) || ag != "false" || !File.Exists(Path.Combine(dir, "macro.cs")),
-                        ["runStyle"] = !File.Exists(Path.Combine(dir, "macro.cs")) ? "agent" : ag == "false" || ag == "fallback" ? "hardcoded" : ag == "hybrid" ? "hybrid" : "agent",
+                        ["runStyle"] = !File.Exists(Path.Combine(dir, "macro.cs")) ? "agent" : ag == "false" ? "hardcoded" : ag == "hybrid" || ag == "fallback" ? "hybrid" : "agent",
                         ["intelligence"] = fm.TryGetValue("intelligence", out var tier) && ToolSpec.Tiers.Contains(tier) ? tier : "balanced",
                         ["hasInputs"] = File.Exists(Path.Combine(dir, "inputs.json")),
                         ["hasPreview"] = File.Exists(Path.Combine(dir, "preview.cs")),

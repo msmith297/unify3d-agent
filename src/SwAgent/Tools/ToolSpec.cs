@@ -73,16 +73,11 @@ namespace SwAgent.Tools
         public bool Agent;
 
         /// <summary>
-        /// "agent: fallback" (run style hard coded): the macro does the whole job and checks it; the agent only steps in when
-        /// the macro fails or calls NeedsAgent(...). Agent is true too, so the agent is available for that.
+        /// "agent: hybrid" (older: fallback): the macro runs first and does the job when it fits; when it meets a case it
+        /// can't handle it calls NeedsAgent(...) (or fails) and the agent takes over with that context - adapts the code,
+        /// finishes the job, then improves the macro so the next run handles it. Agent is true too, for that.
         /// </summary>
         public bool AgentFallback;
-
-        /// <summary>
-        /// "agent: hybrid": the agent looks at the context first, then runs the saved macro as it is (run_tool_macro), a
-        /// modified version of it, or custom code. The macro doesn't run on its own.
-        /// </summary>
-        public bool Hybrid;
 
         /// <summary>fast | balanced | high | max: how much intelligence the agent part needs.</summary>
         public string Intelligence;
@@ -122,8 +117,8 @@ namespace SwAgent.Tools
             };
             // A tool without a macro can only work through the agent.
             spec.Agent = spec.Macro == null || !string.Equals(Get("agent", "true"), "false", StringComparison.OrdinalIgnoreCase);
-            spec.AgentFallback = spec.Macro != null && string.Equals(Get("agent", "true"), "fallback", StringComparison.OrdinalIgnoreCase);
-            spec.Hybrid = spec.Macro != null && string.Equals(Get("agent", "true"), "hybrid", StringComparison.OrdinalIgnoreCase);
+            var agentValue = Get("agent", "true").ToLowerInvariant();
+            spec.AgentFallback = spec.Macro != null && (agentValue == "hybrid" || agentValue == "fallback");
             spec.Intelligence = Tiers.Contains(Get("intelligence")) ? Get("intelligence") : "balanced";
             spec.Confirm = Get("confirm", "missing") == "always" ? "always" : "missing";
             spec.Paused = new HashSet<string>((Get("paused", "") ?? "").Split(new[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries));

@@ -75,7 +75,7 @@ export function ToolsPalette({ disabled }: { disabled?: boolean }) {
         </button>
       ) : (
         t.agent === false ? (
-          <span className="shrink-0 self-center text-[10.5px] text-text-3" title="Runs its macro directly - no agent">
+          <span className="shrink-0 self-center text-[10.5px] text-text-3" title="Hard coded: runs its macro directly - no agent">
             hard coded
           </span>
         ) : (

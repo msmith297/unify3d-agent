@@ -37,8 +37,9 @@ namespace SwAgent.Tools
 
         [AgentTool("run_tool_macro",
             "Run a saved tool's macro on the chat's document with the inputs from the user's latest run of that tool (its PropertyManager " +
-            "values and selections; the defaults and the current selection if it hasn't run). One undo step. Hybrid tools: run the macro as " +
-            "it is when it fits the case, or pass code with a modified version. Returns the macro's report.")]
+            "values and selections; the defaults and the current selection if it hasn't run). One undo step. After a hybrid tool hands a case " +
+            "over: once you've resolved what it asked (e.g. selected the right face), run it again; or pass code with a version modified for " +
+            "this case. Returns the macro's report.")]
         public async Task<ToolResult> RunMacro(ToolContext ctx, RunMacroInput input)
         {
             var spec = ToolSpec.Load((input.Name ?? "").Trim().ToLowerInvariant());

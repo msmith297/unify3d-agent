@@ -92,7 +92,7 @@ namespace SwAgent.Tools
                         }
                     };
                     var pageTask = page.ShowAsync(_scripts);
-                    // 2a. While the user fills the page in: what doesn't depend on their inputs (hard-coded tools: only if needed, below).
+                    // 2a. While the user fills the page in: what doesn't depend on their inputs (hybrid tools: only if needed, below).
                     if (spec.Agent && !spec.AgentFallback) await CaptureModelContextAsync(spec, ctx, context);
                     inputs = await pageTask;
                     if (inputs == null)
@@ -106,17 +106,10 @@ namespace SwAgent.Tools
                     await CaptureModelContextAsync(spec, ctx, context);
                 }
 
-                // 3. The hard-coded part. Hybrid tools leave it to the agent (run_tool_macro), with these inputs.
+                // 3. The hard-coded part. Its inputs are kept for run_tool_macro (the agent re-runs or adapts it after a hand-over).
                 LastInputs[spec.Name] = inputs;
                 string macroOutput = null;
-                if (spec.Hybrid)
-                {
-                    context["hybrid"] = "Hybrid tool: look at the inputs, the view and the model first. If the saved macro fits this case, run it with " +
-                                        $"run_tool_macro(name \"{spec.Name}\") - one call, it uses these inputs. If the case needs something different (another " +
-                                        "shape, an extra request in the note), read the macro with read_user_tool and run a modified version with " +
-                                        "run_tool_macro(code: ...), or write custom code. Then verify the tool's acceptance checks.";
-                }
-                else if (spec.Macro != null && spec.Paused.Contains("macro"))
+                if (spec.Macro != null && spec.Paused.Contains("macro"))
                 {
                     // SolidWorks closed while this macro ran last time: don't run it blind again.
                     context["failure"] = "This tool's macro is paused because SolidWorks closed (crashed) while it was running last time. " +
@@ -152,7 +145,7 @@ namespace SwAgent.Tools
                             context["handoff"] = "The macro handed this case to you: " + handoff.Groups[1].Value.Trim() + "\n\nMacro output:\n" + text;
                         else
                             context["failure"] = text;
-                        // Hard-coded tools capture the model context only when the agent is actually needed.
+                        // Hybrid tools capture the model context only when the agent is actually needed.
                         if (spec.AgentFallback) await CaptureModelContextAsync(spec, ctx, context);
                     }
                     else

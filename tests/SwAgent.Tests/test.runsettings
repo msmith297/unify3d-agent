@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Tests write crash records, logs and settings to a temp folder, never to the user's %LOCALAPPDATA%\SwAgent. -->
+<RunSettings>
+  <RunConfiguration>
+    <EnvironmentVariables>
+      <SWAGENT_DATA_DIR>SwAgent.Tests.Data</SWAGENT_DATA_DIR>
+    </EnvironmentVariables>
+  </RunConfiguration>
+</RunSettings>

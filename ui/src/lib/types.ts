@@ -193,7 +193,7 @@ export interface ToolRunPayload {
     items?: { type: string; label: string; detail: string; ref?: string }[];
     files?: FileEntry[];
   }[];
-  context?: { model?: string; history?: string; view?: string; failure?: string; handoff?: string; hybrid?: string; macroOutput?: string };
+  context?: { model?: string; history?: string; view?: string; failure?: string; handoff?: string; macroOutput?: string };
   /** Older add-ins: the macro's failure report. */
   failure?: string;
 }

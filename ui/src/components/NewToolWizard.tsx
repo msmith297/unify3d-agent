@@ -27,8 +27,8 @@ const STYLES: { id: NewToolSpec["style"]; label: string; hint: string; build: st
   {
     id: "hardcoded",
     label: "Hard coded",
-    hint: "Fast to use and repeatable. Can fail on edge cases it wasn't written for.",
-    build: "Longest to build for complex tasks (tens of minutes)",
+    hint: "The macro does it - fastest and repeatable. Stops on edge cases it wasn't written for.",
+    build: "Long to build for complex tasks (tens of minutes)",
   },
   {
     id: "agent",
@@ -39,7 +39,7 @@ const STYLES: { id: NewToolSpec["style"]; label: string; hint: string; build: st
   {
     id: "hybrid",
     label: "Hybrid",
-    hint: "The agent checks your context, then runs the hard-coded macro, a modified version, or custom code. Most versatile.",
+    hint: "The macro runs first; when it meets something it can't handle, the agent adapts the code - and the tool learns. Most versatile.",
     build: "Longest to build",
   },
 ];

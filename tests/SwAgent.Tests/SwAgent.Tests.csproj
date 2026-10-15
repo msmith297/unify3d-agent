@@ -3,6 +3,7 @@
   <!-- Headless tests for the parts of the add-in that don't need SolidWorks: mesh reading, measuring and rendering
        (3D model context) and the "Watch me" diff / activity log. Run with scripts/test.ps1 or `dotnet test tests/SwAgent.Tests`. -->
   <PropertyGroup>
+    <RunSettingsFilePath>$(MSBuildProjectDirectory)/test.runsettings</RunSettingsFilePath>
     <TargetFramework>net48</TargetFramework>
     <PlatformTarget>x64</PlatformTarget>
     <LangVersion>latest</LangVersion>
