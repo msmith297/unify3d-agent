@@ -140,7 +140,7 @@ export interface ResumePanel {
 }
 
 export interface CrashInfo {
-  kind: "preview" | "macro" | "cell" | "page" | "addin";
+  kind: "preview" | "macro" | "cell" | "page" | "addin" | "tool";
   tool?: string | null;
   title?: string;
   code?: string;

@@ -145,6 +145,7 @@ namespace SwAgent.Watch
         {
             _changeTimer.Tick += Safe.Tick("Watch: change check", () =>
             {
+                if (SwBusy.InCommand(_sw)) return; // keep ticking until the command is over
                 _changeTimer.Stop();
                 _ = CheckNowAsync();
             });
@@ -240,6 +241,7 @@ namespace SwAgent.Watch
         private void Poll()
         {
             if (_check != null && !_check.IsCompleted) return;
+            if (SwBusy.InCommand(_sw)) return; // read the model between commands, never in the middle of one
             try
             {
                 if (FeatureReader.Signature(_model) != _signature) _ = CheckNowAsync();

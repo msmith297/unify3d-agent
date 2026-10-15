@@ -21,14 +21,24 @@ namespace SwAgent.Tests
             Assert.InRange(p.Y, py - 3, py + 3);
         }
 
+        /// <summary>A plate at z = 10 mm in front of the camera: what is behind it is hidden; on it, in front of it or beside it is not.</summary>
         [Fact]
-        public void Ray_hits_are_read_by_record_length()
+        public void Depth_test_hides_only_what_the_model_covers()
         {
-            // 2 hits, 9 values each: [body, ray, type, x, y, z, nx, ny, nz]
-            var data = new double[] { 0, 3, 1, 0.1, 0.2, 0.3, 0, 0, 1, 1, 7, 1, 0.4, 0.5, 0.6, 0, 1, 0 };
-            Assert.Equal(new[] { 3, 7 }, SceneOverlay.RayIndexes(data, 2, 10, 2));
-            // Data that fits no known layout must not be guessed at.
-            Assert.Throws<System.InvalidOperationException>(() => System.Linq.Enumerable.ToList(SceneOverlay.RayIndexes(new double[] { 0.5, 2.5, 1 }, 1, 10, 2)));
+            // View looking down -Z (toward the viewer = +Z), 1000 px per meter, origin at pixel (500, 500).
+            var t = new double[] { 1, 0, 0, 0, 1, 0, 0, 0, 1, 500, 500, 0, 1000, 0, 0, 0 };
+            const float z = 0.010f;
+            var plate = new float[] { -0.1f, -0.1f, z, 0.1f, -0.1f, z, 0.1f, 0.1f, z, -0.1f, -0.1f, z, 0.1f, 0.1f, z, -0.1f, 0.1f, z };
+            var item = new SceneOverlay.Item { Type = "line" };
+            var points = new System.Collections.Generic.List<double[]>
+            {
+                new double[] { 0, 0, 0 },          // behind the plate
+                new double[] { 0, 0, 0.02 },       // in front of it
+                new double[] { 0.05, 0.05, 0.010 }, // on its surface
+                new double[] { 0.3, 0, 0 },        // beside it
+            };
+            var hidden = SceneOverlay.ComputeHidden(plate, t, 1, 1000, 1000, new System.Collections.Generic.List<(SceneOverlay.Item, System.Collections.Generic.List<double[]>)> { (item, points) })[item];
+            Assert.Equal(new[] { true, false, false, false }, hidden);
         }
     }
 }

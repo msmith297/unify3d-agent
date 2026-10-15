@@ -63,6 +63,7 @@ namespace SwAgent.UI
                 _current.Start();
             }
             _current._items.AddRange(items);
+            _current.CaptureMesh(); // a safe moment: the agent is drawing, SolidWorks isn't in the middle of a command
             _current._dirty = true;
             _current.Tick();
             Changed?.Invoke(Count);
@@ -118,7 +119,6 @@ namespace SwAgent.UI
         private readonly Dictionary<Item, bool[]> _hidden = new Dictionary<Item, bool[]>();
         private double[] _depthTransform;
         private DateTime _depthAt = DateTime.MinValue;
-        private bool _depthFailed;
 
         private SceneOverlay(ISldWorks sw, IModelDoc2 model, IntPtr viewHwnd, IntPtr ownerHwnd)
         {
@@ -204,7 +204,7 @@ namespace SwAgent.UI
             // Depth follows the camera at up to ~10 Hz while it moves, and once more when it stops.
             var depthStale = _depthTransform == null || !t.SequenceEqual(_depthTransform);
             var depthDue = depthStale && (DateTime.UtcNow - _depthAt).TotalMilliseconds > 100;
-            if (depthDue) UpdateDepth(view);
+            if (depthDue) UpdateDepth(t);
             var changed = _dirty || depthDue || !_shown || rect != _screenRect || moved;
             if (!changed)
             {
@@ -285,79 +285,120 @@ namespace SwAgent.UI
             }
         }
 
+        /// <summary>The model's display triangles in meters (9 floats each), read when the agent draws - see CaptureMesh.</summary>
+        private float[] _tris;
+
+        /// <summary>+1 or -1: which way the view transform's depth grows toward the viewer.</summary>
+        private int _depthSign = 1;
+
         /// <summary>
-        /// Ray-cast every sample toward the viewer through the part's bodies: a hit means the model covers that point.
-        /// Assemblies (bodies live in their parts' spaces) and failures leave everything bright.
+        /// Read the model's display triangles. Only ever called from ShowItems - when the agent draws, from a tool call or
+        /// its own code - never from the timer: a SolidWorks geometry call fired by a timer can land in the middle of a
+        /// command (a PropertyManager, a rebuild) and crash SolidWorks with an error no try/catch can stop. That is exactly
+        /// how an earlier version (RayIntersections on the timer) took SolidWorks down during a Smart Rebuild.
         /// </summary>
-        private void UpdateDepth(IModelView view)
+        private void CaptureMesh()
         {
-            _depthAt = DateTime.UtcNow;
-            _depthTransform = (double[])((IMathTransform)view.Transform).ArrayData;
-            _hidden.Clear();
-            if (_depthFailed || !(_model is IPartDoc part)) return;
             try
             {
-                var bodies = (object[])part.GetBodies2((int)SolidWorks.Interop.swconst.swBodyType_e.swSolidBody, true);
-                if (bodies == null || bodies.Length == 0) return;
-                var mu = (IMathUtility)_sw.GetMathUtility();
-                var inv = (MathTransform)view.Orientation3.Inverse();
-                var toward = (double[])((IMathVector)((IMathVector)mu.CreateVector(new double[] { 0, 0, 1 })).MultiplyTransform(inv)).ArrayData;
-                var samples = _items.Select(i => (Item: i, Points: Samples(i))).ToList();
-                var count = samples.Sum(s => s.Points.Count);
-                if (count == 0) return;
-                var basePts = new double[count * 3];
-                var dirs = new double[count * 3];
-                var r = 0;
-                const double lift = 0.0001; // start just in front of the point, so the face it sits on doesn't count
-                foreach (var s in samples)
-                    foreach (var p in s.Points)
-                    {
-                        basePts[r * 3] = p[0] + toward[0] * lift;
-                        basePts[r * 3 + 1] = p[1] + toward[1] * lift;
-                        basePts[r * 3 + 2] = p[2] + toward[2] * lift;
-                        dirs[r * 3] = toward[0];
-                        dirs[r * 3 + 1] = toward[1];
-                        dirs[r * 3 + 2] = toward[2];
-                        r++;
-                    }
-                var hitRays = new HashSet<int>();
-                var hits = _model.Extension.RayIntersections(bodies, basePts, dirs, (int)SolidWorks.Interop.swconst.swRayPtsOpts_e.swRayPtsOptsNORMALS, 0, 0, false);
-                if (hits > 0 && _model.GetRayIntersectionsPoints() is double[] data) foreach (var ray in RayIndexes(data, hits, count, bodies.Length)) hitRays.Add(ray);
-                r = 0;
-                foreach (var s in samples)
+                using (CrashGuard.Enter("tool", null, "Reading the model for the agent's overlay", null))
                 {
-                    var flags = new bool[s.Points.Count];
-                    for (var k = 0; k < flags.Length; k++) flags[k] = hitRays.Contains(r++);
-                    _hidden[s.Item] = flags;
+                    if (_model.ActiveView is IModelView view)
+                    {
+                        // Toward the viewer, as the selection tool reports it; its sign against the transform's depth axis.
+                        var mu = (IMathUtility)_sw.GetMathUtility();
+                        var inv = (MathTransform)view.Orientation3.Inverse();
+                        var toward = (double[])((IMathVector)((IMathVector)mu.CreateVector(new double[] { 0, 0, 1 })).MultiplyTransform(inv)).ArrayData;
+                        var t = (double[])((IMathTransform)view.Transform).ArrayData;
+                        _depthSign = toward[0] * t[2] + toward[1] * t[5] + toward[2] * t[8] >= 0 ? 1 : -1;
+                    }
+                    var mesh = ModelFiles.LiveModelMesh.For(_sw, _model, null).Mesh;
+                    var pos = mesh.Positions;
+                    var idx = mesh.Indices;
+                    var tris = new float[mesh.TriangleCount * 9];
+                    for (var i = 0; i < mesh.TriangleCount * 3; i++)
+                    {
+                        var v = idx[i];
+                        tris[i * 3] = pos[v * 3] / 1000f; // the mesh is in mm
+                        tris[i * 3 + 1] = pos[v * 3 + 1] / 1000f;
+                        tris[i * 3 + 2] = pos[v * 3 + 2] / 1000f;
+                    }
+                    _tris = tris;
                 }
             }
             catch (Exception ex)
             {
-                _depthFailed = true; // don't retry 10 times a second; the overlay stays bright
-                Log.Warn("Scene overlay depth test failed (drawing everything bright): " + ex.Message);
+                _tris = null; // the overlay just stays bright
+                Log.Warn("Scene overlay: couldn't read the model for the depth test: " + ex.Message);
             }
+            _depthTransform = null;
+        }
+
+        /// <summary>Which samples the model hides in the current view - pure arithmetic on the cached triangles, safe on the timer.</summary>
+        private void UpdateDepth(double[] t)
+        {
+            _depthAt = DateTime.UtcNow;
+            _depthTransform = t;
+            _hidden.Clear();
+            if (_tris == null || _screenRect.Width < 2 || _screenRect.Height < 2) return;
+            foreach (var kv in ComputeHidden(_tris, t, _depthSign, _screenRect.Width, _screenRect.Height, _items.Select(i => (i, Samples(i))).ToList()))
+                _hidden[kv.Key] = kv.Value;
         }
 
         /// <summary>
-        /// The ray index of each hit in GetRayIntersectionsPoints: records of [body, ray, type, x, y, z, (nx, ny, nz)]. The
-        /// record length is checked rather than assumed, so a different layout turns the depth test off instead of lying.
+        /// A quarter-resolution depth image of the triangles in this view (closest surface per pixel); a sample is hidden
+        /// when a surface sits more than ~0.8 mm in front of it at its pixel.
         /// </summary>
-        internal static IEnumerable<int> RayIndexes(double[] data, int hits, int rays, int bodies)
+        internal static Dictionary<Item, bool[]> ComputeHidden(float[] tris, double[] t, int sign, int width, int height, List<(Item Item, List<double[]> Points)> samples)
         {
-            foreach (var stride in new[] { 9, 6, 11, 12 })
+            const float k = 0.25f;
+            int w = Math.Max(1, (int)Math.Ceiling(width * k)), h = Math.Max(1, (int)Math.Ceiling(height * k));
+            var depth = new float[w * h];
+            for (var i = 0; i < depth.Length; i++) depth[i] = float.NegativeInfinity;
+            var s = t[12];
+            float Sx(double x, double y, double z) => (float)((s * (x * t[0] + y * t[3] + z * t[6]) + t[9]) * k);
+            float Sy(double x, double y, double z) => (float)((s * (x * t[1] + y * t[4] + z * t[7]) + t[10]) * k);
+            float Sz(double x, double y, double z) => (float)(sign * (s * (x * t[2] + y * t[5] + z * t[8]) + t[11]));
+
+            for (var i = 0; i + 8 < tris.Length; i += 9)
             {
-                if (data.Length < hits * stride) continue;
-                var ok = true;
-                var found = new List<int>();
-                for (var h = 0; h < hits && ok; h++)
-                {
-                    double b = data[h * stride], ray = data[h * stride + 1];
-                    ok = b >= 0 && b < bodies && Math.Abs(b - Math.Round(b)) < 1e-9 && ray >= 0 && ray < rays && Math.Abs(ray - Math.Round(ray)) < 1e-9;
-                    found.Add((int)Math.Round(ray));
-                }
-                if (ok) return found;
+                float x0 = Sx(tris[i], tris[i + 1], tris[i + 2]), y0 = Sy(tris[i], tris[i + 1], tris[i + 2]), z0 = Sz(tris[i], tris[i + 1], tris[i + 2]);
+                float x1 = Sx(tris[i + 3], tris[i + 4], tris[i + 5]), y1 = Sy(tris[i + 3], tris[i + 4], tris[i + 5]), z1 = Sz(tris[i + 3], tris[i + 4], tris[i + 5]);
+                float x2 = Sx(tris[i + 6], tris[i + 7], tris[i + 8]), y2 = Sy(tris[i + 6], tris[i + 7], tris[i + 8]), z2 = Sz(tris[i + 6], tris[i + 7], tris[i + 8]);
+                var area = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0);
+                if (Math.Abs(area) < 1e-6f) continue;
+                int minX = Math.Max(0, (int)Math.Floor(Math.Min(x0, Math.Min(x1, x2)))), maxX = Math.Min(w - 1, (int)Math.Ceiling(Math.Max(x0, Math.Max(x1, x2))));
+                int minY = Math.Max(0, (int)Math.Floor(Math.Min(y0, Math.Min(y1, y2)))), maxY = Math.Min(h - 1, (int)Math.Ceiling(Math.Max(y0, Math.Max(y1, y2))));
+                for (var py = minY; py <= maxY; py++)
+                    for (var px = minX; px <= maxX; px++)
+                    {
+                        float cx = px + 0.5f, cy = py + 0.5f;
+                        var a = ((x1 - cx) * (y2 - cy) - (x2 - cx) * (y1 - cy)) / area;
+                        var b = ((x2 - cx) * (y0 - cy) - (x0 - cx) * (y2 - cy)) / area;
+                        var c = 1 - a - b;
+                        if (a < -1e-4f || b < -1e-4f || c < -1e-4f) continue;
+                        var z = a * z0 + b * z1 + c * z2;
+                        var o = py * w + px;
+                        if (z > depth[o]) depth[o] = z;
+                    }
             }
-            throw new InvalidOperationException($"unexpected ray-intersection data ({data.Length} values for {hits} hits)");
+
+            var eps = (float)(s * 0.0008); // ~0.8 mm, so points lying on a visible face count as visible
+            var result = new Dictionary<Item, bool[]>();
+            foreach (var (item, points) in samples)
+            {
+                var flags = new bool[points.Count];
+                for (var j = 0; j < points.Count; j++)
+                {
+                    var p = points[j];
+                    int px = (int)Sx(p[0], p[1], p[2]), py = (int)Sy(p[0], p[1], p[2]);
+                    if (px < 0 || py < 0 || px >= w || py >= h) continue;
+                    var front = depth[py * w + px];
+                    flags[j] = !float.IsNegativeInfinity(front) && front > Sz(p[0], p[1], p[2]) + eps;
+                }
+                result[item] = flags;
+            }
+            return result;
         }
 
         private bool[] HiddenOf(Item item) => _hidden.TryGetValue(item, out var h) ? h : null;

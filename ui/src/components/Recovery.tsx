@@ -14,6 +14,7 @@ export function CrashNotice() {
   const what =
     crash.kind === "preview" ? `the preview of “${crash.title ?? crash.tool}”`
     : crash.kind === "addin" ? `an error in Unify3D Agent itself`
+    : crash.kind === "tool" ? `the agent's “${crash.title ?? "tool"}” step`
     : crash.kind === "page" ? `the page of the tool “${crash.title ?? crash.tool}”`
     : crash.kind === "macro" ? `the tool “${crash.title ?? crash.tool}”`
     : `the agent's step “${crash.title ?? "C# code"}”`;
