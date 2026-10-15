@@ -114,6 +114,7 @@ namespace SwAgent.Scripting
             var originalOut = Console.Out;
             var runWatch = Stopwatch.StartNew();
             var treeBefore = SwAgent.Tools.FeatureDiff.Take(model);
+            var fingerprint = SwAgent.Tools.UndoLedger.Begin(model);
             ScriptState<object> state;
             var guard = CrashGuard.Enter("cell", null, title, input.Code);
             try
@@ -134,6 +135,7 @@ namespace SwAgent.Scripting
                 Console.SetOut(originalOut);
                 TryFinishUndo(model, title);
                 runWatch.Stop();
+                SwAgent.Tools.UndoLedger.Record(model, ctx.ToolUseId, title, fingerprint);
             }
 
             // Keep the new state even if the cell threw, so earlier variables survive a failing cell.

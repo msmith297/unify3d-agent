@@ -193,9 +193,22 @@ namespace SwAgent
             {
                 var doc = DocumentFor((string)p["docKey"]);
                 var refs = (p["refs"] as JObject)?.Properties().ToDictionary(x => x.Name, x => (string)x.Value);
-                var ctx = new ToolContext(_app, doc, (string)p["threadId"], _tools, refs);
+                var ctx = new ToolContext(_app, doc, (string)p["threadId"], _tools, refs) { ToolUseId = (string)p["toolUseId"] };
                 var result = await _tools.InvokeAsync((string)p["name"], p["input"] as JObject, ctx);
                 return (object)result.ToJson();
+            });
+            // "Undo everything the agent did since this message" (offered when a message is edited or resent).
+            bridge.Register("history.undoable", p =>
+            {
+                var model = DocumentFor((string)p["docKey"])?.Model;
+                return new JObject { ["changes"] = UndoLedger.Undoable(model, ToolUseIds(p)) };
+            });
+            bridge.Register("history.undoSince", p =>
+            {
+                var model = DocumentFor((string)p["docKey"])?.Model;
+                if (model == null) return new JObject { ["ok"] = false, ["message"] = "The document isn't open." };
+                var (ok, steps, message) = UndoLedger.UndoTo(model, ToolUseIds(p));
+                return new JObject { ["ok"] = ok, ["steps"] = steps, ["message"] = message };
             });
             bridge.Register("tools.cancel", p =>
             {
@@ -608,6 +621,9 @@ namespace SwAgent
         }
 
         /// <summary>The document tools act on: the chat's own document, or the active one for a scratch chat.</summary>
+        private static HashSet<string> ToolUseIds(JToken p) =>
+            new HashSet<string>((p["toolUseIds"] as JArray)?.Select(t => (string)t) ?? Enumerable.Empty<string>());
+
         private ISwDocument DocumentFor(string docKey)
         {
             if (string.IsNullOrEmpty(docKey) || docKey == ChatDocument.ScratchKey) return _app.Documents.Active;

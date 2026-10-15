@@ -482,12 +482,13 @@ export const useStore = create<State>((set, get) => {
           onStatus: (text) => updateRun(threadId, { status: text }),
           ask: (toolUseId, question, options, form) =>
             new Promise<string>((resolve) => updateRun(threadId, { question: { toolUseId, question, options, form, resolve } })),
-          runTool: (name, input) =>
+          runTool: (name, input, toolUseId) =>
             rpc<ToolRunResult>("tools.run", {
               docKey,
               threadId,
               name,
               input,
+              toolUseId,
               refs: get().chats[docKey]?.data.threads.find((t) => t.id === threadId)?.selRefs ?? {},
             }),
           isAutoApproved: () => !!get().chats[docKey]?.data.threads.find((t) => t.id === threadId)?.autoApprove,
@@ -1243,6 +1244,16 @@ export function writesAfter(thread: Thread, msgIndex: number): number {
     for (const b of m.content) if (b.type === "tool_use" && WRITE_TOOLS.has(b.name)) n++;
   }
   return n;
+}
+
+/** The tool_use ids of the agent's code cells after a message (the add-in's undo ledger knows them). */
+export function cellIdsAfter(thread: Thread, msgIndex: number): string[] {
+  const ids: string[] = [];
+  for (const m of thread.messages.slice(msgIndex + 1)) {
+    if (m.role !== "assistant" || typeof m.content === "string") continue;
+    for (const b of m.content) if (b.type === "tool_use" && b.name === "execute_csharp") ids.push(b.id);
+  }
+  return ids;
 }
 
 /** Plain text of a prompt, without the add-in's context block. */

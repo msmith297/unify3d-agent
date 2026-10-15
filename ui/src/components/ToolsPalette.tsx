@@ -3,6 +3,7 @@ import { useOutside } from "./Menu";
 import { Caret, IconCancel, IconEdit, IconNewChat, IconPart, IconToolbox, ToolIcon } from "./SwIcons";
 import { EMPTY, draftKey, useStore } from "../store";
 import { rpc } from "../lib/bridge";
+import { confirmAction } from "./Dialog";
 import { svgDataUrl } from "../lib/toolIcons";
 import type { Tier, UserToolInfo } from "../lib/types";
 import { TIERS } from "../lib/models";
@@ -53,7 +54,7 @@ export function ToolsPalette({ disabled }: { disabled?: boolean }) {
           className="sw-tool !h-[22px] !min-w-[22px] !p-0"
           title="Delete"
           onClick={() => {
-            if (confirm(`Delete "${t.title}"? This removes its folder.`)) deleteUserTool(t.name);
+            confirmAction(`Delete this ${t.kind === "tool" ? "tool" : "workflow"}?`, <p>"{t.title}" and its folder are deleted.</p>, "Delete", true).then((ok) => { if (ok) deleteUserTool(t.name); });
           }}
         >
           <IconCancel size={9} />

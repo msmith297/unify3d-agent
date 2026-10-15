@@ -9,7 +9,9 @@ import { svgDataUrl } from "../lib/toolIcons";
 import { Caret } from "./SwIcons";
 import { ToolCard, statusFor, toolTitle, type ToolCall } from "./ToolCard";
 import { breakdown, highlights as pickHighlights } from "../agent/workSummary";
-import { MODEL_TAG, WATCH_TAG, currentThread, isPrompt, promptText, useStore, writesAfter, type RunState } from "../store";
+import { MODEL_TAG, WATCH_TAG, cellIdsAfter, currentThread, isPrompt, promptText, useStore, writesAfter, type RunState } from "../store";
+import { ask } from "./Dialog";
+import { rpc } from "../lib/bridge";
 import { modelOption } from "../lib/models";
 import type { ContentBlockParam, ImageBlockParam, MessageParam, Thread, ToolResultBlockParam, TurnMeta } from "../lib/types";
 import type { LiveBlock } from "../agent/runAgent";
@@ -483,14 +485,51 @@ function PromptBubble({
   const [copied, setCopied] = useState(false);
   const { text, images, refs, view, index, extras } = item;
 
-  /** Resending drops later replies; changes already made to the model stay (Ctrl+Z undoes them). */
-  const confirmRewind = () => {
-    const writes = writesAfter(thread, index);
-    if (writes === 0) return true;
-    return confirm(
-      `The replies after this message will be replaced. The agent made ${writes} change${writes > 1 ? "s" : ""} to the model ` +
-        `since then - ${writes > 1 ? "they stay" : "it stays"} in the model (use Ctrl+Z in SolidWorks to undo ${writes > 1 ? "them" : "it"}). Continue?`,
-    );
+  /**
+   * Resending drops later replies. Changes the agent made to the model since then can be undone in one go (the
+   * add-in undoes step by step until the model matches its state when this message was sent) or kept.
+   */
+  const confirmRewind = async (): Promise<boolean> => {
+    if (writesAfter(thread, index) === 0) return true;
+    const docKey = useStore.getState().viewKey;
+    const toolUseIds = cellIdsAfter(thread, index);
+    const changes = await rpc<{ changes: number }>("history.undoable", { docKey, toolUseIds })
+      .then((r) => r?.changes ?? -1)
+      .catch(() => -1);
+    if (changes === 0) return true; // the model is already back where it was
+    const s = (n: number, one: string, many: string) => (n === 1 ? one : many);
+    const keep = { value: "keep", label: "Keep changes" };
+    const choice = await ask({
+      title: "Replace the replies after this message?",
+      message:
+        changes > 0 ? (
+          <p>
+            The agent made {changes} {s(changes, "change", "changes")} to the model since then. Undo {s(changes, "it", "them")} to put the
+            model back the way it was when you sent this message, or keep {s(changes, "it", "them")} and continue from the current model.
+          </p>
+        ) : (
+          <p>
+            The agent changed the model since then. Those changes can't be undone automatically here (SolidWorks was restarted or the
+            document reopened since) - they stay in the model; use Ctrl+Z in SolidWorks to undo them.
+          </p>
+        ),
+      actions:
+        changes > 0
+          ? [
+              keep,
+              {
+                value: "undo",
+                label: `Undo ${changes} ${s(changes, "change", "changes")}`,
+                primary: true,
+                run: async () => {
+                  const r = await rpc<{ ok: boolean; message?: string }>("history.undoSince", { docKey, toolUseIds });
+                  if (!r?.ok) return r?.message ?? "The undo didn't complete.";
+                },
+              },
+            ]
+          : [{ ...keep, label: "Continue", primary: true }],
+    });
+    return choice !== null;
   };
 
   const copy = async () => {
@@ -503,9 +542,9 @@ function PromptBubble({
     }
   };
 
-  const submitEdit = () => {
+  const submitEdit = async () => {
     if (!draft.trim() && images.length === 0 && extras.length === 0) return;
-    if (!confirmRewind()) return;
+    if (!(await confirmRewind())) return;
     setEditing(false);
     resendFrom(index, draft);
   };
@@ -596,7 +635,7 @@ function PromptBubble({
               >
                 <IconEdit size={13} />
               </BubbleAction>
-              <BubbleAction title="Resend" onClick={() => confirmRewind() && resendFrom(index)}>
+              <BubbleAction title="Resend" onClick={async () => (await confirmRewind()) && resendFrom(index)}>
                 <IconResend size={13} />
               </BubbleAction>
             </>

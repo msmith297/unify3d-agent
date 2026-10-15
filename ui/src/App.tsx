@@ -10,6 +10,7 @@ import { SettingsPanel } from "./components/SettingsPanel";
 import { AutoUpdatePrompt, UpdateDialog } from "./components/Update";
 import { ToolRunBanner } from "./components/ToolRunBanner";
 import { CrashNotice } from "./components/Recovery";
+import { DialogHost } from "./components/Dialog";
 import { useStore } from "./store";
 
 export default function App() {
@@ -102,6 +103,7 @@ export default function App() {
         <ToolRunBanner />
       </div>
       <UpdateDialog />
+      <DialogHost />
       {notice && (
         <div className="flex shrink-0 items-start gap-2 border-b border-line bg-accent-soft px-2 py-1.5 text-[11.5px] text-text shadow-[inset_0_1px_0_var(--bevel-hi)]">
           <span className="mt-px shrink-0"><IconInfo size={14} /></span>

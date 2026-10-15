@@ -97,7 +97,7 @@ export interface AgentCallbacks {
   onRequest?(startedAt: number): void;
   /** A status line for the user (e.g. a stalled connection being retried), or null to clear it. */
   onStatus?(text: string | null): void;
-  runTool(name: string, input: unknown): Promise<ToolRunResult>;
+  runTool(name: string, input: unknown, toolUseId?: string): Promise<ToolRunResult>;
   isAutoApproved(): boolean;
   setAutoApproved(): void;
 }
@@ -363,7 +363,7 @@ async function executeTool(tu: Anthropic.Beta.Messages.BetaToolUseBlock, opts: A
 
   cb.setRunningTool(tu.id);
   try {
-    const res = await cb.runTool(tu.name, tu.input);
+    const res = await cb.runTool(tu.name, tu.input, tu.id);
     return { type: "tool_result", tool_use_id: tu.id, content: res.content, ...(res.isError ? { is_error: true } : {}) };
   } catch (e) {
     return err(`The add-in failed to run ${tu.name}: ${e instanceof Error ? e.message : String(e)}`);

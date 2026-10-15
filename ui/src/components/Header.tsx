@@ -3,6 +3,7 @@ import { IconButton, useOutside } from "./Menu";
 import { Caret, IconAssembly, IconCancel, IconDrawing, IconGear, IconHistory, IconNewChat, IconPart, Spinner } from "./SwIcons";
 import { EMPTY, currentThread, useStore } from "../store";
 import { UpdateButton } from "./Update";
+import { confirmAction } from "./Dialog";
 import { BrandMark } from "./Brand";
 import type { DocInfo } from "../lib/types";
 
@@ -88,7 +89,7 @@ function ThreadMenu({ currentTitle }: { currentTitle?: string }) {
               <button
                 title="Delete chat"
                 onClick={() => {
-                  if (confirm(`Delete "${t.title}"? This removes it from the document when you next save.`)) deleteThread(t.id);
+                  confirmAction("Delete this chat?", <p>"{t.title}" is removed from the document when you next save it.</p>, "Delete", true).then((ok) => { if (ok) deleteThread(t.id); });
                 }}
                 className="sw-tool invisible !h-5 !min-w-5 group-hover:visible"
               >

@@ -127,6 +127,11 @@ export async function mockRpc(method: string, params: any): Promise<unknown> {
     case "app.openExternal":
       window.open(params.url, "_blank", "noopener");
       return null;
+    case "history.undoable":
+      return { changes: params.toolUseIds?.length ?? 0 };
+    case "history.undoSince":
+      await new Promise((r) => setTimeout(r, 600));
+      return { ok: true, steps: params.toolUseIds?.length ?? 0 };
     default:
       return null;
   }
