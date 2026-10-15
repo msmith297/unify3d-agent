@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import { useOutside } from "./Menu";
-import { Caret, IconCancel, IconEdit, IconNewChat, IconPart, IconToolbox, ToolIcon } from "./SwIcons";
+import { Caret, IconCancel, IconEdit, IconNewChat, IconPart, IconRebuild, IconToolbox, ToolIcon } from "./SwIcons";
 import { EMPTY, draftKey, useStore } from "../store";
 import { rpc } from "../lib/bridge";
 import { confirmAction } from "./Dialog";
@@ -150,6 +150,16 @@ export function ToolsPalette({ disabled }: { disabled?: boolean }) {
                 <IconPart size={13} /> From this model
               </button>
             )}
+            <button
+              className="sw-btn"
+              title="Rebuild this design around a change far back in its history - a revised customer part, a changed dimension"
+              onClick={() => {
+                setOpen(false);
+                useStore.setState({ panel: "smartRebuild" });
+              }}
+            >
+              <IconRebuild size={13} /> Smart Rebuild…
+            </button>
             <button className="sw-btn" title="A quick command on the Unify3D ribbon tab that you can put on a hotkey" onClick={() => { setOpen(false); useStore.setState({ panel: "newTool" }); }}>
               <IconNewChat size={13} /> New tool…
             </button>

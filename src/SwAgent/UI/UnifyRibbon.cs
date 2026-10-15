@@ -42,6 +42,12 @@ namespace SwAgent.UI
             ("view", 4, "Attach View", "Attach a screenshot of the current view to your message", () => Icons.Camera),
         };
 
+        /// <summary>Built-in Unify3D tools: shipped with the add-in, their own box on the tab.</summary>
+        private static readonly (string Arg, int Id, string Title, string Hint, Func<byte[]> Icon)[] BuiltIn =
+        {
+            ("smartrebuild", 7, "Smart Rebuild", "Rebuild the whole design around a change far back in its history - a new customer part, a changed dimension", () => Icons.SmartRebuild),
+        };
+
         private static readonly (string Arg, int Id, string Title, string Hint, Func<byte[]> Icon)[] Trailing =
         {
             ("newtool", 5, "New Tool", "Create a new tool with the agent", () => Icons.NewTool),
@@ -94,6 +100,7 @@ namespace SwAgent.UI
 
                 var commands = new List<(string Arg, int Id, string Title, string Hint, byte[] Icon)>();
                 commands.AddRange(Fixed.Select(f => (f.Arg, f.Id, f.Title, f.Hint, f.Icon())));
+                commands.AddRange(BuiltIn.Select(f => (f.Arg, f.Id, f.Title, f.Hint, f.Icon())));
                 foreach (var t in tools)
                 {
                     var name = (string)t["name"];
@@ -130,11 +137,12 @@ namespace SwAgent.UI
                 _toolById = tools.ToDictionary(t => ids[(string)t["name"]], t => (string)t["name"]);
                 _created = true;
 
-                // One tab: Unify3D Agent commands + Options | the user's tools + New Tool.
+                // One tab: Unify3D Agent commands + Options | built-in Unify3D tools | the user's tools + New Tool.
                 int Cmd(int id) => group.get_CommandID(indexes[id]);
                 var boxes = new List<int[]>
                 {
                     Fixed.Select(f => Cmd(f.Id)).Concat(new[] { Cmd(6) }).ToArray(),
+                    BuiltIn.Select(f => Cmd(f.Id)).ToArray(),
                     tools.Select(t => Cmd(ids[(string)t["name"]])).Concat(new[] { Cmd(5) }).ToArray(),
                 };
                 foreach (var type in DocTypes)

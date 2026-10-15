@@ -105,7 +105,7 @@ interface State {
   queueRemove(threadId: string, id: string): void;
   drafts: Record<string, string>;
   attachments: Record<string, Attachment[]>;
-  panel: "chat" | "settings" | "newTool";
+  panel: "chat" | "settings" | "newTool" | "smartRebuild";
   focusTick: number;
   notice: string | null;
   /** "Watch me": recording what the user does in a document (live log from the add-in). */
@@ -131,7 +131,10 @@ interface State {
   addAttachment(a: Attachment): void;
   removeAttachment(id: string): void;
   attachView(): Promise<void>;
-  send(text: string): Promise<void>;
+  /** model / effort apply when this starts a new chat. */
+  send(text: string, opts?: { model?: string; effort?: Effort }): Promise<void>;
+  /** From the Smart Rebuild screen; returns a problem to show, or null once the agent has started. */
+  startSmartRebuild(spec: SmartRebuildSpec): Promise<string | null>;
   retry(): Promise<void>;
   /** Drop everything after the prompt at msgIndex and run again, optionally with edited text. */
   resendFrom(msgIndex: number, editedText?: string): Promise<void>;
@@ -843,6 +846,9 @@ export const useStore = create<State>((set, get) => {
           case "newTool":
             set({ panel: "newTool" });
             break;
+          case "smartRebuild":
+            set({ panel: "smartRebuild" });
+            break;
           case "attachView":
             set({ panel: "chat" });
             s.attachView();
@@ -875,6 +881,25 @@ export const useStore = create<State>((set, get) => {
       await loadChat(key);
       updateSlot(key, (d) => ({ ...d, activeThreadId: null }));
       set((s) => ({ focusTick: s.focusTick + 1 }));
+    },
+
+    async startSmartRebuild(spec) {
+      const s = get();
+      const docKey = s.viewKey;
+      let workingFile = "this file (no copy)";
+      if (spec.copy) {
+        type Saved = { ok: boolean; reason?: string; path?: string; original?: string };
+        const r = await rpc<Saved>("doc.saveAsCopy", { docKey, name: spec.copyName }).catch((e): Saved => ({ ok: false, reason: String(e?.message ?? e) }));
+        if (!r.ok) return r.reason ?? "The copy couldn't be saved.";
+        workingFile = `a copy saved as ${r.path} - the original ${r.original} stays untouched`;
+      }
+      set({ panel: "chat" });
+      await get().newChat();
+      // The new customer part and the references go along as attachments (3D models arrive as views + measurements).
+      const files = [...(spec.newPart ? [spec.newPart] : []), ...spec.files];
+      if (files.length) get().addFileEntries(files);
+      await get().send(smartRebuildPrompt(spec, workingFile), { model: "claude-opus-5-5", effort: "high" });
+      return null;
     },
 
     dismissRestart(threadId, offerId) {
@@ -976,7 +1001,7 @@ export const useStore = create<State>((set, get) => {
       }
     },
 
-    async send(text) {
+    async send(text, opts) {
       const s0 = get();
       const docKey = s0.viewKey;
       await loadChat(docKey);
@@ -1004,11 +1029,11 @@ export const useStore = create<State>((set, get) => {
       if (!thread) {
         thread = {
           id: uid(),
-          title: (trimmed || attachments[0]?.name || "Image").replace(/^\[New tool\]\s*/, "New tool: ").replace(/\s+/g, " ").slice(0, 70),
+          title: (trimmed || attachments[0]?.name || "Image").replace(/^\[New tool\]\s*/, "New tool: ").replace(/^\[Smart rebuild\]\s*/, "Smart Rebuild: ").replace(/\s+/g, " ").slice(0, 70),
           createdAt: now(),
           updatedAt: now(),
-          model: settings.defaultModel,
-          effort: settings.defaultEffort,
+          model: opts?.model ?? settings.defaultModel,
+          effort: opts?.effort ?? settings.defaultEffort,
           messages: [],
           turns: [],
         };
@@ -1412,6 +1437,35 @@ export function writesAfter(thread: Thread, msgIndex: number): number {
     for (const b of m.content) if (b.type === "tool_use" && WRITE_TOOLS.has(b.name)) n++;
   }
   return n;
+}
+
+/** What the Smart Rebuild screen collects. */
+export interface SmartRebuildSpec {
+  change: "replace" | "describe" | "manual" | "done";
+  newPart: FileEntry | null;
+  notes: string;
+  files: FileEntry[];
+  copy: boolean;
+  copyName: string;
+  decisions: "balanced" | "ask" | "auto";
+}
+
+export function smartRebuildPrompt(r: SmartRebuildSpec, workingFile: string): string {
+  const change = {
+    replace: `Replace the inserted customer part with the revised file ${r.newPart?.path ?? "(attached)"} (attached).`,
+    describe: `Make this change: ${r.notes.trim()}`,
+    manual: "I'll make the change myself: record the design first, then ask me to make it and wait until I say it's done.",
+    done: "I've already made the change but haven't saved: record the design from the last saved version (snapshot_design from_saved_file).",
+  }[r.change];
+  const decisions = {
+    balanced: "decide routine repairs yourself; ask (ask_form, with the options drawn on the model) before anything that changes function, cost, other parts or customer-facing geometry",
+    ask: "ask me before every judgement call",
+    auto: "make the engineering calls yourself and report each one",
+  }[r.decisions];
+  const lines = [`[Smart rebuild] ${change}`, "", `- Working file: ${workingFile}`, `- Big decisions: ${decisions}`];
+  if (r.change !== "describe" && r.notes.trim()) lines.push(`- Notes: ${r.notes.trim()}`);
+  if (r.files.length) lines.push(`- References attached: ${r.files.map((f) => f.name).join(", ")}`);
+  return lines.join("\n");
 }
 
 /** What the New tool screen collects. Anything left open is the agent's to propose (in one ask_form). */

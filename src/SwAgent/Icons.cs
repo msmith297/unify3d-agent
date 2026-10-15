@@ -142,6 +142,20 @@ namespace SwAgent
             }
         });
 
+        /// <summary>Smart Rebuild: a stack of mold plates with a rebuild arrow wrapping around it.</summary>
+        public static byte[] SmartRebuild => Draw(nameof(SmartRebuild), g =>
+        {
+            var plates = new[] { (y: 26f, graphite: false), (y: 52f, graphite: true), (y: 78f, graphite: false) };
+            foreach (var p in plates)
+                using (var slab = Rounded(new RectangleF(10, p.y, 78, 22), 5))
+                    Metal(g, slab, p.graphite, edge: 4);
+            // The rebuild arrow: an arc on the right running from the top plate down round to the bottom one.
+            using (var shadow = Pen(Edge, 15)) g.DrawArc(shadow, 52, 18, 66, 92, -80, 175);
+            using (var arc = Pen(SteelTop, 9)) g.DrawArc(arc, 52, 18, 66, 92, -80, 175);
+            using (var head = Poly(new PointF(62, 110), new PointF(88, 96), new PointF(88, 124)))
+                Metal(g, head, graphite: false, edge: 4);
+        });
+
         private static void Toolbox(Graphics g)
         {
             using (var handle = Rounded(new RectangleF(42, 16, 44, 30), 8))

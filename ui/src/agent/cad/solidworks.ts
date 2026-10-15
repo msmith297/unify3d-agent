@@ -52,6 +52,12 @@ export const SOLIDWORKS: CadProfile = {
 - Assemblies: lightweight components must be resolved before you read or change their geometry. Component geometry is in the part's own space - transform with IComponent2.Transform2. The first component is usually fixed. Editing a part in the context of the assembly creates external references - only when the user wants that.
 - Sheet metal: build with sheet metal features (base flange, edge flange, sketched bend); cuts across bends should be normal cuts; the flat pattern is a feature you can unsuppress to measure the blank.
 - Custom properties: file-level (CustomPropertyManager[""]) or per configuration; drawings and BOMs read them ($PRP).
+- Repairing a rebuilt design (Smart Rebuild):
+  - Roll back with FeatureManager.EditRollback((int)swMoveRollbackBarTo_e.swMoveRollbackBarToBeforeFeature / ToAfterFeature, featureName) and to the end with swMoveRollbackBarToEnd; work on one feature at a time with the bar just after it.
+  - Insert Part / derived parts: GetDefinition() is IDerivedPartFeatureData (PathName); replace_inserted_part swaps the file.
+  - A sketch that lost its face: edit it (select the sketch, Model.EditSketch) and re-attach - delete dangling relations and convert or relate to the equivalent new edges; or select the new face and use "Edit Sketch Plane" through the sketch feature's definition. A feature with lost references: GetDefinition() -> AccessSelections(Model, null) -> set the new faces/edges on the data -> ModifyDefinition, or ReleaseSelectionAccess when abandoning.
+  - IModelDocExtension.GetWhatsWrong lists every error and warning; the dangling-reference ones point straight at what to re-attach.
+  - When a fillet or chamfer loses edges, recreate it per body on the new edges rather than patching the old edge list.
 - Long batches: turn off feature-tree and graphics updates (IFeatureManager.EnableFeatureTree = false, IModelView.EnableGraphicsUpdate = false) and restore them in a finally block.`,
 
     toolCode: `- The macro reads its inputs from Inputs: Inputs.Selected<IFace2>("faces"), Inputs.Number("offset") (meters/radians), Inputs.Flag, Inputs.Text, Inputs.Files - and, without inputs, Model.SelectionManager. Never Ref("S1"). Call Fail("Select a planar face first") for a wrong selection or missing preconditions (e.g. "No cavity found on this face"); hybrid macros call NeedsAgent("why") for a case they can't handle. End with a short result string. It runs as one undo step.

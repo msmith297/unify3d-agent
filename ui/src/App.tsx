@@ -12,6 +12,7 @@ import { ToolRunBanner } from "./components/ToolRunBanner";
 import { CrashNotice } from "./components/Recovery";
 import { DialogHost } from "./components/Dialog";
 import { NewToolWizard } from "./components/NewToolWizard";
+import { SmartRebuildWizard } from "./components/SmartRebuildWizard";
 import { useStore } from "./store";
 
 export default function App() {
@@ -118,6 +119,8 @@ export default function App() {
         <SettingsPanel />
       ) : panel === "newTool" ? (
         <NewToolWizard />
+      ) : panel === "smartRebuild" ? (
+        <SmartRebuildWizard />
       ) : (
         <>
           <ChatView />

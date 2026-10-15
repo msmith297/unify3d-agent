@@ -61,6 +61,7 @@ namespace SwAgent
                 tools.RegisterAll(scripts);
                 tools.RegisterAll(new ToolTester(scripts));
                 tools.RegisterAll(new OverlayTools());
+                tools.RegisterAll(new DesignSnapshot());
                 Controller = new AgentController(Application, tools, scripts);
                 if (crash != null)
                 {
@@ -163,6 +164,9 @@ namespace SwAgent
                     case "options":
                         Controller.SendCommand("openSettings");
                         break;
+                    case "smartrebuild":
+                        Controller.SendCommand("smartRebuild");
+                        break;
                 }
             }
             catch (Exception ex)
@@ -176,7 +180,7 @@ namespace SwAgent
         {
             try
             {
-                var needsDoc = arg.StartsWith("t") || arg == "ask" || arg == "view";
+                var needsDoc = arg.StartsWith("t") || arg == "ask" || arg == "view" || arg == "smartrebuild";
                 return !needsDoc || Application.Sw.ActiveDoc != null ? 1 : 0;
             }
             catch
