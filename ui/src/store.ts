@@ -104,7 +104,7 @@ interface State {
   queueRemove(threadId: string, id: string): void;
   drafts: Record<string, string>;
   attachments: Record<string, Attachment[]>;
-  panel: "chat" | "settings";
+  panel: "chat" | "settings" | "newTool";
   focusTick: number;
   notice: string | null;
   /** "Watch me": recording what the user does in a document (live log from the add-in). */
@@ -115,6 +115,12 @@ interface State {
   newChat(): Promise<void>;
   selectThread(threadId: string): Promise<void>;
   deleteThread(threadId: string): Promise<void>;
+  /** "Not now" on a Save-and-restart offer. */
+  dismissRestart(threadId: string, offerId: string): void;
+  /** From the New tool screen: start the agent on a tool described there. */
+  startNewTool(spec: NewToolSpec): Promise<void>;
+  /** When this SolidWorks session started (or the panel, with older add-ins): ms since epoch. */
+  sessionStart: number;
   setThreadModel(model: string): void;
   setThreadEffort(effort: Effort): void;
   setDraft(text: string): void;
@@ -506,11 +512,18 @@ export const useStore = create<State>((set, get) => {
                 };
               }),
             })),
-          approve: (req) => new Promise<ApprovalDecision>((resolve) => updateRun(threadId, { approval: { ...req, resolve } })),
+          approve: (req) =>
+            new Promise<ApprovalDecision>((resolve) => {
+              updateRun(threadId, { approval: { ...req, resolve } });
+              void revealRun(docKey, threadId);
+            }),
           onRequest: (at) => updateRun(threadId, { requestStartedAt: at }),
           onStatus: (text) => updateRun(threadId, { status: text }),
           ask: (toolUseId, question, options, form) =>
-            new Promise<string>((resolve) => updateRun(threadId, { question: { toolUseId, question, options, form, resolve } })),
+            new Promise<string>((resolve) => {
+              updateRun(threadId, { question: { toolUseId, question, options, form, resolve } });
+              void revealRun(docKey, threadId);
+            }),
           runTool: (name, input, toolUseId) =>
             rpc<ToolRunResult>("tools.run", {
               docKey,
@@ -583,6 +596,18 @@ export const useStore = create<State>((set, get) => {
     void submitPrompt(docKey, threadId, text, attachments);
   };
 
+  /** The agent needs the user (a question, an approval): show that chat and bring the pane up - tool runs happen out of sight. */
+  const revealRun = async (docKey: string, threadId: string) => {
+    const s = get();
+    const shown = s.panel === "chat" && s.viewKey === docKey && s.chats[docKey]?.data.activeThreadId === threadId;
+    if (!shown) {
+      if (s.viewKey !== docKey) await s.showDoc(docKey);
+      updateSlot(docKey, (d) => ({ ...d, activeThreadId: threadId }));
+      set({ panel: "chat" });
+    }
+    rpc("app.showPane").catch(() => {});
+  };
+
   /** Add a prompt (text, attachments, the user's selection and view) to a thread and run the agent. */
   const submitPrompt = async (docKey: string, threadId: string, trimmed: string, attachments: Attachment[]) => {
     const blocks: ContentBlockParam[] = [];
@@ -613,6 +638,7 @@ export const useStore = create<State>((set, get) => {
 
   return {
     booted: false,
+    sessionStart: Date.now(),
     bootError: null,
     host: null,
     settings: DEFAULT_SETTINGS,
@@ -657,6 +683,7 @@ export const useStore = create<State>((set, get) => {
           rpc("settings.save", settings);
         }
         if (host.update) set({ update: host.update });
+        if (host.sessionStart) set({ sessionStart: Date.parse(host.sessionStart) || Date.now() });
         if (host.resume) {
           // Back from "Save and restart": the documents reopen on their own (the add-in); bring back unsent drafts.
           set((s) => ({ drafts: { ...s.drafts, ...(host.resume?.drafts ?? {}) }, notice: "SolidWorks restarted - reopening your documents where you left off." }));
@@ -797,15 +824,9 @@ export const useStore = create<State>((set, get) => {
             } else void s.runQuickTool(payload.failure ? { ...payload, context: { ...payload.context, failure: payload.failure } } : payload);
             break;
           }
-          case "newTool": {
-            const key = draftKey(s);
-            set({
-              panel: "chat",
-              drafts: { ...s.drafts, [key]: "Help me create a new tool (a quick ribbon command) that " },
-              focusTick: s.focusTick + 1,
-            });
+          case "newTool":
+            set({ panel: "newTool" });
             break;
-          }
           case "attachView":
             set({ panel: "chat" });
             s.attachView();
@@ -838,6 +859,30 @@ export const useStore = create<State>((set, get) => {
       await loadChat(key);
       updateSlot(key, (d) => ({ ...d, activeThreadId: null }));
       set((s) => ({ focusTick: s.focusTick + 1 }));
+    },
+
+    dismissRestart(threadId, offerId) {
+      const key = get().viewKey;
+      updateThread(key, threadId, (t) => ({ ...t, restartDismissed: [...(t.restartDismissed ?? []), offerId] }));
+      void persist(key);
+    },
+
+    async startNewTool(spec) {
+      const s = get();
+      set({ panel: "chat" });
+      const prompt = newToolPrompt(spec);
+      if (spec.from === "chat" && currentThread(s)) {
+        await get().send(prompt);
+        return;
+      }
+      await get().newChat();
+      if (spec.from === "watch") {
+        // Record first; the log attaches to the next message (Stop & attach in the bar), which already says what to build.
+        set((st) => ({ drafts: { ...st.drafts, [draftKey(st)]: prompt } }));
+        await get().startWatch();
+        return;
+      }
+      await get().send(prompt);
     },
 
     async selectThread(threadId) {
@@ -943,7 +988,7 @@ export const useStore = create<State>((set, get) => {
       if (!thread) {
         thread = {
           id: uid(),
-          title: (trimmed || attachments[0]?.name || "Image").replace(/\s+/g, " ").slice(0, 70),
+          title: (trimmed || attachments[0]?.name || "Image").replace(/^\[New tool\]\s*/, "New tool: ").replace(/\s+/g, " ").slice(0, 70),
           createdAt: now(),
           updatedAt: now(),
           model: settings.defaultModel,
@@ -1351,6 +1396,38 @@ export function writesAfter(thread: Thread, msgIndex: number): number {
     for (const b of m.content) if (b.type === "tool_use" && WRITE_TOOLS.has(b.name)) n++;
   }
   return n;
+}
+
+/** What the New tool screen collects. Anything left open is the agent's to propose (in one ask_form). */
+export interface NewToolSpec {
+  what: string;
+  from: "describe" | "chat" | "watch";
+  usage: string[];
+  style: "auto" | "built" | "smart" | "instant";
+  name: string;
+}
+
+export function newToolPrompt(t: NewToolSpec): string {
+  const from = {
+    describe: "my description above",
+    chat: "what you just did in this chat - generalize the steps and the code you ran",
+    watch: "the recording of what I do (the watch log attached to this message)",
+  }[t.from];
+  const style = {
+    auto: "recommend one (Built for rule-based geometry, Smart only when each run needs judgement, Instant for trivial jobs)",
+    built: "Built - the macro does the whole job from the rules and checks it; the agent only for cases it can't handle",
+    smart: "Smart - the agent does the job each run",
+    instant: "Instant - macro only",
+  }[t.style];
+  const lines = [
+    `[New tool] ${t.what.trim() || "(see below)"}`,
+    "",
+    `- Start from: ${from}`,
+    `- When I run it: ${t.usage.length ? t.usage.join("; ") : "your call"}`,
+    `- Run style: ${style}`,
+  ];
+  if (t.name.trim()) lines.push(`- Name: ${t.name.trim()}`);
+  return lines.join("\n");
 }
 
 /** What the panel hands over across a restart (see ResumeSession in the add-in). */

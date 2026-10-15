@@ -45,7 +45,7 @@ export function CrashNotice() {
 
 /** After a tool is saved: SolidWorks only adds ribbon buttons at start-up. */
 /** "Save and restart SolidWorks": asked for by the agent (reason), or after saving a tool while the ribbon is out of date. */
-export function RestartCard({ title, reason }: { title?: string; reason?: string }) {
+export function RestartCard({ title, reason, onDismiss }: { title?: string; reason?: string; onDismiss?: () => void }) {
   const stale = useStore((s) => s.ribbonStale);
   const saveAndRestart = useStore((s) => s.saveAndRestart);
   const [busy, setBusy] = useState(false);
@@ -70,7 +70,12 @@ export function RestartCard({ title, reason }: { title?: string; reason?: string
         </span>
       </div>
       {error && <div className="text-err">{error}</div>}
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-1.5">
+        {onDismiss && (
+          <button className="sw-btn" disabled={busy} onClick={onDismiss} title="Hide this - restart later yourself">
+            Not now
+          </button>
+        )}
         <button
           className="sw-btn sw-btn-primary"
           disabled={busy}

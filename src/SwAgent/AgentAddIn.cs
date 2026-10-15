@@ -97,6 +97,7 @@ namespace SwAgent
                 _ribbon = new UnifyRibbon(((Xarial.XCad.SolidWorks.UI.Commands.ISwCommandManager)CommandManager).CmdMgr);
                 _ribbon.Rebuild();
                 Controller.RibbonStale = _ribbon.IsStale;
+                Controller.ShowPaneRequested += () => Safe.Run("Show the pane", ShowPane);
 
                 _pane = this.CreateTaskPaneWinForm<ChatPaneControl>(new TaskPaneSpec
                 {

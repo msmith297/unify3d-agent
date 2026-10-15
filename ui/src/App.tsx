@@ -11,6 +11,7 @@ import { AutoUpdatePrompt, UpdateDialog } from "./components/Update";
 import { ToolRunBanner } from "./components/ToolRunBanner";
 import { CrashNotice } from "./components/Recovery";
 import { DialogHost } from "./components/Dialog";
+import { NewToolWizard } from "./components/NewToolWizard";
 import { useStore } from "./store";
 
 export default function App() {
@@ -115,6 +116,8 @@ export default function App() {
       )}
       {panel === "settings" ? (
         <SettingsPanel />
+      ) : panel === "newTool" ? (
+        <NewToolWizard />
       ) : (
         <>
           <ChatView />

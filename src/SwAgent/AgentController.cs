@@ -126,6 +126,12 @@ namespace SwAgent
             _bridge = bridge;
 
             bridge.Register("app.getState", p => GetState());
+            // The panel needs the user to see it (a tool run asks a question or needs approval).
+            bridge.Register("app.showPane", p =>
+            {
+                ShowPaneRequested?.Invoke();
+                return null;
+            });
             bridge.Register("settings.save", p =>
             {
                 _settings = (JObject)p;
@@ -601,6 +607,8 @@ namespace SwAgent
                 ["logFile"] = Log.CurrentFile,
                 ["swTheme"] = ReadTheme(),
                 ["resume"] = ResumeSession.TakePanel(),
+                // When this SolidWorks session started: restart offers made before it are done.
+                ["sessionStart"] = Process.GetCurrentProcess().StartTime.ToUniversalTime().ToString("o"),
             };
         }
 
@@ -700,6 +708,9 @@ namespace SwAgent
 
         /// <summary>Raised when the SolidWorks interface theme or panel colour changes.</summary>
         public event Action<JObject> ThemeChanged;
+
+        /// <summary>The panel asked to be shown (AgentAddIn shows and pins the task pane).</summary>
+        public event Action ShowPaneRequested;
 
         /// <summary>
         /// The SolidWorks interface theme (swInterfaceBrightnessTheme_e: 0 Light, 1 Medium, 2 Dark, 3 Medium Light)

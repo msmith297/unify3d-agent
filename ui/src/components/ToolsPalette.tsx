@@ -150,7 +150,7 @@ export function ToolsPalette({ disabled }: { disabled?: boolean }) {
                 <IconPart size={13} /> From this model
               </button>
             )}
-            <button className="sw-btn" title="A quick command on the Unify3D ribbon tab that you can put on a hotkey" onClick={() => prefill("Help me create a new tool (a quick ribbon command) that ")}>
+            <button className="sw-btn" title="A quick command on the Unify3D ribbon tab that you can put on a hotkey" onClick={() => { setOpen(false); useStore.setState({ panel: "newTool" }); }}>
               <IconNewChat size={13} /> New tool…
             </button>
           </div>

@@ -56,6 +56,8 @@ export interface Thread {
   selRefs?: Record<string, string>;
   /** "tools": the per-document chat where ribbon tools run when the agent has to step in. */
   kind?: "tools";
+  /** Save-and-restart offers the user answered "Not now" to (offer ids, see ChatView restartOffer). */
+  restartDismissed?: string[];
 }
 
 /** What the add-in stores inside the SolidWorks file. */
@@ -124,6 +126,8 @@ export interface HostState {
   crash?: CrashInfo | null;
   /** Tools changed since SolidWorks started; the ribbon picks them up after a restart. */
   ribbonStale?: boolean;
+  /** When this SolidWorks session started (ISO). Restart offers made before it are done. */
+  sessionStart?: string;
   /** What the panel handed over before "Save and restart" (or an update restart), once. */
   resume?: ResumePanel | null;
 }

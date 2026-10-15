@@ -38,7 +38,7 @@ type Item =
   | { kind: "progress"; key: string; text: string }
   | { kind: "text"; key: string; text: string; streaming?: boolean }
   | { kind: "tool"; key: string; call: ToolCall }
-  | { kind: "restart"; key: string; reason?: string; title?: string }
+  | { kind: "restart"; key: string; id: string; reason?: string; title?: string }
   | { kind: "question"; key: string; call: ToolCall }
   | { kind: "footer"; key: string; turn: TurnMeta; isLast: boolean }
   | { kind: "work"; key: string; items: Item[]; highlights: Item[]; steps: number; durationMs?: number; breakdown: string; more: number }
@@ -134,7 +134,7 @@ function renderItem(item: Item, thread: Thread, run: RunState | undefined, onIma
     case "footer":
       return <TurnFooter turn={item.turn} isLast={item.isLast} running={!!run} />;
     case "restart":
-      return <RestartCard reason={item.reason} title={item.title} />;
+      return <RestartCard reason={item.reason} title={item.title} onDismiss={() => useStore.getState().dismissRestart(thread.id, item.id)} />;
     case "work":
       return <WorkGroup item={item} thread={thread} run={run} onImage={onImage} />;
   }
@@ -274,8 +274,9 @@ function ThinkingIndicator({ run }: { run: RunState | undefined }) {
  * The Save and restart button under the last reply: when the agent asked for it (offer_restart), or - as a safety net -
  * when the last turn saved a tool (RestartCard then shows only if the ribbon really is out of date).
  */
-function restartOffer(thread: Thread): { reason?: string; title?: string } | null {
+function restartOffer(thread: Thread): { id: string; reason?: string; title?: string } | null {
   let savedTool: string | undefined;
+  let savedId = "";
   for (let i = thread.messages.length - 1; i >= 0; i--) {
     const m = thread.messages[i];
     if (isPrompt(m)) break;
@@ -283,11 +284,14 @@ function restartOffer(thread: Thread): { reason?: string; title?: string } | nul
     for (const b of m.content) {
       if (b.type !== "tool_use") continue;
       const input = b.input as { reason?: string; kind?: string; title?: string };
-      if (b.name === "offer_restart") return { reason: input?.reason };
-      if ((b.name === "save_user_tool" || b.name === "edit_user_tool") && input?.kind !== "workflow") savedTool ??= input?.title ?? "";
+      if (b.name === "offer_restart") return { id: b.id, reason: input?.reason };
+      if ((b.name === "save_user_tool" || b.name === "edit_user_tool") && input?.kind !== "workflow" && savedTool === undefined) {
+        savedTool = input?.title ?? "";
+        savedId = b.id;
+      }
     }
   }
-  return savedTool !== undefined ? { title: savedTool || undefined } : null;
+  return savedTool !== undefined ? { id: savedId, title: savedTool || undefined } : null;
 }
 
 /** Flatten API messages (+ the live stream) into display items. */
@@ -316,8 +320,11 @@ function buildItems(thread: Thread, run: RunState | undefined, showProgress: boo
   const flushFooter = (promptIdx: number) => {
     flushSegment(promptIdx, true);
     if (promptIdx === lastPrompt) {
+      // Not after "Not now", and not once SolidWorks has restarted since (by the button or any other way).
       const offer = restartOffer(thread);
-      if (offer) items.push({ kind: "restart", key: `r${promptIdx}`, ...offer });
+      const turnAt = Date.parse(thread.turns.find((t) => t.msgIndex === promptIdx)?.at ?? "") || 0;
+      const done = turnAt > 0 && turnAt < useStore.getState().sessionStart;
+      if (offer && !done && !thread.restartDismissed?.includes(offer.id)) items.push({ kind: "restart", key: `r${promptIdx}`, ...offer });
     }
     const turn = footerAfter.get(promptIdx);
     if (turn) items.push({ kind: "footer", key: `f${promptIdx}`, turn, isLast: promptIdx === lastPrompt });
