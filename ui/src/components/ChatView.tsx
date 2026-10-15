@@ -8,7 +8,7 @@ import { RestartCard } from "./Recovery";
 import { svgDataUrl } from "../lib/toolIcons";
 import { Caret } from "./SwIcons";
 import { ToolCard, statusFor, toolTitle, type ToolCall } from "./ToolCard";
-import { highlights as pickHighlights } from "../agent/workSummary";
+import { breakdown, highlights as pickHighlights } from "../agent/workSummary";
 import { MODEL_TAG, WATCH_TAG, currentThread, isPrompt, promptText, useStore, writesAfter, type RunState } from "../store";
 import { modelOption } from "../lib/models";
 import type { ContentBlockParam, ImageBlockParam, MessageParam, Thread, ToolResultBlockParam, TurnMeta } from "../lib/types";
@@ -38,7 +38,7 @@ type Item =
   | { kind: "tool"; key: string; call: ToolCall }
   | { kind: "question"; key: string; call: ToolCall }
   | { kind: "footer"; key: string; turn: TurnMeta; isLast: boolean }
-  | { kind: "work"; key: string; items: Item[]; highlights: Item[]; steps: number; durationMs?: number }
+  | { kind: "work"; key: string; items: Item[]; highlights: Item[]; steps: number; durationMs?: number; breakdown: string; more: number }
   | { kind: "thinking"; key: string };
 
 export function ChatView() {
@@ -155,7 +155,7 @@ function WorkGroup({
   onImage: (s: string) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const hidden = item.steps - item.highlights.filter((h) => h.kind === "tool").length;
+
   return (
     <div className="flex flex-col gap-1.5">
       <button
@@ -163,18 +163,23 @@ function WorkGroup({
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
         className="flex items-center gap-1.5 self-start rounded-[3px] px-1 py-0.5 text-[11.5px] text-text-3 hover:bg-accent-soft hover:text-text"
-        title={open ? "Show only the main changes" : "Show every step, including checks, searches and retries"}
+        title={open ? "Show only the outcomes" : "Show every step: lookups, checks, tests and retries"}
       >
         <Caret open={open} />
         <span>
           {item.steps} step{item.steps === 1 ? "" : "s"}
           {item.durationMs !== undefined && ` · ${formatDuration(item.durationMs)}`}
-          {!open && hidden > 0 && ` · ${hidden} hidden`}
+          {item.breakdown && <span className="text-text-3/80"> · {item.breakdown}</span>}
         </span>
       </button>
       {(open ? item.items : item.highlights).map((sub) => (
         <Fragment key={sub.key}>{renderItem(sub, thread, run, onImage)}</Fragment>
       ))}
+      {!open && item.more > 0 && (
+        <button type="button" onClick={() => setOpen(true)} className="self-start pl-1 text-[11px] text-text-3 hover:text-text hover:underline">
+          + {item.more} earlier change{item.more === 1 ? "" : "s"}
+        </button>
+      )}
     </div>
   );
 }
@@ -191,7 +196,8 @@ function foldTurn(segment: Item[], turn: TurnMeta | undefined, key: string): Ite
   if (last < 0) return segment;
   const work = segment.slice(0, last + 1);
   const calls = work.filter((it): it is Extract<Item, { kind: "tool" | "question" }> => it.kind === "tool" || it.kind === "question");
-  const keep = new Set(pickHighlights(calls.map((c) => c.call)).map((c) => c.id));
+  const picked = pickHighlights(calls.map((c) => c.call));
+  const keep = new Set(picked.map((c) => c.id));
   const group: Item = {
     kind: "work",
     key,
@@ -199,6 +205,8 @@ function foldTurn(segment: Item[], turn: TurnMeta | undefined, key: string): Ite
     highlights: calls.filter((c) => keep.has(c.call.id)),
     steps: calls.filter((c) => c.kind === "tool").length,
     durationMs: turn?.durationMs,
+    breakdown: breakdown(calls.map((c) => c.call)),
+    more: picked.more ?? 0,
   };
   return [group, ...segment.slice(last + 1)];
 }
