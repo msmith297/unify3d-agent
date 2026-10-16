@@ -15,6 +15,7 @@ import {
   IconCancel,
   IconEdit,
   IconMarkup,
+  IconMic,
   IconOk,
   IconSelect,
   IconSend,
@@ -25,7 +26,7 @@ import {
   IconToolPen,
   IconUndo,
 } from "./SwIcons";
-import { EMPTY, MARKUP_COLORS, MARKUP_NAME, currentThread, draftKey, isAgentSelection, useStore, type MarkupTool, type QueuedMessage } from "../store";
+import { EMPTY, MARKUP_COLORS, MARKUP_NAME, currentThread, draftKey, isAgentSelection, talkKeyName, useStore, type MarkupTool, type QueuedMessage } from "../store";
 import { EFFORTS, MODELS } from "../lib/models";
 import { isHosted, rpc } from "../lib/bridge";
 import type { Attachment, Effort, FileEntry, ImageMediaType } from "../lib/types";
@@ -43,6 +44,13 @@ export function Composer() {
   const canWatch = useStore((s) => s.docs[s.viewKey]?.type === "part" || s.docs[s.viewKey]?.type === "assembly");
   const focusTick = useStore((s) => s.focusTick);
   const overlayCount = useStore((s) => s.overlayCount);
+  const voicePhase = useStore((s) => s.voice.phase);
+  // Push-to-talk is ready when it's on and its speech model is downloaded.
+  const talkKey = useStore((s) =>
+    s.settings.voiceEnabled !== false && s.voiceStatus?.available && s.voiceStatus.models.some((m) => m.id === s.voiceStatus?.model && m.installed)
+      ? talkKeyName(s.settings.voiceKey)
+      : null,
+  );
   const { setDraft, send, stop, attachView, addAttachment, removeAttachment, setThreadModel, setThreadEffort, startMarkup, pickFiles, startWatch } =
     useStore.getState();
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -133,7 +141,8 @@ export function Composer() {
         </div>
       )}
       {thread && <QueuedList threadId={thread.id} running={running} />}
-      {watch.active || watch.busy ? <WatchBar /> : markupActive ? <MarkupBar /> : hasDoc && <SelectionChips />}
+      {voicePhase !== "idle" && <VoiceBar />}
+      {watch.active || watch.busy ? <WatchBar /> : markupActive ? <MarkupBar /> : hasDoc && voicePhase === "idle" && <SelectionChips />}
 
       <div className="sw-input">
         {attachments.length > 0 && (
@@ -155,7 +164,15 @@ export function Composer() {
               submit();
             }
           }}
-          placeholder={running ? "Add a follow-up - it's queued until the agent finishes…" : hasDoc ? "Ask a question or describe a change…" : "Ask anything, or open a document first…"}
+          placeholder={
+            running
+              ? "Add a follow-up - it's queued until the agent finishes…"
+              : hasDoc
+                ? talkKey
+                  ? `Ask a question or describe a change… or hold ${talkKey} and talk`
+                  : "Ask a question or describe a change…"
+                : "Ask anything, or open a document first…"
+          }
           className="block max-h-[160px] min-h-[36px] w-full resize-none bg-transparent px-2 pb-1 pt-1.5 text-[12px] leading-[1.42] text-text outline-none placeholder:text-text-3"
         />
       </div>
@@ -307,7 +324,55 @@ const TOOLS: { id: MarkupTool; label: string; icon: React.ReactNode }[] = [
   { id: "highlighter", label: "Highlighter", icon: <IconToolHighlighter size={14} /> },
 ];
 
-/** Shown while the markup overlay is active over the SolidWorks view. */
+const clock = (ms: number) => {
+  const s = Math.max(0, Math.round(ms / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+};
+
+/** While the user holds the talk key: the words as they're recognised and what they did meanwhile. */
+function VoiceBar() {
+  const voice = useStore((s) => s.voice);
+  const key = useStore((s) => talkKeyName(s.settings.voiceKey));
+  const { cancelVoice } = useStore.getState();
+  const label =
+    voice.phase === "listening" ? `Listening - let go of ${key} to send` : voice.phase === "transcribing" ? "Finishing the transcript…" : "Pen is on - press Esc in SolidWorks to send";
+  const bars = [0.55, 0.85, 1, 0.8, 0.5];
+  return (
+    <div className="sw-rollout mb-1.5">
+      <div className="sw-rollout-head !font-normal">
+        <IconMic size={14} live={voice.phase === "listening"} />
+        {voice.phase === "listening" ? (
+          <span className="flex h-3 items-end gap-[2px]" aria-hidden>
+            {bars.map((b, i) => (
+              <span key={i} className="w-[3px] rounded-[1px] bg-[#E5302A] transition-[height] duration-100" style={{ height: `${Math.max(2, Math.min(12, 2 + voice.level * 12 * b))}px` }} />
+            ))}
+          </span>
+        ) : voice.phase === "transcribing" ? (
+          <Spinner size={12} />
+        ) : null}
+        <span className="flex-1 truncate text-[11.5px] font-semibold">{label}</span>
+        <button type="button" className="sw-btn !h-5 !px-1.5 text-[11px]" onClick={cancelVoice} title="Discard this voice message (or press Esc while holding the key)">
+          <IconCancel size={9} /> Discard
+        </button>
+      </div>
+      <div className="selectable max-h-[90px] min-h-[22px] overflow-y-auto px-2 py-1 text-[12px] leading-[1.4] text-text">
+        {voice.text || <span className="text-text-3">Speak - your words appear here. Select, sketch, turn the model or draw with the pen while you talk.</span>}
+      </div>
+      {voice.events.length > 0 && (
+        <div className="flex flex-wrap gap-1 px-2 pb-1.5">
+          {voice.events.slice(-8).map((e, i) => (
+            <span key={i} className="flex h-[18px] max-w-[190px] items-center gap-1 rounded-[2px] border border-line bg-card-2 px-1 text-[10px] text-text-2" title={e.summary}>
+              <span className="tabular-nums text-text-3">{clock(e.t)}</span>
+              <span className="truncate">{e.summary}</span>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Shown while the markup pen is on over the SolidWorks view. */
 function MarkupBar() {
   const markup = useStore((s) => s.markup);
   const { setMarkup, markupUndo, markupClear, cancelMarkup, finishMarkup } = useStore.getState();
@@ -315,8 +380,13 @@ function MarkupBar() {
     <div className="sw-rollout mb-1.5">
       <div className="sw-rollout-head !font-normal">
         <IconMarkup size={14} />
-        <span className="flex-1 text-[11.5px] font-semibold">Drawing on the view</span>
-        <span className="text-[10.5px] text-text-3">{markup.strokes} mark{markup.strokes === 1 ? "" : "s"}</span>
+        <span className="flex-1 text-[11.5px] font-semibold" title="Draw with the left button. Turn, pan and zoom the model as usual - each view you mark is kept. Esc in SolidWorks when you're done.">
+          Pen - turn the model to mark more views
+        </span>
+        <span className="text-[10.5px] text-text-3">
+          {markup.frames > 0 && `${markup.frames} view${markup.frames === 1 ? "" : "s"} kept · `}
+          {markup.strokes} mark{markup.strokes === 1 ? "" : "s"}
+        </span>
       </div>
       <div className="flex items-center gap-0.5 px-1 pt-1">
         {TOOLS.map((t) => (
@@ -346,11 +416,11 @@ function MarkupBar() {
           Clear
         </button>
         <div className="flex-1" />
-        <button type="button" onClick={cancelMarkup} className="sw-btn" title="Discard (Esc)">
-          <IconCancel size={10} /> Cancel
+        <button type="button" onClick={cancelMarkup} className="sw-btn" title="Discard the markup">
+          <IconCancel size={10} /> Discard
         </button>
-        <button type="button" onClick={finishMarkup} className="sw-btn" title="Attach the marked-up view to your message (Enter)">
-          <IconOk size={11} /> Attach
+        <button type="button" onClick={finishMarkup} className="sw-btn" title="Done: attach the marked-up views to your message (Esc or Enter in SolidWorks)">
+          <IconOk size={11} /> Done
         </button>
       </div>
     </div>
@@ -366,7 +436,7 @@ function AttachmentChip({ a, onRemove }: { a: Attachment; onRemove: () => void }
       body = (
         <>
           <img src={`data:${a.mediaType};base64,${a.data}`} alt={a.name} className="h-12 w-auto" />
-          {a.name === MARKUP_NAME && <span className="absolute bottom-0 left-0 right-0 bg-black/55 px-1 text-[9.5px] text-white">Markup</span>}
+          {a.name.startsWith(MARKUP_NAME) && <span className="absolute bottom-0 left-0 right-0 bg-black/55 px-1 text-[9.5px] text-white">{a.name}</span>}
         </>
       );
       break;
@@ -389,6 +459,21 @@ function AttachmentChip({ a, onRemove }: { a: Attachment; onRemove: () => void }
           />
         );
       break;
+    case "voice": {
+      const first = a.voice.events.find((e) => e.image);
+      const images = a.voice.events.filter((e) => e.image).length;
+      title = `Voice message (${a.name.replace("Voice ", "")}): what you did while talking goes along with your words - ${a.voice.events.length} event${a.voice.events.length === 1 ? "" : "s"}, ${images} image${images === 1 ? "" : "s"}`;
+      body = (
+        <>
+          {first ? <img src={`data:${first.mediaType ?? "image/jpeg"};base64,${first.image}`} alt="" className="h-12 w-auto opacity-90" /> : <div className="h-12 w-[72px] bg-card-2" />}
+          <span className="absolute bottom-0 left-0 right-0 flex items-center gap-1 bg-black/60 px-1 text-[9.5px] text-white">
+            <IconMic size={11} /> {a.name.replace("Voice ", "")}
+            {images > 0 && ` · ${images}`}
+          </span>
+        </>
+      );
+      break;
+    }
     case "watch":
       title = a.watch.text;
       body = (

@@ -41,6 +41,13 @@ export const DEFAULT_SETTINGS: Settings = {
   shareView: true,
   muteErrorSounds: true,
   zoom: 1,
+  voiceEnabled: true,
+  voiceKey: "vk:192",
+  voiceModel: "base.en",
+  voiceSend: "release",
+  voiceViews: true,
+  speakReplies: "off",
+  speakRate: 0,
 };
 
 export function modelOption(id: string): ModelOption {

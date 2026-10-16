@@ -22,6 +22,8 @@ import type {
   UpdateInfo,
   UserToolInfo,
   Thread,
+  VoicePayload,
+  VoiceStatus,
   ToolDef,
   ToolRunResult,
   TurnMeta,
@@ -106,7 +108,12 @@ interface State {
   excludedSel: number[];
   /** Per document: signature of a selection the agent made (it selects entities to build features). Hidden, never sent. */
   agentSel: Record<string, string>;
-  markup: { active: boolean; tool: MarkupTool; color: string; strokes: number };
+  markup: { active: boolean; tool: MarkupTool; color: string; strokes: number; frames: number };
+  /** Push-to-talk: what is being said and done right now. */
+  voice: VoiceLive;
+  voiceStatus: VoiceStatus | null;
+  /** Discard the voice message being recorded. */
+  cancelVoice(): void;
   runs: Record<string, RunState>;
   /** Follow-ups per thread, waiting for the running turn. */
   queue: Record<string, QueuedMessage[]>;
@@ -199,6 +206,26 @@ export interface WatchState {
 const WATCH_IDLE: WatchState = { active: false, busy: false, docKey: null, doc: null, startedAt: 0, entries: [] };
 
 export type MarkupTool = "pen" | "arrow" | "circle" | "highlighter";
+
+/** The live voice message: idle, listening (key held), transcribing (key let go), pen (waiting for the markup to end). */
+export interface VoiceLive {
+  phase: "idle" | "listening" | "transcribing" | "pen";
+  text: string;
+  level: number;
+  events: { t: number; kind: string; summary: string }[];
+  docKey: string | null;
+}
+export const VOICE_IDLE: VoiceLive = { phase: "idle", text: "", level: 0, events: [], docKey: null };
+
+/** The talk key as a person reads it. */
+export function talkKeyName(key: string | undefined): string {
+  const k = key ?? "vk:192";
+  if (k === "mouse:x1") return "the mouse Back button";
+  if (k === "mouse:x2") return "the mouse Forward button";
+  const vk = Number(k.slice(3));
+  const names: Record<number, string> = { 192: "`", 20: "Caps Lock", 163: "Right Ctrl", 119: "F8", 120: "F9", 19: "Pause", 145: "Scroll Lock" };
+  return names[vk] ?? `key ${vk}`;
+}
 export const MARKUP_COLORS = ["#E5302A", "#F2B11F", "#2F84D6", "#2E9E3E"];
 export const MARKUP_NAME = "Markup";
 
@@ -280,8 +307,69 @@ Finish this case yourself. If it is a case the macro should cover, extend the ma
 /** Text blocks the panel adds for attachments; the chat shows them as cards, not as the user's words. */
 export const MODEL_TAG = "<model_file";
 export const WATCH_TAG = "<watch_log";
+export const VOICE_TAG = "<voice_timeline";
 export function isAttachmentText(text: string): boolean {
-  return text.startsWith(MODEL_TAG) || text.startsWith(WATCH_TAG);
+  return text.startsWith(MODEL_TAG) || text.startsWith(WATCH_TAG) || text.startsWith(VOICE_TAG);
+}
+
+const clock = (ms: number) => {
+  const s = Math.max(0, Math.round(ms / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+};
+
+/**
+ * A voice message for the agent: one timeline of what the user said and did (selections get reference ids that
+ * continue from startN, like the context block's), then the images it mentions, in order. Without refs (a message
+ * handed over mid-run) the selections are described only.
+ */
+export function voiceBlocks(v: VoicePayload, startN: number | null): { blocks: ContentBlockParam[]; refs: Record<string, string>; count: number } {
+  const refs: Record<string, string> = {};
+  let n = startN ?? 0;
+  let image = 0;
+  const images: ContentBlockParam[] = [];
+  type Row = { t: number; line: string };
+  const rows: Row[] = v.segments.map((s) => ({ t: s.t0, line: `said: "${s.text}"` }));
+  for (const e of v.events) {
+    let line: string;
+    switch (e.kind) {
+      case "view":
+      case "markup":
+        if (!e.image) continue;
+        image++;
+        images.push({ type: "image", source: { type: "base64", media_type: (e.mediaType ?? "image/jpeg") as ImageMediaType, data: e.image } });
+        line =
+          e.kind === "view"
+            ? `[image ${image}: the view at this moment${image === 1 ? " (when they started talking)" : ""}]`
+            : `[image ${image}: the user's markup - pen strokes, arrows or circles they drew over this view]`;
+        break;
+      case "select": {
+        const items = (e.items ?? []).map((it) => {
+          const what = `${it.type}${it.label ? ` of ${it.label}` : ""}${it.detail ? ` - ${it.detail}` : ""}`;
+          if (startN === null || !it.ref) return what;
+          const id = `S${++n}`;
+          refs[id] = it.ref;
+          return `[${id}] ${what}`;
+        });
+        line = (e.summary.startsWith("Already") ? "already selected: " : "selected: ") + items.join("; ");
+        break;
+      }
+      default:
+        line = e.summary.charAt(0).toLowerCase() + e.summary.slice(1);
+    }
+    rows.push({ t: e.t, line });
+  }
+  rows.sort((a, b) => a.t - b.t);
+  const markups = v.events.filter((e) => e.kind === "markup").length;
+  const head =
+    `${VOICE_TAG} duration="${clock(v.durationMs)}" images="${image}" markups="${markups}">\n` +
+    "A voice message: the user talked while working in SolidWorks. Speech was transcribed on their PC, so expect recognition errors, " +
+    "especially in names - prefer what the timeline and images show. What they said and what they did are interleaved by time " +
+    '(m:ss from when they started); "this", "here" and "that face" usually mean what they selected or marked at that moment.' +
+    (image ? ` The ${image} image${image === 1 ? "" : "s"} follow this block in order.` : "") +
+    "\n\n";
+  const body = rows.map((r) => `${clock(r.t)}  ${r.line}`).join("\n");
+  const blocks: ContentBlockParam[] = [{ type: "text", text: `${head}${body}\n</voice_timeline>` }, ...images];
+  return { blocks, refs, count: n - (startN ?? 0) };
 }
 
 const escapeAttr = (v: string) => v.replace(/[&"<>]/g, (c) => ({ "&": "&amp;", '"': "&quot;", "<": "&lt;", ">": "&gt;" })[c]!);
@@ -332,8 +420,14 @@ function attachmentBlocks(a: Attachment): ContentBlockParam[] {
       return modelBlocks(a.entry ?? { name: a.name, path: a.path, kind: "model" });
     case "watch":
       return watchBlocks(a.watch);
+    case "voice":
+      return voiceBlocks(a.voice, null).blocks;
   }
 }
+
+/** Threads whose running turn answers a voice message (its reply may be read aloud). */
+const speakAfter = new Set<string>();
+let lastVoice: VoicePayload | null = null;
 
 /** 3D models being read by the add-in, by attachment id (send waits for them). */
 const describing = new Map<string, Promise<void>>();
@@ -420,7 +514,7 @@ export const useStore = create<State>((set, get) => {
     docKey: string,
     threadId: string,
     hasMarkup: boolean,
-    opts: { noView?: boolean } = {},
+    opts: { noView?: boolean; reserved?: number } = {},
   ): Promise<{ blocks: ContentBlockParam[]; refs: Record<string, string> }> => {
     const s = get();
     const doc = s.docs[docKey];
@@ -438,7 +532,7 @@ export const useStore = create<State>((set, get) => {
 
     const items = isAgentSelection(s, docKey) ? [] : snap?.items ?? [];
     const thread = s.chats[docKey]?.data.threads.find((t) => t.id === threadId);
-    let n = Object.keys(thread?.selRefs ?? {}).length;
+    let n = Object.keys(thread?.selRefs ?? {}).length + (opts.reserved ?? 0);
     if (items.length > 0 && !s.includeSelection) {
       lines.push("Selection: (the user chose not to share it)");
     } else {
@@ -456,7 +550,7 @@ export const useStore = create<State>((set, get) => {
     }
 
     if (hasMarkup) {
-      lines.push("The image attached above is the user's markup: strokes, arrows and circles drawn over their current view.");
+      lines.push("The images named Markup attached above are the user's markup: strokes, arrows and circles drawn over their view - one image per view they marked.");
     } else if (s.settings.shareView && !opts.noView && doc.type !== "other") {
       const shot = await rpc<ToolRunResult>("tools.run", {
         docKey,
@@ -594,8 +688,44 @@ export const useStore = create<State>((set, get) => {
         }));
       }
       await persist(docKey);
+      speakReply(docKey, threadId, outcome);
       flushQueue(docKey, threadId, outcome);
     }
+  };
+
+  /** Read the reply aloud (Settings > Voice): after voice messages, or always. */
+  const speakReply = (docKey: string, threadId: string, outcome: string) => {
+    const mode = get().settings.speakReplies ?? "off";
+    const fromVoice = speakAfter.delete(threadId);
+    if (outcome !== "end_turn" || mode === "off" || (mode === "voice" && !fromVoice)) return;
+    const messages = get().chats[docKey]?.data.threads.find((t) => t.id === threadId)?.messages ?? [];
+    const last = [...messages].reverse().find((m) => m.role === "assistant");
+    if (!last || typeof last.content === "string") return;
+    const text = last.content
+      .filter((b) => b.type === "text")
+      .map((b) => (b as { text: string }).text)
+      .join("\n\n");
+    if (text.trim()) rpc("voice.speak", { text }).catch(() => {});
+  };
+
+  /** A voice message arrived from the add-in: into that document's chat, sent at once or left to check first. */
+  const receiveVoice = async (p: VoicePayload) => {
+    if (p === lastVoice) return; // the same event twice (a panel reload re-registers listeners)
+    lastVoice = p;
+    set({ voice: VOICE_IDLE });
+    if (p.docKey && p.docKey !== get().viewKey && get().docs[p.docKey]) await get().showDoc(p.docKey);
+    set({ panel: "chat" });
+    const s = get();
+    const key = draftKey(s);
+    const seconds = Math.max(1, Math.round(p.durationMs / 1000));
+    const attachment: Attachment = { id: uid(), kind: "voice", name: `Voice ${seconds} s`, voice: p };
+    const text = [s.drafts[key]?.trim(), p.text.trim()].filter(Boolean).join(" ");
+    set((st) => ({
+      drafts: { ...st.drafts, [key]: text },
+      attachments: { ...st.attachments, [key]: [...(st.attachments[key] ?? []).filter((a) => a.kind !== "voice"), attachment] },
+      focusTick: st.focusTick + 1,
+    }));
+    if ((s.settings.voiceSend ?? "release") === "release") await get().send(text);
   };
 
   /**
@@ -649,10 +779,28 @@ export const useStore = create<State>((set, get) => {
     if (get().overlayCount > 0) get().clearOverlay();
     const blocks: ContentBlockParam[] = [];
     if (trimmed) blocks.push({ type: "text", text: trimmed });
-    for (const a of attachments) blocks.push(...attachmentBlocks(a));
-    const ctx = await buildContext(docKey, threadId, attachments.some((a) => a.kind === "image" && a.name === MARKUP_NAME));
+    // A voice message's selections are numbered first, so the context block's ids continue after them.
+    const thread = get().chats[docKey]?.data.threads.find((t) => t.id === threadId);
+    const taken = Object.keys(thread?.selRefs ?? {}).length;
+    let reserved = 0;
+    const voiceRefs: Record<string, string> = {};
+    for (const a of attachments) {
+      if (a.kind === "voice") {
+        const v = voiceBlocks(a.voice, taken + reserved);
+        blocks.push(...v.blocks);
+        Object.assign(voiceRefs, v.refs);
+        reserved += v.count;
+      } else blocks.push(...attachmentBlocks(a));
+    }
+    const hasVoice = attachments.some((a) => a.kind === "voice");
+    if (hasVoice) speakAfter.add(threadId);
+    // A voice message carries its own views; the context block then only adds the document, camera and selection.
+    const ctx = await buildContext(docKey, threadId, attachments.some((a) => a.kind === "image" && a.name.startsWith(MARKUP_NAME)), {
+      reserved,
+      noView: hasVoice,
+    });
     blocks.push(...ctx.blocks);
-    await submitBlocks(docKey, threadId, blocks, ctx.refs, run);
+    await submitBlocks(docKey, threadId, blocks, { ...voiceRefs, ...ctx.refs }, run);
   };
 
   /** Add a user message (already built) to a thread and run the agent on it, with optional settings for this run. */
@@ -706,7 +854,13 @@ export const useStore = create<State>((set, get) => {
     includeSelection: true,
     excludedSel: [],
     agentSel: {},
-    markup: { active: false, tool: "pen", color: MARKUP_COLORS[0], strokes: 0 },
+    markup: { active: false, tool: "pen", color: MARKUP_COLORS[0], strokes: 0, frames: 0 },
+    voice: VOICE_IDLE,
+    voiceStatus: null,
+    cancelVoice() {
+      set({ voice: VOICE_IDLE });
+      rpc("voice.cancel").catch(() => {});
+    },
     runs: {},
     queue: {},
     drafts: {},
@@ -814,7 +968,30 @@ export const useStore = create<State>((set, get) => {
           };
         }),
       );
-      on("markup.strokes", ({ count }: { count: number }) => set((s) => ({ markup: { ...s.markup, strokes: count } })));
+      on("markup.strokes", ({ count, frames }: { count: number; frames?: number }) =>
+        set((s) => ({ markup: { ...s.markup, strokes: count, frames: frames ?? s.markup.frames } })),
+      );
+
+      // Push-to-talk (the add-in's VoiceController).
+      on("voice.status", (st: VoiceStatus) => set({ voiceStatus: st }));
+      rpc<VoiceStatus>("voice.status")
+        .then((st) => set({ voiceStatus: st }))
+        .catch(() => {});
+      on("voice.state", (st: { phase: VoiceLive["phase"]; text: string; events: VoiceLive["events"]; docKey: string | null }) =>
+        set((s) => ({
+          voice:
+            st.phase === "idle"
+              ? VOICE_IDLE
+              : { ...s.voice, phase: st.phase, text: st.text ?? s.voice.text, events: st.events ?? s.voice.events, docKey: st.docKey },
+        })),
+      );
+      on("voice.partial", ({ text }: { text: string }) => set((s) => (s.voice.phase === "idle" ? {} : { voice: { ...s.voice, text } })));
+      on("voice.level", ({ v }: { v: number }) => set((s) => (s.voice.phase === "listening" ? { voice: { ...s.voice, level: v } } : {})));
+      on("voice.event", (e: { t: number; kind: string; summary: string }) =>
+        set((s) => (s.voice.phase === "idle" ? {} : { voice: { ...s.voice, events: [...s.voice.events, e] } })),
+      );
+      on("voice.final", (p: VoicePayload) => void receiveVoice(p));
+      on("voice.notice", ({ text }: { text: string }) => set({ notice: text }));
       on("markup.key", ({ command }: { command: string }) => {
         if (command === "finish") get().finishMarkup();
         else get().cancelMarkup();
@@ -1177,6 +1354,7 @@ export const useStore = create<State>((set, get) => {
       const run = s.runs[id];
       if (!run) return;
       run.controller.abort();
+      rpc("voice.stopSpeaking").catch(() => {});
       run.approval?.resolve({ decision: "reject", note: "The user pressed Stop." });
       run.question?.resolve("(The user pressed Stop instead of answering.)");
       rpc("tools.cancel", { threadId: id });
@@ -1324,7 +1502,7 @@ export const useStore = create<State>((set, get) => {
       const s = get();
       try {
         await rpc("markup.start", { docKey: s.viewKey, tool: s.markup.tool, color: s.markup.color });
-        set((st) => ({ markup: { ...st.markup, active: true, strokes: 0 } }));
+        set((st) => ({ markup: { ...st.markup, active: true, strokes: 0, frames: 0 } }));
       } catch (err: any) {
         set({ notice: `Can't draw on the view: ${err.message}` });
       }
@@ -1347,14 +1525,20 @@ export const useStore = create<State>((set, get) => {
       if (!get().markup.active) return;
       set((s) => ({ markup: { ...s.markup, active: false } }));
       try {
-        const res = await rpc<{ mediaType: ImageMediaType; data: string; strokes: number } | null>("markup.finish");
-        if (res?.data) {
-          // One markup per message: replace an earlier one that wasn't sent yet.
+        const res = await rpc<{ frames: { mediaType: ImageMediaType; data: string; strokes: number }[]; inVoice: number } | null>("markup.finish");
+        const frames = res?.frames ?? [];
+        if (frames.length > 0) {
+          // One markup per message (a frame per view): replace an earlier one that wasn't sent yet.
           const key = draftKey(get());
           set((s) => ({
-            attachments: { ...s.attachments, [key]: (s.attachments[key] ?? []).filter((a) => a.name !== MARKUP_NAME) },
+            attachments: {
+              ...s.attachments,
+              [key]: (s.attachments[key] ?? []).filter((a) => !(a.kind === "image" && a.name.startsWith(MARKUP_NAME))),
+            },
           }));
-          get().addAttachment({ id: uid(), kind: "image", name: MARKUP_NAME, mediaType: res.mediaType, data: res.data });
+          frames.forEach((f, i) =>
+            get().addAttachment({ id: uid(), kind: "image", name: frames.length === 1 ? MARKUP_NAME : `${MARKUP_NAME} ${i + 1}`, mediaType: f.mediaType, data: f.data }),
+          );
           set((s) => ({ focusTick: s.focusTick + 1 }));
         }
       } catch (err: any) {
@@ -1363,7 +1547,7 @@ export const useStore = create<State>((set, get) => {
     },
 
     cancelMarkup() {
-      set((s) => ({ markup: { ...s.markup, active: false, strokes: 0 } }));
+      set((s) => ({ markup: { ...s.markup, active: false, strokes: 0, frames: 0 } }));
       rpc("markup.cancel");
     },
 

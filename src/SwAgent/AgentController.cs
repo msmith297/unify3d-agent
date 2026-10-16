@@ -13,6 +13,7 @@ using SwAgent.ModelFiles;
 using SwAgent.Scripting;
 using SwAgent.Tools;
 using SwAgent.UI;
+using SwAgent.Voice;
 using SwAgent.Watch;
 using Xarial.XCad.Documents;
 using Xarial.XCad.SolidWorks;
@@ -49,8 +50,7 @@ namespace SwAgent
         private ChatDocumentHandler _selectionSource;
         private WebBridge _bridge;
         private JObject _settings = SettingsStore.LoadSettings();
-        private MarkupOverlay _markup;
-        private IntPtr _markupView;
+        private readonly VoiceController _voice;
         private WatchRecorder _watch;
 
         /// <summary>What SolidWorks was running when it closed unexpectedly last time (CrashGuard), until dismissed.</summary>
@@ -65,6 +65,8 @@ namespace SwAgent
             _app = app;
             _tools = tools;
             _scripts = scripts;
+            // Push-to-talk voice messages and the markup pen.
+            _voice = new VoiceController(app, () => _settings, ChatKeyOf);
             _selectionTimer.Tick += Safe.Tick("Selection update", () =>
             {
                 _selectionTimer.Stop();
@@ -147,6 +149,7 @@ namespace SwAgent
             {
                 _settings = (JObject)p;
                 SettingsStore.SaveSettings(_settings);
+                _voice.ApplySettings();
                 return null;
             });
             bridge.Register("crash.dismiss", p =>
@@ -248,30 +251,7 @@ namespace SwAgent
                 var doc = DocumentFor((string)p["docKey"]);
                 return doc?.Model == null ? null : SelectionTools.Snapshot(_app.Sw, doc.Model);
             });
-            bridge.Register("markup.start", p => StartMarkup((string)p["docKey"], (string)p["tool"], (string)p["color"]));
-            bridge.Register("markup.set", p =>
-            {
-                if (_markup == null) return null;
-                if (Enum.TryParse((string)p["tool"], out MarkupOverlay.Tool tool)) _markup.CurrentTool = tool;
-                if (!string.IsNullOrEmpty((string)p["color"])) _markup.CurrentColor = System.Drawing.ColorTranslator.FromHtml((string)p["color"]);
-                return null;
-            });
-            bridge.Register("markup.undo", p =>
-            {
-                _markup?.Undo();
-                return null;
-            });
-            bridge.Register("markup.clear", p =>
-            {
-                _markup?.ClearStrokes();
-                return null;
-            });
-            bridge.Register("markup.finish", p => FinishMarkup());
-            bridge.Register("markup.cancel", p =>
-            {
-                CloseMarkup();
-                return null;
-            });
+            _voice.AttachBridge(bridge);
             bridge.Register("agent.activity", p =>
             {
                 // The UI reports when a run starts and ends; silence SolidWorks' rebuild-error beeps in between.
@@ -735,7 +715,29 @@ namespace SwAgent
             return info;
         }
 
-        private void EmitSelection(ChatDocumentHandler handler) => _bridge?.Emit("selection.changed", SelectionPayload(handler));
+        private void EmitSelection(ChatDocumentHandler handler)
+        {
+            _bridge?.Emit("selection.changed", SelectionPayload(handler));
+            Safe.Run("Voice selection", () => _voice.OnSelectionChanged(handler.Chat.Doc.Model));
+        }
+
+        /// <summary>The chat key of an open document's model (voice messages go to that document's chat).</summary>
+        private string ChatKeyOf(IModelDoc2 model)
+        {
+            foreach (var h in _docs.Values)
+            {
+                try
+                {
+                    var m = h.Chat.Doc.Model;
+                    if (ReferenceEquals(m, model) || (m.GetTitle() == model.GetTitle() && m.GetPathName() == model.GetPathName())) return h.Chat.Key;
+                }
+                catch
+                {
+                    // A closing document.
+                }
+            }
+            return null;
+        }
 
         private static JObject SelectionPayload(ChatDocumentHandler h)
         {
@@ -792,73 +794,6 @@ namespace SwAgent
             _bridge?.Emit("ribbon.stale", new JObject { ["stale"] = RibbonStale?.Invoke() ?? false });
         }
 
-        private object StartMarkup(string docKey, string tool, string color)
-        {
-            var model = DocumentFor(docKey)?.Model ?? throw new InvalidOperationException("Open a document to draw on its view.");
-            if (!ReferenceEquals(_app.Sw.ActiveDoc, model))
-            {
-                var errors = 0;
-                _app.Sw.ActivateDoc3(model.GetTitle(), false, (int)swRebuildOnActivation_e.swDontRebuildActiveDoc, ref errors);
-            }
-            var view = model.ActiveView as IModelView ?? throw new InvalidOperationException("The document has no view to draw on.");
-            CloseMarkup();
-            _markupView = new IntPtr(view.GetViewHWndx64());
-            var owner = new IntPtr(((IFrame)_app.Sw.Frame()).GetHWndx64());
-            _markup = new MarkupOverlay(_markupView, owner);
-            if (Enum.TryParse(tool, out MarkupOverlay.Tool t)) _markup.CurrentTool = t;
-            if (!string.IsNullOrEmpty(color)) _markup.CurrentColor = System.Drawing.ColorTranslator.FromHtml(color);
-            _markup.KeyCommand += cmd => _bridge?.Emit("markup.key", new JObject { ["command"] = cmd });
-            _markup.StrokesChanged += () => _bridge?.Emit("markup.strokes", new JObject { ["count"] = _markup?.StrokeCount ?? 0 });
-            _markup.Open();
-            return new JObject { ["active"] = true };
-        }
-
-        /// <summary>Capture the view, paint the user's strokes on top, return it as a JPEG for the chat.</summary>
-        private object FinishMarkup()
-        {
-            if (_markup == null) return null;
-            try
-            {
-                _markup.Hide(); // so a screen-copy fallback never picks up the overlay's own hint/frame
-                using (var shot = ViewTools.CaptureWindow(_markupView))
-                {
-                    using (var g = System.Drawing.Graphics.FromImage(shot))
-                    {
-                        var scale = _markup.ViewSize.Width > 0 ? shot.Width / (float)_markup.ViewSize.Width : 1f;
-                        _markup.PaintStrokes(g, scale);
-                    }
-                    using (var fitted = ViewTools.Fit(shot, 1280))
-                    {
-                        return new JObject
-                        {
-                            ["mediaType"] = "image/jpeg",
-                            ["data"] = Convert.ToBase64String(ViewTools.EncodeJpeg(fitted, 85)),
-                            ["strokes"] = _markup.StrokeCount,
-                        };
-                    }
-                }
-            }
-            finally
-            {
-                CloseMarkup();
-            }
-        }
-
-        private void CloseMarkup()
-        {
-            if (_markup == null) return;
-            try
-            {
-                _markup.Close();
-                _markup.Dispose();
-            }
-            catch (Exception ex)
-            {
-                Log.Warn("Closing markup failed: " + ex.Message);
-            }
-            _markup = null;
-        }
-
         private bool _overlaySubscribed;
 
         /// <summary>Chat keys of closed documents -> the document id stored in the file (see Reopened).</summary>
@@ -878,7 +813,7 @@ namespace SwAgent
         {
             Safe.Run("Clear the overlay", UI.SceneOverlay.ClearAll);
             StopWatch();
-            CloseMarkup();
+            Safe.Run("Stop voice", _voice.Dispose);
             _themeTimer.Dispose();
             _activeTimer.Dispose();
             _updateTimer.Dispose();

@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { BrandMark } from "./Brand";
 import { UpdateSettings } from "./Update";
 import { stepZoom } from "../lib/zoom";
@@ -6,7 +6,7 @@ import { useStore } from "../store";
 import { rpc } from "../lib/bridge";
 import { EFFORTS, MODELS } from "../lib/models";
 import { SW_THEME_NAMES } from "../lib/theme";
-import { Caret, IconAgent, IconGear, IconHistory, IconKey, IconOk, IconPart, IconRebuild, IconShield, IconUpdate } from "./SwIcons";
+import { Caret, IconAgent, IconGear, IconHistory, IconKey, IconMic, IconOk, IconPart, IconRebuild, IconShield, IconUpdate, Spinner } from "./SwIcons";
 import type { ApprovalMode, Effort, Settings, Theme } from "../lib/types";
 
 /** Options page laid out like a SolidWorks PropertyManager: stacked rollouts. */
@@ -108,6 +108,10 @@ export function SettingsPanel() {
           />
         </Rollout>
 
+        <Rollout title="Voice" icon={<IconMic size={14} />}>
+          <VoiceSettings />
+        </Rollout>
+
         <Rollout title="Running code" icon={<IconShield size={14} />}>
           <div className="flex flex-col">
             {(
@@ -200,6 +204,171 @@ export function SettingsPanel() {
         </div>
       </div>
     </div>
+  );
+}
+
+const TALK_KEYS: [string, string][] = [
+  ["vk:192", "` (the key left of 1)"],
+  ["vk:20", "Caps Lock"],
+  ["vk:163", "Right Ctrl"],
+  ["vk:119", "F8"],
+  ["vk:19", "Pause"],
+  ["mouse:x1", "Mouse side button (Back)"],
+  ["mouse:x2", "Mouse side button (Forward)"],
+];
+
+/** Push-to-talk: the key, the speech model (downloaded once), what happens on release, and spoken replies. */
+function VoiceSettings() {
+  const settings = useStore((s) => s.settings);
+  const status = useStore((s) => s.voiceStatus);
+  const { saveSettings } = useStore.getState();
+  const [voices, setVoices] = useState<{ name: string; culture: string }[]>([]);
+  const speaking = (settings.speakReplies ?? "off") !== "off";
+  useEffect(() => {
+    if (speaking && voices.length === 0) rpc<{ name: string; culture: string }[]>("voice.voices").then((v) => setVoices(v ?? [])).catch(() => {});
+  }, [speaking, voices.length]);
+
+  if (status && !status.available) {
+    return <p className="text-[11.5px] text-text-3">The speech component isn't installed. Reinstall Unify3D Agent to use voice.</p>;
+  }
+  const enabled = settings.voiceEnabled !== false;
+  const modelId = settings.voiceModel ?? "base.en";
+  const current = status?.models.find((m) => m.id === modelId);
+  return (
+    <>
+      <Toggle
+        checked={enabled}
+        onChange={(v) => saveSettings({ voiceEnabled: v })}
+        label="Hold a key and talk to the agent"
+        note="Your words appear as you speak and go out when you let go. What you select, change, sketch or mark up while talking goes along with them, in order. Speech is turned into text on this PC - the audio never leaves it."
+      />
+      {enabled && (
+        <>
+          <Field label="Key">
+            <Select value={settings.voiceKey ?? "vk:192"} onChange={(v) => saveSettings({ voiceKey: v })} options={TALK_KEYS} />
+          </Field>
+          <p className="mt-0.5 text-[11px] text-text-3">Works while SolidWorks is in front. A quick tap still types the key. Esc while holding it discards the message.</p>
+
+          <div className="mt-2 text-[11.5px] text-text-2">Speech model (downloaded once)</div>
+          <div className="mt-0.5 flex flex-col">
+            {(status?.models ?? []).map((m) => {
+              const downloading = status?.download?.id === m.id;
+              return (
+                <label key={m.id} className="flex cursor-default items-start gap-2 rounded-[2px] px-1 py-1 hover:bg-card-2">
+                  <input type="radio" name="voiceModel" checked={modelId === m.id} onChange={() => saveSettings({ voiceModel: m.id })} className="mt-0.5 accent-[var(--accent)]" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[12px] text-text">
+                      {m.label} <span className="text-text-3">· {m.mb} MB</span>
+                    </span>
+                    <span className="block text-[11px] text-text-3">{m.note}</span>
+                    {downloading && (
+                      <span className="mt-1 block h-[4px] w-full overflow-hidden rounded-full bg-card-2">
+                        <span className="block h-full bg-accent transition-[width]" style={{ width: `${Math.round((status?.download?.progress ?? 0) * 100)}%` }} />
+                      </span>
+                    )}
+                  </span>
+                  {m.installed ? (
+                    <span className="flex shrink-0 items-center gap-1 text-[11px] text-text-3">
+                      <IconOk size={11} /> Installed
+                      {modelId !== m.id && (
+                        <button type="button" className="ml-1 text-text-3 hover:text-err" onClick={() => rpc("voice.deleteModel", { id: m.id })}>
+                          Remove
+                        </button>
+                      )}
+                    </span>
+                  ) : downloading ? (
+                    <button type="button" className="sw-btn !h-5 shrink-0 !px-1.5 text-[11px]" onClick={() => rpc("voice.cancelDownload")}>
+                      {Math.round((status?.download?.progress ?? 0) * 100)}% · Cancel
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="sw-btn !h-5 shrink-0 !px-1.5 text-[11px]"
+                      disabled={!!status?.download}
+                      onClick={() => {
+                        saveSettings({ voiceModel: m.id });
+                        rpc("voice.download", { id: m.id });
+                      }}
+                    >
+                      Download
+                    </button>
+                  )}
+                </label>
+              );
+            })}
+          </div>
+          {status?.downloadError && <p className="mt-0.5 text-[11px] text-err">{status.downloadError}</p>}
+          {current && !current.installed && !status?.download && (
+            <p className="mt-0.5 text-[11px] text-text-3">Download a model to start talking. It comes from the whisper.cpp project on Hugging Face.</p>
+          )}
+          {current?.installed && (
+            <p className="mt-0.5 flex items-center gap-1 text-[11px] text-text-3">
+              {status?.engine === "loading" && (
+                <>
+                  <Spinner size={11} /> Loading the speech model…
+                </>
+              )}
+              {status?.engine === "ready" && "Ready - hold the key and talk."}
+              {status?.engine === "off" && "Starts the first time you hold the key."}
+              {status?.engine === "error" && <span className="text-err">{status.engineError}</span>}
+            </p>
+          )}
+
+          <Field label="Send">
+            <Select<"release" | "review">
+              value={settings.voiceSend ?? "release"}
+              onChange={(v) => saveSettings({ voiceSend: v })}
+              options={[
+                ["release", "Send it right away"],
+                ["review", "Put it in the message box to check first"],
+              ]}
+            />
+          </Field>
+          <Toggle
+            checked={settings.voiceViews !== false}
+            onChange={(v) => saveSettings({ voiceViews: v })}
+            label="Include the view as I turn and change the model"
+            note="Each time the view settles while you talk, a picture of it goes along (up to 10 per message, about 1,000 tokens each)."
+          />
+        </>
+      )}
+      <Field label="Speak">
+        <Select<"off" | "voice" | "always">
+          value={settings.speakReplies ?? "off"}
+          onChange={(v) => saveSettings({ speakReplies: v })}
+          options={[
+            ["off", "No"],
+            ["voice", "Aloud, after a voice message"],
+            ["always", "Aloud, always"],
+          ]}
+        />
+      </Field>
+      {speaking && (
+        <>
+          <Field label="Voice">
+            <Select
+              value={settings.speakVoice ?? ""}
+              onChange={(v) => saveSettings({ speakVoice: v })}
+              options={[["", "Windows default"], ...voices.map((v): [string, string] => [v.name, `${v.name}${v.culture ? ` (${v.culture})` : ""}`])]}
+            />
+          </Field>
+          <Field label="Speed">
+            <input
+              type="range"
+              min={-5}
+              max={5}
+              step={1}
+              value={settings.speakRate ?? 0}
+              onChange={(e) => saveSettings({ speakRate: Number(e.target.value) })}
+              className="min-w-0 flex-1 accent-[var(--accent)]"
+            />
+            <button type="button" className="sw-btn !h-[22px] !px-2" onClick={() => rpc("voice.speak", { text: "This is how replies will sound. Talking or pressing Stop interrupts me." })}>
+              Test
+            </button>
+          </Field>
+        </>
+      )}
+    </>
   );
 }
 

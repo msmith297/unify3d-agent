@@ -476,6 +476,17 @@ export function Spinner({ size = 14 }: { size?: number }) {
   );
 }
 
+/** Microphone (push-to-talk voice messages). */
+export function IconMic(p: P & { live?: boolean }) {
+  const { live, ...rest } = p;
+  return (
+    <Svg {...rest}>
+      <rect x="5.5" y="1.5" width="5" height="8.5" rx="2.5" fill={live ? "#E5302A" : "var(--card-2, #eef1f4)"} stroke={live ? "#A31F1A" : "currentColor"} />
+      <path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5M5.5 14.5h5" fill="none" stroke="currentColor" strokeLinecap="round" />
+    </Svg>
+  );
+}
+
 /** Markup pen (draw on the view). */
 export function IconMarkup(p: P) {
   const id = useIds("r");

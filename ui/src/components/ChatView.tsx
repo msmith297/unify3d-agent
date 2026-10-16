@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, X } from "lucide-react";
-import { IconCancel, IconCopy, IconDocs, IconEdit, IconError, IconEye, IconModelFile, IconOk, IconQuestion, IconResend, IconShield, IconWatch, ToolIcon } from "./SwIcons";
+import { IconCancel, IconCopy, IconDocs, IconEdit, IconError, IconEye, IconMic, IconModelFile, IconOk, IconQuestion, IconResend, IconShield, IconWatch, ToolIcon } from "./SwIcons";
 import { Markdown } from "./Markdown";
 import { BrandLogo } from "./Brand";
 import { FormCard } from "./FormCard";
@@ -11,7 +11,7 @@ import { breakLabel, isBreak } from "../lib/sessions";
 import { Caret } from "./SwIcons";
 import { ToolCard, statusFor, toolTitle, type ToolCall } from "./ToolCard";
 import { breakdown, highlights as pickHighlights } from "../agent/workSummary";
-import { MODEL_TAG, WATCH_TAG, cellIdsAfter, currentThread, isPrompt, promptText, useStore, writesAfter, type RunState } from "../store";
+import { MODEL_TAG, VOICE_TAG, WATCH_TAG, cellIdsAfter, currentThread, isPrompt, promptText, useStore, writesAfter, type RunState } from "../store";
 import { ask } from "./Dialog";
 import { rpc } from "../lib/bridge";
 import { modelOption } from "../lib/models";
@@ -20,7 +20,7 @@ import type { LiveBlock } from "../agent/runAgent";
 
 /** A 3D model or "Watch me" log attached to a prompt: its text block and the images that follow it. */
 interface Extra {
-  kind: "model" | "watch" | "pdf";
+  kind: "model" | "watch" | "pdf" | "voice";
   title: string;
   body: string;
   images: string[];
@@ -410,7 +410,7 @@ function promptItem(m: MessageParam, index: number): Item {
       if (b.text.startsWith("<sw_context>")) {
         refs = [...refs, ...parseRefs(b.text)];
         afterContext = true;
-      } else if (b.text.startsWith(MODEL_TAG) || b.text.startsWith(WATCH_TAG)) {
+      } else if (b.text.startsWith(MODEL_TAG) || b.text.startsWith(WATCH_TAG) || b.text.startsWith(VOICE_TAG)) {
         extra = parseExtra(b.text);
         extras.push(extra);
       } else texts.push(b.text);
@@ -431,6 +431,17 @@ function promptItem(m: MessageParam, index: number): Item {
 }
 
 function parseExtra(raw: string): Extra {
+  if (raw.startsWith(VOICE_TAG)) {
+    const head = /^<\w+([^>]*)>/.exec(raw)?.[1] ?? "";
+    const attr = (name: string) => new RegExp(`${name}="([^"]*)"`).exec(head)?.[1];
+    const body = raw.replace(/^<[^>]*>\n?/, "").replace(/\n?<\/voice_timeline>\s*$/, "").trim();
+    const images = Number(attr("images") ?? 0);
+    const markups = Number(attr("markups") ?? 0);
+    const views = images - markups;
+    const parts = [attr("duration"), views > 0 && `${views} view${views === 1 ? "" : "s"}`, markups > 0 && `${markups} markup${markups === 1 ? "" : "s"}`].filter(Boolean);
+    // The timeline without the explanation for the agent.
+    return { kind: "voice", title: `Voice message · ${parts.join(" · ")}`, body: body.split("\n").filter((l) => /^\d+:\d\d/.test(l)).join("\n"), images: [] };
+  }
   const watch = raw.startsWith(WATCH_TAG);
   const head = /^<\w+([^>]*)>/.exec(raw);
   const attr = (name: string) => new RegExp(`${name}="([^"]*)"`).exec(head?.[1] ?? "")?.[1]?.replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
@@ -458,7 +469,14 @@ function ExtraCard({ extra, onImage }: { extra: Extra; onImage: (s: string) => v
   const line =
     extra.kind === "model"
       ? (extra.body.split("\n").find((l) => l.startsWith("Size:")) ?? extra.body.split("\n").find((l) => l.includes("couldn't be read")) ?? "")
-      : (extra.body.split("\n").find((l) => /^\d+\. /.test(l)) ?? "");
+      : extra.kind === "voice"
+        ? extra.body
+            .split("\n")
+            .map((l) => l.replace(/^\d+:\d\d\s+/, ""))
+            .filter((l) => !l.startsWith("said:") && !l.startsWith("[image"))
+            .slice(0, 3)
+            .join(" · ")
+        : (extra.body.split("\n").find((l) => /^\d+\. /.test(l)) ?? "");
   return (
     <div className="flex max-w-[92%] flex-col items-end gap-1">
       <div className="flex items-stretch gap-1.5 overflow-hidden rounded-[3px] border border-line bg-card-2 shadow-[var(--shadow)]">
@@ -469,7 +487,7 @@ function ExtraCard({ extra, onImage }: { extra: Extra; onImage: (s: string) => v
         ))}
         <button type="button" onClick={() => setOpen((o) => !o)} className="flex min-w-0 flex-col items-start justify-center py-1 pr-2 text-left" title={open ? "Hide details" : "Show what the agent received"}>
           <span className="flex items-center gap-1 text-[11.5px] font-semibold text-text">
-            {extra.kind === "model" ? <IconModelFile size={13} /> : <IconWatch size={13} />}
+            {extra.kind === "model" ? <IconModelFile size={13} /> : extra.kind === "voice" ? <IconMic size={13} /> : <IconWatch size={13} />}
             <span className="truncate">{extra.title}</span>
             <Caret open={open} className="text-text-3" />
           </span>

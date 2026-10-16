@@ -99,6 +99,64 @@ export interface Settings {
   zoom: number;
   /** Download updates in the background and install them when SolidWorks closes. Unset until the user is asked. */
   autoUpdate?: boolean | null;
+  /** Push-to-talk voice messages, transcribed on this PC (Whisper). */
+  voiceEnabled?: boolean;
+  /** The talk key: "vk:<Windows virtual key>" or "mouse:x1" / "mouse:x2" (the side buttons). */
+  voiceKey?: string;
+  /** Speech model id (see the add-in's SpeechModels). */
+  voiceModel?: string;
+  /** After letting go of the key: send at once, or leave it in the composer to check first. */
+  voiceSend?: "release" | "review";
+  /** While talking, keep the view each time it settles (turned, changed). */
+  voiceViews?: boolean;
+  /** Read the agent's replies aloud: never, after voice messages, or always. */
+  speakReplies?: "off" | "voice" | "always";
+  speakVoice?: string;
+  /** -10 (slow) to 10 (fast); 0 is normal. */
+  speakRate?: number;
+}
+
+/** One stretch of recognised speech; times in ms from the first key press. */
+export interface VoiceSegment {
+  t0: number;
+  t1: number;
+  text: string;
+}
+
+/** Something the user did while talking (the add-in's VoiceController). */
+export interface VoiceEvent {
+  t: number;
+  kind: "view" | "markup" | "select" | "deselect" | "sketch" | "added" | "deleted" | "renamed";
+  summary: string;
+  image?: string;
+  mediaType?: string;
+  items?: { type: string; label?: string; detail?: string; ref?: string | null }[];
+  total?: number;
+  name?: string;
+  what?: string;
+  was?: string;
+  closed?: string;
+  strokes?: number;
+}
+
+/** A finished voice message: the words and, on the same clock, what the user did. */
+export interface VoicePayload {
+  docKey: string | null;
+  durationMs: number;
+  text: string;
+  segments: VoiceSegment[];
+  events: VoiceEvent[];
+}
+
+export interface VoiceStatus {
+  enabled: boolean;
+  model: string;
+  models: { id: string; label: string; mb: number; note: string; installed: boolean }[];
+  engine: "off" | "loading" | "ready" | "error";
+  engineError: string | null;
+  download: { id: string; progress: number } | null;
+  downloadError: string | null;
+  available: boolean;
 }
 
 /** Update feed state from the add-in (Infrastructure/Updater.cs). */
@@ -297,4 +355,5 @@ export type Attachment =
       status: "reading" | "ready" | "error";
       entry?: FileEntry;
     }
-  | { id: string; kind: "watch"; name: string; watch: WatchResult };
+  | { id: string; kind: "watch"; name: string; watch: WatchResult }
+  | { id: string; kind: "voice"; name: string; voice: VoicePayload };

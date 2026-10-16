@@ -85,7 +85,31 @@ export async function mockRpc(method: string, params: any): Promise<unknown> {
       setTimeout(() => emitLocal("markup.strokes", { count: 2 }), 400);
       return { active: true };
     case "markup.finish":
-      return { mediaType: "image/jpeg", data: mockImage().source.data, strokes: 2 };
+      return { frames: [{ mediaType: "image/jpeg", data: mockImage().source.data, strokes: 2 }], inVoice: 0 };
+    case "voice.status":
+      return {
+        enabled: true,
+        model: "base.en",
+        models: [
+          { id: "tiny.en", label: "Fastest", mb: 74, note: "Quick on any PC; misses more technical words.", installed: false },
+          { id: "base.en", label: "Balanced", mb: 141, note: "Recommended: fast, and good with CAD terms.", installed: true },
+          { id: "small.en", label: "Most accurate", mb: 465, note: "Best accuracy; words appear more slowly on older CPUs.", installed: false },
+        ],
+        engine: "ready",
+        engineError: null,
+        download: null,
+        downloadError: null,
+        available: true,
+      };
+    case "voice.voices":
+      return [{ name: "Microsoft Zira Desktop", culture: "en-US" }];
+    case "voice.download":
+    case "voice.cancel":
+    case "voice.speak":
+    case "voice.stopSpeaking":
+    case "voice.cancelDownload":
+    case "voice.deleteModel":
+      return null;
     case "userTools.list":
       return [
         { name: "add-mounting-holes", title: "Add mounting holes", description: "Select a planar face; adds a 4-hole M6 clearance pattern 10 mm in from the face edges.", icon: "select", updated: new Date().toISOString(), kind: "tool", hasMacro: true },
