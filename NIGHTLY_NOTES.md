@@ -2,6 +2,14 @@
 
 ## New in this nightly
 
+**Chats follow you**
+- One chat list for all your files: opening, creating or switching documents never switches the chat, and the agent works in the active document. The chat list shows which files each chat worked in.
+- If you start a new chat while the agent is busy, a **Working: ...** chip in the header takes you back to it.
+- Chats are kept on this PC. Chats that older versions saved inside your files are added to the list when you open them.
+
+**Faster starts**
+- The agent says what it's building first and works in stages, instead of planning a whole design silently before its first step. A note appears if it's been thinking for a while.
+
 **Talk to the agent**
 - **Hold a key and talk** (` by default, or a mouse side button): your words appear as you speak and go out when you let go. What you select, add, sketch or mark up while talking goes along with your words, in order - so "this face, about here" means what it should.
 - Speech is recognised **on your PC** (Whisper) - the audio never leaves it. Turn it on in Options > Voice; it downloads a speech model once (74-465 MB).
