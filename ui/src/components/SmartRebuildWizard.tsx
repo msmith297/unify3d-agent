@@ -34,21 +34,23 @@ export function SmartRebuildWizard() {
   const [decisions, setDecisions] = useState<SmartRebuildSpec["decisions"]>("balanced");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [previous, setPrevious] = useState<{ updated: string; tail: string } | null>(null);
+  const [previous, setPrevious] = useState<{ updated: string; tail: string; workingCopy: boolean } | null>(null);
   const ref = useRef<HTMLTextAreaElement>(null);
   const viewKey = useStore((s) => s.viewKey);
 
   // An earlier attempt on this design (its journal lives outside the file): offer to continue it.
   useEffect(() => {
-    rpc<{ journal: boolean; updated?: string; tail?: string }>("rebuild.status", { docKey: viewKey })
-      .then((r) => setPrevious(r?.journal && r.updated ? { updated: r.updated, tail: r.tail ?? "" } : null))
+    rpc<{ journal: boolean; updated?: string; tail?: string; workingCopy?: boolean }>("rebuild.status", { docKey: viewKey })
+      .then((r) => setPrevious(r?.journal && r.updated ? { updated: r.updated, tail: r.tail ?? "", workingCopy: !!r.workingCopy } : null))
       .catch(() => setPrevious(null));
   }, [viewKey]);
 
   const continuePrevious = async () => {
     setBusy(true);
     setError(null);
-    const problem = await useStore.getState().startSmartRebuild({ change: "continue", newPart: null, notes, files, copy: false, copyName: "", decisions });
+    // On the original file, continue on a fresh copy (never edit the original); on a working copy, carry on in it.
+    const onCopy = previous?.workingCopy ?? false;
+    const problem = await useStore.getState().startSmartRebuild({ change: "continue", newPart: null, notes, files, copy: !onCopy, copyName: onCopy ? "" : copyName.trim(), decisions });
     if (problem) {
       setError(problem);
       setBusy(false);
@@ -107,7 +109,9 @@ export function SmartRebuildWizard() {
             <div className="text-[12px] font-semibold text-text">Earlier rebuild of this design ({new Date(previous.updated).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })})</div>
             <div className="max-h-[96px] overflow-y-auto whitespace-pre-wrap text-[11px] leading-snug text-text-3">{previous.tail.trim().split("\n").slice(-8).join("\n")}</div>
             <div className="flex items-center gap-1.5">
-              <span className="flex-1 text-[11px] text-text-2">The agent reads its journal - plan, results, lessons - and carries on from there.</span>
+              <span className="flex-1 text-[11px] text-text-2">
+                The agent reads its journal - plan, results, lessons - and carries on from there{previous.workingCopy ? " in this working copy." : ` in a new copy ("${copyName}").`}
+              </span>
               <button className="sw-btn sw-btn-primary" disabled={busy} onClick={continuePrevious}>
                 Continue it
               </button>

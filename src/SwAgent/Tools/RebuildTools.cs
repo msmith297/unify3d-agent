@@ -311,12 +311,14 @@ namespace SwAgent.Tools
         internal static JObject Status(IModelDoc2 model)
         {
             if (model == null) return new JObject { ["journal"] = false };
+            var workingCopy = OriginalOf(model.GetPathName()) != null;
             var path = Path.Combine(DesignDir(model), "journal.md");
-            if (!File.Exists(path)) return new JObject { ["journal"] = false };
+            if (!File.Exists(path)) return new JObject { ["journal"] = false, ["workingCopy"] = workingCopy };
             var text = File.ReadAllText(path);
             return new JObject
             {
                 ["journal"] = true,
+                ["workingCopy"] = workingCopy, // continuing on the original would edit it: the screen makes a copy first
                 ["updated"] = File.GetLastWriteTime(path).ToString("o"),
                 ["tail"] = text.Length > 1200 ? text.Substring(text.Length - 1200) : text,
             };
