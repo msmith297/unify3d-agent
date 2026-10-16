@@ -28,7 +28,7 @@ namespace SwAgent.Tools
     ///      the camera, the view and the model are left exactly as they are.
     ///   3. The tool's hard-coded macro runs (one undo step). For a tool without an agent that is the whole job.
     ///      3D models among its files are read in the background (ModelFileContext): six views + measurements.
-    ///   4. Otherwise everything is staged into one prompt and handed to the agent in the panel's "Tool runs" chat,
+    ///   4. Otherwise everything is staged into one prompt and handed to the agent in the chat the user is in,
     ///      at the tool's intelligence level.
     /// </summary>
     internal sealed class ToolRunner

@@ -45,6 +45,16 @@ export interface QueuedMessage {
   text: string;
   attachments: Attachment[];
   now?: boolean;
+  /** A tool run waiting for the agent: its staged prompt and run settings (text is then just its label). */
+  staged?: { blocks: ContentBlockParam[]; refs: Record<string, string>; run: RunOverride };
+}
+
+/** Settings for one run that differ from the chat's own (a tool's intelligence level, auto-approval). */
+export interface RunOverride {
+  model?: string;
+  effort?: Effort;
+  autoApprove?: boolean;
+  label?: string;
 }
 
 export interface RunState {
@@ -148,7 +158,7 @@ interface State {
   setIncludeSelection(v: boolean): void;
   toggleSelItem(index: number): void;
   runUserTool(name: string): Promise<void>;
-  /** A ribbon tool that needs the agent. Runs in the background "Tool runs" chat. */
+  /** A ribbon tool that needs the agent. Runs in the chat the user is in (queued if the agent is busy there). */
   runQuickTool(payload: ToolRunPayload): Promise<void>;
   toolOutcome: ToolRunOutcome | null;
   crash: CrashInfo | null;
@@ -301,6 +311,10 @@ export function watchBlocks(w: WatchResult): ContentBlockParam[] {
 function queuedBlocks(q: QueuedMessage[]): ContentBlockParam[] {
   const blocks: ContentBlockParam[] = [];
   for (const m of q) {
+    if (m.staged) {
+      blocks.push(...m.staged.blocks); // a queued tool run: its whole staged prompt
+      continue;
+    }
     if (m.text) blocks.push({ type: "text", text: m.text });
     for (const a of m.attachments) blocks.push(...attachmentBlocks(a));
   }
@@ -459,7 +473,7 @@ export const useStore = create<State>((set, get) => {
     return { blocks: [{ type: "text", text: `<sw_context>\n${lines.join("\n")}\n</sw_context>` }, ...extra], refs };
   };
 
-  const startRun = async (docKey: string, threadId: string, extra: Partial<RunState> = {}) => {
+  const startRun = async (docKey: string, threadId: string, extra: Partial<RunState> = {}, run: RunOverride = {}) => {
     const keyRes = await rpc<{ key: string | null }>("apiKey.get");
     if (!keyRes.key) {
       set({ panel: "settings", notice: "Add your Anthropic API key to start chatting." });
@@ -486,10 +500,10 @@ export const useStore = create<State>((set, get) => {
     try {
       const result = await runAgent({
         apiKey: keyRes.key,
-        model: thread.model,
-        effort: thread.effort,
+        model: run.model ?? thread.model,
+        effort: run.effort ?? thread.effort,
         tools: get().tools,
-        approval: get().settings.approval,
+        approval: run.autoApprove ? "auto" : get().settings.approval,
         realisticAppearance: get().settings.realisticAppearance,
         verbosity: get().settings.verbosity ?? "medium",
         userTools: get().userTools,
@@ -548,7 +562,7 @@ export const useStore = create<State>((set, get) => {
             set((s) => ({ queue: { ...s.queue, [threadId]: (s.queue[threadId] ?? []).filter((m) => !m.now) } }));
             return queuedBlocks(now);
           },
-          isAutoApproved: () => !!get().chats[docKey]?.data.threads.find((t) => t.id === threadId)?.autoApprove,
+          isAutoApproved: () => !!run.autoApprove || !!get().chats[docKey]?.data.threads.find((t) => t.id === threadId)?.autoApprove,
           setAutoApproved: () => updateThread(docKey, threadId, (t) => ({ ...t, autoApprove: true })),
         },
       });
@@ -591,17 +605,30 @@ export const useStore = create<State>((set, get) => {
   const flushQueue = (docKey: string, threadId: string, outcome: string) => {
     const q = get().queue[threadId] ?? [];
     if (q.length === 0 || outcome === "error") return;
-    set((s) => ({ queue: { ...s.queue, [threadId]: [] } }));
-    const text = q.map((m) => m.text).filter(Boolean).join("\n\n");
-    const attachments = q.flatMap((m) => m.attachments);
     if (outcome === "aborted") {
+      // Stop: follow-ups go back into the composer, queued tool runs are dropped (the user can click the tool again).
+      set((s) => ({ queue: { ...s.queue, [threadId]: [] } }));
+      const typed = q.filter((m) => !m.staged);
+      const text = typed.map((m) => m.text).filter(Boolean).join("\n\n");
+      const attachments = typed.flatMap((m) => m.attachments);
       set((s) => ({
         drafts: { ...s.drafts, [threadId]: [text, s.drafts[threadId]].filter(Boolean).join("\n\n") },
         attachments: { ...s.attachments, [threadId]: [...attachments, ...(s.attachments[threadId] ?? [])] },
       }));
       return;
     }
-    void submitPrompt(docKey, threadId, text, attachments);
+    if (q[0].staged) {
+      // One tool run; the rest wait for the next turn to end.
+      const [first, ...rest] = q;
+      set((s) => ({ queue: { ...s.queue, [threadId]: rest } }));
+      const st = first.staged!;
+      void submitBlocks(docKey, threadId, st.blocks, st.refs, st.run);
+      return;
+    }
+    const n = q.findIndex((m) => m.staged);
+    const batch = n < 0 ? q : q.slice(0, n);
+    set((s) => ({ queue: { ...s.queue, [threadId]: n < 0 ? [] : q.slice(n) } }));
+    void submitPrompt(docKey, threadId, batch.map((m) => m.text).filter(Boolean).join("\n\n"), batch.flatMap((m) => m.attachments));
   };
 
   /** The agent needs the user (a question, an approval): show that chat and bring the pane up - tool runs happen out of sight. */
@@ -617,7 +644,7 @@ export const useStore = create<State>((set, get) => {
   };
 
   /** Add a prompt (text, attachments, the user's selection and view) to a thread and run the agent. */
-  const submitPrompt = async (docKey: string, threadId: string, trimmed: string, attachments: Attachment[]) => {
+  const submitPrompt = async (docKey: string, threadId: string, trimmed: string, attachments: Attachment[], run: RunOverride = {}) => {
     // The agent's drawings on the view belong to the conversation so far: a new message starts clean.
     if (get().overlayCount > 0) get().clearOverlay();
     const blocks: ContentBlockParam[] = [];
@@ -625,7 +652,11 @@ export const useStore = create<State>((set, get) => {
     for (const a of attachments) blocks.push(...attachmentBlocks(a));
     const ctx = await buildContext(docKey, threadId, attachments.some((a) => a.kind === "image" && a.name === MARKUP_NAME));
     blocks.push(...ctx.blocks);
+    await submitBlocks(docKey, threadId, blocks, ctx.refs, run);
+  };
 
+  /** Add a user message (already built) to a thread and run the agent on it, with optional settings for this run. */
+  const submitBlocks = async (docKey: string, threadId: string, blocks: ContentBlockParam[], refs: Record<string, string>, run: RunOverride = {}) => {
     updateThread(docKey, threadId, (t) => {
       const last = t.messages[t.messages.length - 1];
       // After a stopped or failed turn the history can end on a user message; extend it rather than
@@ -638,12 +669,12 @@ export const useStore = create<State>((set, get) => {
       return {
         ...t,
         messages,
-        selRefs: { ...(t.selRefs ?? {}), ...ctx.refs },
-        turns: [...t.turns, { at: now(), session: get().sessionStart, msgIndex, model: t.model, effort: t.effort, usage: { ...ZERO_USAGE } }],
+        selRefs: { ...(t.selRefs ?? {}), ...refs },
+        turns: [...t.turns, { at: now(), session: get().sessionStart, msgIndex, model: run.model ?? t.model, effort: run.effort ?? t.effort, usage: { ...ZERO_USAGE } }],
       };
     });
     await persist(docKey);
-    await startRun(docKey, threadId);
+    await startRun(docKey, threadId, run.label ? { label: run.label, startedAt: Date.now() } : {}, run);
   };
 
   return {
@@ -893,8 +924,8 @@ export const useStore = create<State>((set, get) => {
         if (!r.ok) return r.reason ?? "The copy couldn't be saved.";
         workingFile = `a copy saved as ${r.path} - the original ${r.original} stays untouched`;
       }
+      // In the chat the user is in (no separate chat), on Opus at high effort for this run.
       set({ panel: "chat" });
-      await get().newChat();
       // The new customer part and the references go along as attachments (3D models arrive as views + measurements).
       const files = [...(spec.newPart ? [spec.newPart] : []), ...spec.files];
       if (files.length) get().addFileEntries(files);
@@ -916,7 +947,7 @@ export const useStore = create<State>((set, get) => {
         await get().send(prompt);
         return;
       }
-      await get().newChat();
+      // In the chat the user is in - no separate chat.
       if (spec.from === "watch") {
         // Record first; the log attaches to the next message (Stop & attach in the bar), which already says what to build.
         set((st) => ({ drafts: { ...st.drafts, [draftKey(st)]: prompt } }));
@@ -1047,7 +1078,7 @@ export const useStore = create<State>((set, get) => {
         drafts: { ...s.drafts, [dKey]: "", [threadId]: "" },
         attachments: { ...s.attachments, [dKey]: [], [threadId]: [] },
       }));
-      await submitPrompt(docKey, threadId, trimmed, attachments);
+      await submitPrompt(docKey, threadId, trimmed, attachments, opts ?? {});
     },
 
     queueSendNow(threadId, id) {
@@ -1195,48 +1226,40 @@ export const useStore = create<State>((set, get) => {
       await loadChat(docKey);
       const tool = get().userTools.find((t) => t.name === name);
       const label = payload.title ?? tool?.title ?? name;
-      let thread = get().chats[docKey]?.data.threads.find((t) => t.kind === "tools");
-      if (thread && get().runs[thread.id]) return; // one tool run at a time per document
+      // Tool runs happen in the chat the user is in (a new chat when none is open) - no separate "Tool runs" chat.
+      const activeId = get().chats[docKey]?.data.activeThreadId;
+      let thread = get().chats[docKey]?.data.threads.find((t) => t.id === activeId);
       if (!thread) {
-        // A separate chat, so tool runs never interrupt (or switch) the conversation the user is in.
         const created: Thread = {
           id: uid(),
-          title: "Tool runs",
-          kind: "tools",
+          title: `Tool: ${label}`,
           createdAt: now(),
           updatedAt: now(),
-          model: tierModel("balanced").model,
-          effort: "low",
-          autoApprove: true, // the user ran the tool: that is the approval
+          model: get().settings.defaultModel,
+          effort: get().settings.defaultEffort,
           messages: [],
           turns: [],
         };
-        updateSlot(docKey, (d) => ({ ...d, threads: [...d.threads, created] }));
+        updateSlot(docKey, (d) => ({ ...d, threads: [created, ...d.threads], activeThreadId: created.id }));
         thread = created;
       }
       const threadId = thread.id;
       const { model, effort } = tierModel(payload.intelligence ?? tool?.intelligence);
       const staged = stageToolPrompt(payload, label, Object.keys(thread.selRefs ?? {}).length);
-      updateThread(docKey, threadId, (t) => {
-        // A previous run that failed before the agent answered leaves its request last: replace it rather than
-        // stacking requests (nothing follows it, so no earlier reasoning is invalidated).
-        const last = t.messages[t.messages.length - 1];
-        const messages: MessageParam[] =
-          last && last.role === "user"
-            ? [...t.messages.slice(0, -1), { role: "user", content: staged.blocks }]
-            : [...t.messages, { role: "user", content: staged.blocks }];
-        return {
-          ...t,
-          model,
-          effort,
-          messages,
-          selRefs: { ...(t.selRefs ?? {}), ...staged.refs },
-          turns: [...t.turns, { at: now(), session: get().sessionStart, msgIndex: messages.length - 1, model, effort, usage: { ...ZERO_USAGE } }],
-        };
-      });
-      await persist(docKey);
+      // The tool's intelligence level and auto-approval (the user ran it: that is the approval) apply to this run
+      // only; the chat keeps its own model and settings.
+      const run: RunOverride = { model, effort, autoApprove: true, label };
+      if (get().runs[threadId]) {
+        // The agent is busy in this chat: the tool run waits in the queue like a follow-up.
+        const queued: QueuedMessage = { id: uid(), text: `Run ${label}`, attachments: [], staged: { blocks: staged.blocks, refs: staged.refs, run } };
+        set((s) => ({
+          queue: { ...s.queue, [threadId]: [...(s.queue[threadId] ?? []), queued] },
+          notice: `The agent is busy in this chat - ${label} runs when it finishes.`,
+        }));
+        return;
+      }
       set({ toolOutcome: null });
-      await startRun(docKey, threadId, { label, startedAt: Date.now() });
+      await submitBlocks(docKey, threadId, staged.blocks, staged.refs, run);
 
       // A one-line outcome for the banner: the agent's last words, or the error.
       const th = get().chats[docKey]?.data.threads.find((t) => t.id === threadId);

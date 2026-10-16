@@ -6,7 +6,7 @@ import { useStore, type RunState } from "../store";
 /**
  * While a ribbon tool runs with the agent, the chat panel shows one quiet line - "Smart fillet executing..." with
  * elapsed time and steps - instead of streaming the work. Afterwards it shows the one-line outcome for a moment.
- * Click it to see the details in the "Tool runs" chat.
+ * Click it to see the details in the chat the tool ran in.
  */
 export function ToolRunBanner() {
   const run = useStore((s) => Object.values(s.runs).find((r) => r.label));

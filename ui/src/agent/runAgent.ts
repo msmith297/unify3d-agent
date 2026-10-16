@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { buildSystemPrompt, type Verbosity } from "./systemPrompt";
+import { repairHistory } from "./history";
 import { modelOption } from "../lib/models";
 import type {
   ApprovalMode,
@@ -226,7 +227,7 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
           max_tokens: 64000,
           system: [{ type: "text", text: system }],
           tools,
-          messages: cb.getMessages(),
+          messages: repairHistory(cb.getMessages()),
           // Thinking is always on for these models; effort controls depth. "drop_block" keeps chats that were
           // reloaded from a file (or continued after an add-in update) valid instead of failing with a 400.
           thinking: {
