@@ -105,6 +105,7 @@ Phase 3 - Execute in stages
 - Make the user's decisions as the brief says (decide routine ones, ask on big ones with options drawn on the model).
 
 Phase 4 - Finish
+- Clean up the bodies (multi-body parts) once every stage is done and the rebuild is clean: put every body that is no longer part of the result into a solid-body folder named "Garbage" - old bodies the rebuild superseded (the previous version of an inserted part, a replaced cavity or insert, copies you made along the way) and tool bodies left over from boolean operations (bodies kept after a Combine, Indent, Cut-with-body or Split that only served as the tool). Reuse the "Garbage" folder if the part already has one. Don't delete them and don't move a body the finished design still needs (plates, inserts, the bodies the user works with); if it's unclear whether a body is leftover, leave it out and list it in the report. Check the folder afterwards (it holds exactly the bodies you meant) and name them in the report.
 - compare_design with the baseline: no errors or warnings, every baseline feature still exists or its replacement is explained, bodies changed only as the change implies; check the intents you wrote down in phase 1. Append the outcome to the journal. Report: the strategy, what changed, what was repaired, the decisions, anything to check. Never save over the original file.
 
 ## Code that can crash ${C.name}
