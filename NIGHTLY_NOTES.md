@@ -1,5 +1,26 @@
 **Nightly build - for testing.** Built from the development branch; expect rough edges. The automatic updater never offers nightly builds - install this one by hand, and install a regular release later to go back.
 
+## New in this nightly
+
+**Talk to the agent**
+- **Hold a key and talk** (` by default, or a mouse side button): your words appear as you speak and go out when you let go. What you select, add, sketch or mark up while talking goes along with your words, in order - so "this face, about here" means what it should.
+- Speech is recognised **on your PC** (Whisper) - the audio never leaves it. Turn it on in Options > Voice; it downloads a speech model once (74-465 MB).
+- Answer the agent's questions by voice, too. Typed messages and **Send now** also answer a question the agent is waiting on, instead of queueing behind it.
+- Optional: replies read aloud with the Windows voices.
+
+**Markup pen**
+- The pen stays on while you turn, pan and zoom the model; every view you mark is kept. Esc when you're done.
+
+**Smart Rebuild** (Unify3D ribbon tab)
+- The first built-in Unify3D tool: rebuilds a design around a deep change (e.g. a 2-cavity mould to 3). It surveys how the file is built, picks a strategy, agrees a staged plan with you, saves checkpoints, and keeps a journal so a second attempt learns from the first. Works on a copy; leftover bodies go into a "Garbage" folder.
+
+**Getting started**
+- A first-run **tour** that points at the real controls (skip it any time; Options > Take the tour shows it again).
+
+**Fixes**
+- A crash while the agent's drawings were shown during a SolidWorks command.
+- Chats that got stuck on "tool_use without tool_result" after a run was cut off; tools now run in the chat you're in.
+
 ## New since v0.1.1
 
 **Tools**
