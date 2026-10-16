@@ -24,7 +24,7 @@ const DECISIONS: { id: SmartRebuildSpec["decisions"]; label: string; hint: strin
 ];
 
 export function SmartRebuildWizard() {
-  const doc = useStore((s) => s.docs[s.viewKey]);
+  const doc = useStore((s) => s.docs[s.activeDocKey ?? ""]);
   const [change, setChange] = useState<SmartRebuildSpec["change"]>("replace");
   const [newPart, setNewPart] = useState<FileEntry | null>(null);
   const [notes, setNotes] = useState("");
@@ -36,7 +36,7 @@ export function SmartRebuildWizard() {
   const [error, setError] = useState<string | null>(null);
   const [previous, setPrevious] = useState<{ updated: string; tail: string; workingCopy: boolean } | null>(null);
   const ref = useRef<HTMLTextAreaElement>(null);
-  const viewKey = useStore((s) => s.viewKey);
+  const viewKey = useStore((s) => s.activeDocKey ?? "");
 
   // An earlier attempt on this design (its journal lives outside the file): offer to continue it.
   useEffect(() => {

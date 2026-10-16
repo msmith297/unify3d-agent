@@ -60,6 +60,8 @@ export interface Thread {
   kind?: "tools";
   /** Save-and-restart offers the user answered "Not now" to (offer ids, see ChatView restartOffer). */
   restartDismissed?: string[];
+  /** The files this chat worked in (the chat follows the work from file to file). key: the add-in's runtime key. */
+  files?: { title: string; path?: string | null; key?: string }[];
 }
 
 /** What the add-in stores inside the SolidWorks file. */
@@ -69,6 +71,8 @@ export interface ChatData {
   revision: number;
   activeThreadId: string | null;
   threads: Thread[];
+  /** Workspace chats: ids of threads imported from files (older versions kept chats inside each file). */
+  imported?: string[];
 }
 
 export interface DocInfo {

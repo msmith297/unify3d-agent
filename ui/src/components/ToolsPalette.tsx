@@ -24,7 +24,7 @@ export function ToolsPalette({ disabled }: { disabled?: boolean }) {
   const all = useStore((s) => s.userTools ?? EMPTY);
   const workflows = all.filter((t) => t.kind !== "tool");
   const tools = all.filter((t) => t.kind === "tool");
-  const hasDoc = useStore((s) => !!s.docs[s.viewKey]);
+  const hasDoc = useStore((s) => !!s.docs[s.activeDocKey ?? ""]);
   const { runUserTool, deleteUserTool, send, setDraft } = useStore.getState();
 
   const prefill = (text: string) => {

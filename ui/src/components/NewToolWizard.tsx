@@ -47,8 +47,8 @@ const STYLES: { id: NewToolSpec["style"]; label: string; hint: string; build: st
 export function NewToolWizard() {
   const hasChat = useStore((s) => (currentThread(s)?.messages.length ?? 0) > 0);
   const running = useStore((s) => !!s.runs[currentThread(s)?.id ?? ""]);
-  const canWatch = useStore((s) => s.docs[s.viewKey]?.type === "part" || s.docs[s.viewKey]?.type === "assembly");
-  const selection = useStore((s) => s.selection[s.viewKey] ?? EMPTY);
+  const canWatch = useStore((s) => s.docs[s.activeDocKey ?? ""]?.type === "part" || s.docs[s.activeDocKey ?? ""]?.type === "assembly");
+  const selection = useStore((s) => s.selection[s.activeDocKey ?? ""] ?? EMPTY);
   const [what, setWhat] = useState("");
   const [from, setFrom] = useState<NewToolSpec["from"]>("describe");
   const [usage, setUsage] = useState<string[]>([]);

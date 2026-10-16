@@ -124,7 +124,7 @@ export function Tour() {
       body: (
         <>
           <p>Code that changes the model asks first (you can change that here in Options). Every change is a single Ctrl+Z, and <b>Undo all agent changes</b> rolls back a whole answer.</p>
-          <p className="mt-1.5">The conversation is saved inside your file, so it opens with the part.</p>
+          <p className="mt-1.5">Chats follow you from file to file - opening or switching documents never switches the chat - and the chat list shows which files each one worked in.</p>
         </>
       ),
     },
@@ -332,7 +332,7 @@ function ApiKeyStep() {
 }
 
 function DoneStep() {
-  const hasDoc = useStore((s) => !!s.docs[s.viewKey]);
+  const hasDoc = useStore((s) => !!s.docs[s.activeDocKey ?? ""]);
   const { endTour } = useStore.getState();
   const tryIt = (text: string) => {
     endTour();

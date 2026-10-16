@@ -142,12 +142,9 @@ export function SettingsPanel() {
         </Rollout>
 
         <Rollout title="Chat history" icon={<IconHistory size={14} />}>
-          <Toggle
-            checked={settings.markDocumentDirty}
-            onChange={(v) => saveSettings({ markDocumentDirty: v })}
-            label="Mark the document as modified when the chat changes"
-            note="SolidWorks then prompts you to save, so the conversation is stored in the file. Unsaved messages are also kept in a local backup."
-          />
+          <p className="py-1 text-[11px] text-text-3">
+            Chats are kept on this PC and follow you from file to file - opening or switching documents never switches the chat. The chat list shows which files each one worked in. Chats that older versions saved inside your files are added to the list when you open them.
+          </p>
           <Toggle checked={settings.showProgress} onChange={(v) => saveSettings({ showProgress: v })} label="Show the agent's progress notes" note="Short status lines the model writes between tool calls." />
         </Rollout>
 

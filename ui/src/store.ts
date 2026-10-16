@@ -220,6 +220,12 @@ export interface WatchState {
 
 const WATCH_IDLE: WatchState = { active: false, busy: false, docKey: null, doc: null, startedAt: 0, entries: [] };
 
+/**
+ * Chats aren't tied to documents: they all live in one workspace list (stored by the add-in in its own folder), so a
+ * chat keeps going while files are opened, created and switched. Tools act on the active document.
+ */
+export const WORKSPACE = "workspace";
+
 export type MarkupTool = "pen" | "arrow" | "circle" | "highlighter";
 
 /** The live voice message: idle, listening (key held), transcribing (key let go), pen (waiting for the markup to end). */
@@ -512,6 +518,7 @@ export const useStore = create<State>((set, get) => {
       revision: raw.revision ?? 0,
       activeThreadId: raw.activeThreadId ?? null,
       threads: raw.threads ?? [],
+      imported: raw.imported ?? [],
     };
     data.threads = (data.threads ?? []).map((t) => ({ ...t, turns: t.turns ?? [], messages: t.messages ?? [] }));
     set((s) => ({
@@ -532,7 +539,7 @@ export const useStore = create<State>((set, get) => {
     opts: { noView?: boolean; reserved?: number } = {},
   ): Promise<{ blocks: ContentBlockParam[]; refs: Record<string, string> }> => {
     const s = get();
-    const doc = s.docs[docKey];
+    const doc = s.docs[s.activeDocKey ?? ""];
     const lines: string[] = [];
     const refs: Record<string, string> = {};
     const extra: ContentBlockParam[] = [];
@@ -545,7 +552,7 @@ export const useStore = create<State>((set, get) => {
     const snap = await rpc<SelectionSnapshot | null>("selection.snapshot", { docKey }).catch(() => null);
     if (snap?.view?.text) lines.push(`Camera: ${snap.view.text}`);
 
-    const items = isAgentSelection(s, docKey) ? [] : snap?.items ?? [];
+    const items = isAgentSelection(s, s.activeDocKey ?? "") ? [] : snap?.items ?? [];
     const thread = s.chats[docKey]?.data.threads.find((t) => t.id === threadId);
     let n = Object.keys(thread?.selRefs ?? {}).length + (opts.reserved ?? 0);
     if (items.length > 0 && !s.includeSelection) {
@@ -597,7 +604,8 @@ export const useStore = create<State>((set, get) => {
     }));
     const started = performance.now();
     let outcome = "end_turn";
-    const selectionAtStart = selSig(get().selection[docKey] ?? []);
+    const selDoc = get().activeDocKey ?? "";
+    const selectionAtStart = selSig(get().selection[selDoc] ?? []);
     rpc("agent.activity", { running: true }).catch(() => {});
     const turnIndex = thread.turns.length - 1;
     const patchTurn = (patch: Partial<TurnMeta>) =>
@@ -694,12 +702,13 @@ export const useStore = create<State>((set, get) => {
       });
       rpc("agent.activity", { running: false }).catch(() => {});
       // Selection events can lag the last API call; read the final state once the run is over.
-      const after = await rpc<{ docKey: string; items: SelectionItem[] } | null>("selection.get", { docKey }).catch(() => null);
+      const afterDoc = get().activeDocKey ?? "";
+      const after = afterDoc ? await rpc<{ docKey: string; items: SelectionItem[] } | null>("selection.get", { docKey: afterDoc }).catch(() => null) : null;
       if (after) {
         const sig = selSig(after.items);
         set((s) => ({
-          selection: { ...s.selection, [docKey]: after.items },
-          agentSel: sig !== selectionAtStart && after.items.length > 0 ? { ...s.agentSel, [docKey]: sig } : s.agentSel,
+          selection: { ...s.selection, [afterDoc]: after.items },
+          agentSel: afterDoc !== selDoc || (sig !== selectionAtStart && after.items.length > 0) ? { ...s.agentSel, [afterDoc]: sig } : s.agentSel,
         }));
       }
       await persist(docKey);
@@ -732,6 +741,46 @@ export const useStore = create<State>((set, get) => {
     else if (s.settings.voiceEnabled) get().saveSettings({ voiceEnabled: false });
   };
 
+  /** Remember that a chat worked in the active document (shown in the chat list; the chat follows the work). */
+  const noteFile = (threadId: string) => {
+    const s = get();
+    const doc = s.docs[s.activeDocKey ?? ""];
+    if (!doc) return;
+    const slot = s.chats[WORKSPACE];
+    const t = slot?.data.threads.find((x) => x.id === threadId);
+    if (!t) return;
+    const files = t.files ?? [];
+    if (files.some((f) => f.key === doc.key || (doc.path ? f.path === doc.path : !f.path && f.title === doc.title))) return;
+    updateSlot(WORKSPACE, (d) => ({
+      ...d,
+      threads: d.threads.map((x) => (x.id === threadId ? { ...x, files: [...files, { title: doc.title, path: doc.path || null, key: doc.key }] } : x)),
+    }));
+  };
+
+  /** Chats an older version saved inside a file: copied into the workspace list once (by thread id). */
+  const importDocChats = async (docKey: string) => {
+    if (!docKey || docKey === WORKSPACE || !get().docs[docKey]) return;
+    const res = await rpc<{ data: ChatData }>("chat.load", { docKey }).catch(() => null);
+    const theirs = res?.data?.threads ?? [];
+    if (theirs.length === 0) return;
+    await loadChat(WORKSPACE);
+    const slot = get().chats[WORKSPACE];
+    if (!slot) return;
+    const have = new Set(slot.data.threads.map((t) => t.id));
+    const done = new Set(slot.data.imported ?? []);
+    const doc = get().docs[docKey];
+    const fresh = theirs
+      .filter((t) => !have.has(t.id) && !done.has(t.id))
+      .map((t) => ({ ...t, turns: t.turns ?? [], messages: t.messages ?? [], files: t.files ?? (doc ? [{ title: doc.title, path: doc.path || null, key: doc.key }] : []) }));
+    if (fresh.length === 0) return;
+    updateSlot(WORKSPACE, (d) => ({
+      ...d,
+      threads: [...d.threads, ...fresh].sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? "")),
+      imported: [...(d.imported ?? []), ...fresh.map((t) => t.id)],
+    }));
+    await persist(WORKSPACE);
+  };
+
   /** Read the reply aloud (Settings > Voice): after voice messages, or always. */
   const speakReply = (docKey: string, threadId: string, outcome: string) => {
     const mode = get().settings.speakReplies ?? "off";
@@ -752,7 +801,6 @@ export const useStore = create<State>((set, get) => {
     if (p === lastVoice) return; // the same event twice (a panel reload re-registers listeners)
     lastVoice = p;
     set({ voice: VOICE_IDLE });
-    if (p.docKey && p.docKey !== get().viewKey && get().docs[p.docKey]) await get().showDoc(p.docKey);
     set({ panel: "chat" });
     const s = get();
     // The agent is waiting on a question in this chat: the voice message is the answer, not a new message.
@@ -814,9 +862,8 @@ export const useStore = create<State>((set, get) => {
   /** The agent needs the user (a question, an approval): show that chat and bring the pane up - tool runs happen out of sight. */
   const revealRun = async (docKey: string, threadId: string) => {
     const s = get();
-    const shown = s.panel === "chat" && s.viewKey === docKey && s.chats[docKey]?.data.activeThreadId === threadId;
+    const shown = s.panel === "chat" && s.chats[docKey]?.data.activeThreadId === threadId;
     if (!shown) {
-      if (s.viewKey !== docKey) await s.showDoc(docKey);
       updateSlot(docKey, (d) => ({ ...d, activeThreadId: threadId }));
       set({ panel: "chat" });
     }
@@ -871,6 +918,7 @@ export const useStore = create<State>((set, get) => {
         turns: [...t.turns, { at: now(), session: get().sessionStart, msgIndex, model: run.model ?? t.model, effort: run.effort ?? t.effort, usage: { ...ZERO_USAGE } }],
       };
     });
+    noteFile(threadId);
     await persist(docKey);
     await startRun(docKey, threadId, run.label ? { label: run.label, startedAt: Date.now() } : {}, run);
   };
@@ -898,7 +946,7 @@ export const useStore = create<State>((set, get) => {
     ribbonStale: false,
     docs: {},
     activeDocKey: null,
-    viewKey: "scratch",
+    viewKey: WORKSPACE,
     chats: {},
     selection: {},
     includeSelection: true,
@@ -968,7 +1016,7 @@ export const useStore = create<State>((set, get) => {
         const docs: Record<string, DocInfo> = {};
         for (const d of host.docs) docs[d.key] = d;
         if (host.activeDoc) docs[host.activeDoc.key] = host.activeDoc;
-        const viewKey = host.activeDoc?.key ?? host.scratchKey;
+        const viewKey = WORKSPACE;
         let settings: Settings = { ...DEFAULT_SETTINGS, ...host.settings };
         if ((host.settings.settingsVersion ?? 1) < SETTINGS_VERSION) {
           // v2: the panel now follows the SolidWorks interface theme by default.
@@ -995,8 +1043,10 @@ export const useStore = create<State>((set, get) => {
           settings,
         });
         await loadChat(viewKey);
-        // No document open: start on a fresh chat, not the last document-less conversation (still in the history menu).
-        if (!host.activeDoc) updateSlot(viewKey, (d) => ({ ...d, activeThreadId: null }));
+        // A new SolidWorks session starts on a fresh chat (earlier ones are in the chat list); after Save and restart,
+        // where the user left off.
+        if (!host.resume) updateSlot(viewKey, (d) => ({ ...d, activeThreadId: null }));
+        for (const k of Object.keys(docs)) void importDocChats(k);
         if (host.activeDoc) {
           rpc<{ docKey: string; items: SelectionItem[] } | null>("selection.get", { docKey: host.activeDoc.key }).then((r) => {
             if (r) set((s) => ({ selection: { ...s.selection, [r.docKey]: r.items } }));
@@ -1015,19 +1065,20 @@ export const useStore = create<State>((set, get) => {
         set((s) => ({ docs: { ...s.docs, [doc.key]: doc }, activeDocKey: doc.key }));
         get().showDoc(doc.key);
       });
+      on("doc.updated", (doc: DocInfo) =>
+        // Saved under a name (Save As): chats that worked in it show the new name.
+        updateSlot(WORKSPACE, (d) => ({
+          ...d,
+          threads: d.threads.map((t) =>
+            t.files?.some((f) => f.key === doc.key) ? { ...t, files: t.files.map((f) => (f.key === doc.key ? { ...f, title: doc.title, path: doc.path || null } : f)) } : t,
+          ),
+        })),
+      );
       on("theme.changed", (t: SwThemeInfo) => set({ swTheme: t }));
       on("ribbon.stale", ({ stale }: { stale: boolean }) => set({ ribbonStale: !!stale }));
       // SolidWorks read a document's chat from the file (it may have been asked for before that): reload it.
-      on("doc.chatChanged", ({ key }: { key: string }) => {
-        const s = get();
-        if (Object.values(s.runs).some((r) => r.docKey === key)) return;
-        set((st) => {
-          const chats = { ...st.chats };
-          delete chats[key];
-          return { chats };
-        });
-        if (get().viewKey === key) void loadChat(key);
-      });
+      // SolidWorks read a file's stored chats (older versions kept chats inside files): add them to the list.
+      on("doc.chatChanged", ({ key }: { key: string }) => void importDocChats(key));
       on("update.changed", (u: UpdateInfo) => set({ update: u }));
       on("userTools.changed", (list: UserToolInfo[]) => {
         set({ userTools: list ?? [] });
@@ -1044,17 +1095,12 @@ export const useStore = create<State>((set, get) => {
         set((s) => {
           const docs = { ...s.docs };
           delete docs[key];
-          const chats = { ...s.chats };
-          if (!Object.values(s.runs).some((r) => r.docKey === key)) delete chats[key];
-          const activeDocKey = s.activeDocKey === key ? null : s.activeDocKey;
-          const viewKey = s.viewKey === key ? activeDocKey ?? s.host?.scratchKey ?? "scratch" : s.viewKey;
-          return { docs, chats, activeDocKey, viewKey };
+          return { docs, activeDocKey: s.activeDocKey === key ? null : s.activeDocKey };
         });
-        loadChat(get().viewKey);
       });
       on("selection.changed", ({ docKey, items }: { docKey: string; items: SelectionItem[] }) =>
         set((s) => {
-          const agentWorking = Object.values(s.runs).some((r) => r.docKey === docKey);
+          const agentWorking = Object.keys(s.runs).length > 0;
           return {
             selection: { ...s.selection, [docKey]: items },
             excludedSel: [],
@@ -1156,7 +1202,7 @@ export const useStore = create<State>((set, get) => {
             s.attachView();
             break;
           case "askAboutSelection": {
-            const sel = s.selection[s.viewKey] ?? [];
+            const sel = s.selection[s.activeDocKey ?? ""] ?? [];
             const what = sel.length === 0 ? "the selection" : sel.length === 1 ? `the selected ${sel[0].type.toLowerCase()}` : `the ${sel.length} selected items`;
             const key = draftKey(s);
             set({
@@ -1172,9 +1218,12 @@ export const useStore = create<State>((set, get) => {
     },
 
     async showDoc(key) {
-      set({ viewKey: key });
-      await loadChat(key);
-      const r = await rpc<{ docKey: string; items: SelectionItem[] } | null>("selection.get", { docKey: key });
+      // The chat stays where it is; the running chats note that they now work in this file too.
+      await loadChat(WORKSPACE);
+      for (const id of Object.keys(get().runs)) noteFile(id);
+      if (Object.keys(get().runs).length) void persist(WORKSPACE);
+      void importDocChats(key);
+      const r = await rpc<{ docKey: string; items: SelectionItem[] } | null>("selection.get", { docKey: key }).catch(() => null);
       if (r) set((s) => ({ selection: { ...s.selection, [r.docKey]: r.items } }));
     },
 
@@ -1187,7 +1236,7 @@ export const useStore = create<State>((set, get) => {
 
     async startSmartRebuild(spec) {
       const s = get();
-      const docKey = s.viewKey;
+      const docKey = s.activeDocKey ?? WORKSPACE;
       let workingFile = "this file (no copy)";
       if (spec.copy) {
         type Saved = { ok: boolean; reason?: string; path?: string; original?: string };
@@ -1514,8 +1563,7 @@ export const useStore = create<State>((set, get) => {
 
     async runQuickTool(payload) {
       const name = payload.tool;
-      const s0 = get();
-      const docKey = s0.activeDocKey ?? s0.viewKey;
+      const docKey = WORKSPACE;
       await loadChat(docKey);
       const tool = get().userTools.find((t) => t.name === name);
       const label = payload.title ?? tool?.title ?? name;
@@ -1616,7 +1664,7 @@ export const useStore = create<State>((set, get) => {
     async startMarkup() {
       const s = get();
       try {
-        await rpc("markup.start", { docKey: s.viewKey, tool: s.markup.tool, color: s.markup.color });
+        await rpc("markup.start", { docKey: s.activeDocKey, tool: s.markup.tool, color: s.markup.color });
         set((st) => ({ markup: { ...st.markup, active: true, strokes: 0, frames: 0 } }));
       } catch (err: any) {
         set({ notice: `Can't draw on the view: ${err.message}` });
@@ -1718,7 +1766,7 @@ export const useStore = create<State>((set, get) => {
     async startWatch() {
       const s = get();
       if (s.watch.active || s.watch.busy) return;
-      const docKey = s.viewKey;
+      const docKey = s.activeDocKey ?? WORKSPACE;
       try {
         const st = await rpc<{ doc?: string }>("watch.start", { docKey });
         set({ watch: { active: true, busy: false, docKey, doc: st?.doc ?? s.docs[docKey]?.title ?? null, startedAt: Date.now(), entries: [] } });

@@ -43,10 +43,10 @@ export function Composer() {
     return !!q && !q.form;
   });
   const settings = useStore((s) => s.settings);
-  const hasDoc = useStore((s) => !!s.docs[s.viewKey]);
+  const hasDoc = useStore((s) => !!s.docs[s.activeDocKey ?? ""]);
   const markupActive = useStore((s) => s.markup.active);
   const watch = useStore((s) => s.watch);
-  const canWatch = useStore((s) => s.docs[s.viewKey]?.type === "part" || s.docs[s.viewKey]?.type === "assembly");
+  const canWatch = useStore((s) => s.docs[s.activeDocKey ?? ""]?.type === "part" || s.docs[s.activeDocKey ?? ""]?.type === "assembly");
   const focusTick = useStore((s) => s.focusTick);
   const overlayCount = useStore((s) => s.overlayCount);
   const voicePhase = useStore((s) => s.voice.phase);
@@ -287,11 +287,11 @@ function QueuedList({ threadId, running }: { threadId: string; running: boolean 
 
 /** One chip per selected entity; click a chip to leave it out of the next message. */
 function SelectionChips() {
-  const selection = useStore((s) => s.selection[s.viewKey] ?? EMPTY);
+  const selection = useStore((s) => s.selection[s.activeDocKey ?? ""] ?? EMPTY);
   const includeSelection = useStore((s) => s.includeSelection);
   const excluded = useStore((s) => s.excludedSel);
-  const agentMade = useStore((s) => isAgentSelection(s, s.viewKey));
-  const agentWorking = useStore((s) => Object.values(s.runs).some((r) => r.docKey === s.viewKey));
+  const agentMade = useStore((s) => isAgentSelection(s, s.activeDocKey ?? ""));
+  const agentWorking = useStore((s) => Object.keys(s.runs).length > 0);
   const { setIncludeSelection, toggleSelItem } = useStore.getState();
   // Selections the agent makes while working (or leaves behind) aren't the user's - don't offer them.
   if (selection.length === 0 || agentMade || agentWorking) return null;

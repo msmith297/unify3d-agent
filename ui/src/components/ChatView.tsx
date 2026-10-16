@@ -276,6 +276,11 @@ function ThinkingIndicator({ run }: { run: RunState | undefined }) {
         {seconds >= 5 && <span className="text-text-3"> {time}</span>}
       </div>
       {run?.status && <div className="text-[11px] text-text-3">{run.status}</div>}
+      {!run?.status && seconds >= 90 && (
+        <div className="text-[11px] text-text-3">
+          Still connected and working - big requests can take a few minutes to plan. Lower the effort below for quicker starts, or press Stop and break the request into steps.
+        </div>
+      )}
     </div>
   );
 }
@@ -971,7 +976,7 @@ const SUGGESTIONS = [
 ];
 
 function EmptyState() {
-  const doc = useStore((s) => s.docs[s.viewKey]);
+  const doc = useStore((s) => s.docs[s.activeDocKey ?? ""]);
   const send = useStore((s) => s.send);
   const setDraft = useStore((s) => s.setDraft);
   return (
@@ -982,7 +987,7 @@ function EmptyState() {
       <div className="text-[14px] font-semibold text-text">{doc ? `Ask about ${doc.title}` : "Ask Unify3D anything"}</div>
       <p className="mt-1 max-w-[300px] text-[12px] text-text-2">
         {doc
-          ? "It can read and change this document through the SolidWorks API. The conversation is saved inside the file."
+          ? "It works in the active document through the SolidWorks API. This chat keeps going as you open and switch files."
           : "Open or create a part, assembly or drawing to keep the conversation with that file."}
       </p>
       <div className="mt-4 flex w-full max-w-[340px] flex-col gap-1.5">

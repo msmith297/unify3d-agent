@@ -32,6 +32,9 @@ namespace SwAgent
         private readonly ScriptHost _scripts;
         private readonly Dictionary<string, ChatDocumentHandler> _docs = new Dictionary<string, ChatDocumentHandler>();
         private readonly ChatDocument _scratch = ChatDocument.CreateScratch();
+
+        /// <summary>The user's chats, not tied to documents (they follow the work from file to file).</summary>
+        private readonly WorkspaceChats _workspace = new WorkspaceChats();
         private readonly Timer _selectionTimer = new Timer { Interval = 150 };
         private readonly Timer _themeTimer = new Timer { Interval = 2500 };
         private string _lastTheme;
@@ -181,6 +184,9 @@ namespace SwAgent
 
             bridge.Register("chat.load", p =>
             {
+                if ((string)p["docKey"] == WorkspaceChats.Key)
+                    return new JObject { ["docKey"] = WorkspaceChats.Key, ["docId"] = WorkspaceChats.Key, ["recovered"] = false, ["data"] = _workspace.Data };
+                // An open document's own chats (saved inside the file by older versions): the panel imports them.
                 var chat = ResolveChat((string)p["docKey"]);
                 return new JObject
                 {
@@ -192,6 +198,11 @@ namespace SwAgent
             });
             bridge.Register("chat.save", p =>
             {
+                if ((string)p["docKey"] == WorkspaceChats.Key)
+                {
+                    _workspace.Update((JObject)p["data"]);
+                    return new JObject { ["revision"] = _workspace.Revision };
+                }
                 var chat = ResolveChat((string)p["docKey"]);
                 chat.Update((JObject)p["data"]);
                 if (!chat.IsScratch && ((bool?)_settings["markDocumentDirty"] ?? true))
@@ -664,7 +675,8 @@ namespace SwAgent
         /// <summary>The document tools act on: the chat's own document, or the active one for a scratch chat.</summary>
         private ISwDocument DocumentFor(string docKey)
         {
-            if (string.IsNullOrEmpty(docKey) || docKey == ChatDocument.ScratchKey) return _app.Documents.Active;
+            // Workspace chats act on the active document.
+            if (string.IsNullOrEmpty(docKey) || docKey == ChatDocument.ScratchKey || docKey == WorkspaceChats.Key) return _app.Documents.Active;
             if (_docs.TryGetValue(docKey, out var h)) return h.Chat.Doc;
             if (Reopened(docKey) is ChatDocumentHandler again) return again.Chat.Doc;
             throw new InvalidOperationException("The document for this chat has been closed.");
@@ -814,6 +826,7 @@ namespace SwAgent
             Safe.Run("Clear the overlay", UI.SceneOverlay.ClearAll);
             StopWatch();
             Safe.Run("Stop voice", _voice.Dispose);
+            Safe.Run("Save chats", _workspace.Flush);
             _themeTimer.Dispose();
             _activeTimer.Dispose();
             _updateTimer.Dispose();
