@@ -34,7 +34,26 @@ export function SmartRebuildWizard() {
   const [decisions, setDecisions] = useState<SmartRebuildSpec["decisions"]>("balanced");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [previous, setPrevious] = useState<{ updated: string; tail: string } | null>(null);
   const ref = useRef<HTMLTextAreaElement>(null);
+  const viewKey = useStore((s) => s.viewKey);
+
+  // An earlier attempt on this design (its journal lives outside the file): offer to continue it.
+  useEffect(() => {
+    rpc<{ journal: boolean; updated?: string; tail?: string }>("rebuild.status", { docKey: viewKey })
+      .then((r) => setPrevious(r?.journal && r.updated ? { updated: r.updated, tail: r.tail ?? "" } : null))
+      .catch(() => setPrevious(null));
+  }, [viewKey]);
+
+  const continuePrevious = async () => {
+    setBusy(true);
+    setError(null);
+    const problem = await useStore.getState().startSmartRebuild({ change: "continue", newPart: null, notes, files, copy: false, copyName: "", decisions });
+    if (problem) {
+      setError(problem);
+      setBusy(false);
+    }
+  };
 
   useEffect(() => {
     if (change === "describe") ref.current?.focus();
@@ -83,6 +102,18 @@ export function SmartRebuildWizard() {
           what each feature means first, then repairs everything the change broke, in order.
         </p>
         {!isPart && <p className="px-1 text-[11.5px] text-err">Open the part (a multi-body part such as a mold) to rebuild.</p>}
+        {previous && isPart && (
+          <div className="sw-rollout flex flex-col gap-1.5 !border-accent px-2 py-1.5">
+            <div className="text-[12px] font-semibold text-text">Earlier rebuild of this design ({new Date(previous.updated).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })})</div>
+            <div className="max-h-[96px] overflow-y-auto whitespace-pre-wrap text-[11px] leading-snug text-text-3">{previous.tail.trim().split("\n").slice(-8).join("\n")}</div>
+            <div className="flex items-center gap-1.5">
+              <span className="flex-1 text-[11px] text-text-2">The agent reads its journal - plan, results, lessons - and carries on from there.</span>
+              <button className="sw-btn sw-btn-primary" disabled={busy} onClick={continuePrevious}>
+                Continue it
+              </button>
+            </div>
+          </div>
+        )}
 
         <Rollout title="What changed?">
           <div className="grid grid-cols-2 gap-1">

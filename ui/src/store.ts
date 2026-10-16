@@ -1441,7 +1441,7 @@ export function writesAfter(thread: Thread, msgIndex: number): number {
 
 /** What the Smart Rebuild screen collects. */
 export interface SmartRebuildSpec {
-  change: "replace" | "describe" | "manual" | "done";
+  change: "replace" | "describe" | "manual" | "done" | "continue";
   newPart: FileEntry | null;
   notes: string;
   files: FileEntry[];
@@ -1456,6 +1456,8 @@ export function smartRebuildPrompt(r: SmartRebuildSpec, workingFile: string): st
     describe: `Make this change: ${r.notes.trim()}`,
     manual: "I'll make the change myself: record the design first, then ask me to make it and wait until I say it's done.",
     done: "I've already made the change but haven't saved: record the design from the last saved version (snapshot_design from_saved_file).",
+    continue:
+      "Continue the previous Smart Rebuild of this design. Read the journal first and learn from it; if the working file is damaged, restore the last good checkpoint (checkpoint list / restore); then carry on from the last completed stage of the plan - revise the plan where the journal's lessons say so.",
   }[r.change];
   const decisions = {
     balanced: "decide routine repairs yourself; ask (ask_form, with the options drawn on the model) before anything that changes function, cost, other parts or customer-facing geometry",

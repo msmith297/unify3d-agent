@@ -119,6 +119,7 @@ namespace SwAgent.Scripting
             var fingerprint = SwAgent.Tools.UndoLedger.Begin(model);
             ScriptState<object> state;
             var guard = CrashGuard.Enter("cell", null, title, input.Code);
+            var quiet = new QuietDialogs(ctx.Sw);
             try
             {
                 Console.SetOut(new CellWriter(globals.Output));
@@ -133,6 +134,7 @@ namespace SwAgent.Scripting
             }
             finally
             {
+                quiet.Dispose();
                 guard.Dispose();
                 Console.SetOut(originalOut);
                 TryFinishUndo(model, title);

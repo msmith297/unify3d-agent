@@ -62,6 +62,7 @@ namespace SwAgent
                 tools.RegisterAll(new ToolTester(scripts));
                 tools.RegisterAll(new OverlayTools());
                 tools.RegisterAll(new DesignSnapshot());
+                tools.RegisterAll(new RebuildTools());
                 Controller = new AgentController(Application, tools, scripts);
                 if (crash != null)
                 {

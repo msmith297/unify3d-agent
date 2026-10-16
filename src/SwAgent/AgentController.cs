@@ -291,6 +291,17 @@ namespace SwAgent
             // (views + measurements) separately, so the composer can show the file at once and fill it in when ready.
             bridge.RegisterAsync("files.pick", async p => await PickFiles());
             bridge.Register("doc.saveAsCopy", p => SaveAsNewFile((string)p["docKey"], (string)p["name"]));
+            bridge.Register("rebuild.status", p =>
+            {
+                try
+                {
+                    return RebuildTools.Status(DocumentFor((string)p["docKey"])?.Model);
+                }
+                catch
+                {
+                    return new JObject { ["journal"] = false };
+                }
+            });
             bridge.RegisterAsync("files.describe", async p => (object)await FileAttachments.EntryAsync(_app.Sw, (string)p["path"]));
             bridge.RegisterAsync("files.entries", async p =>
             {
@@ -392,6 +403,7 @@ namespace SwAgent
         {
             if (handler.Chat == null) return;
             _docs.Remove(handler.Chat.Key);
+            _closedDocIds[handler.Chat.Key] = handler.Chat.DocId;
             if (_selectionSource == handler) _selectionSource = null;
             if (_watch?.DocKey == handler.Chat.Key)
             {
@@ -640,10 +652,10 @@ namespace SwAgent
         {
             if (string.IsNullOrEmpty(docKey) || docKey == ChatDocument.ScratchKey) return _scratch;
             if (_docs.TryGetValue(docKey, out var h)) return h.Chat;
+            if (Reopened(docKey) is ChatDocumentHandler again) return again.Chat;
             throw new InvalidOperationException("That document is no longer open.");
         }
 
-        /// <summary>The document tools act on: the chat's own document, or the active one for a scratch chat.</summary>
         /// <summary>
         /// Smart Rebuild "work on a copy": save the document under a new name in the same folder and keep working in the new
         /// file (Save As). The original file on disk is left as it was. Never overwrites an existing file.
@@ -662,16 +674,19 @@ namespace SwAgent
             var ok = model.Extension.SaveAs3(target, (int)swSaveAsVersion_e.swSaveAsCurrentVersion, (int)swSaveAsOptions_e.swSaveAsOptions_Silent, null, null, ref errors, ref warnings);
             if (!ok) return new JObject { ["ok"] = false, ["reason"] = $"Save As failed ({(swFileSaveError_e)errors})." };
             Log.Info($"Smart Rebuild: working on a copy {target} (original {current} unchanged)");
+            RebuildTools.RegisterWorkingCopy(target, current);
             return new JObject { ["ok"] = true, ["path"] = target, ["original"] = current };
         }
 
         private static HashSet<string> ToolUseIds(JToken p) =>
             new HashSet<string>((p["toolUseIds"] as JArray)?.Select(t => (string)t) ?? Enumerable.Empty<string>());
 
+        /// <summary>The document tools act on: the chat's own document, or the active one for a scratch chat.</summary>
         private ISwDocument DocumentFor(string docKey)
         {
             if (string.IsNullOrEmpty(docKey) || docKey == ChatDocument.ScratchKey) return _app.Documents.Active;
             if (_docs.TryGetValue(docKey, out var h)) return h.Chat.Doc;
+            if (Reopened(docKey) is ChatDocumentHandler again) return again.Chat.Doc;
             throw new InvalidOperationException("The document for this chat has been closed.");
         }
 
@@ -845,6 +860,19 @@ namespace SwAgent
         }
 
         private bool _overlaySubscribed;
+
+        /// <summary>Chat keys of closed documents -> the document id stored in the file (see Reopened).</summary>
+        private readonly Dictionary<string, string> _closedDocIds = new Dictionary<string, string>();
+
+        /// <summary>
+        /// A chat whose document was closed and opened again (e.g. a Smart Rebuild checkpoint restore): the reopened file
+        /// has a new chat key but the same document id, so a running conversation keeps working on it.
+        /// </summary>
+        private ChatDocumentHandler Reopened(string oldKey)
+        {
+            if (string.IsNullOrEmpty(oldKey) || !_closedDocIds.TryGetValue(oldKey, out var docId) || string.IsNullOrEmpty(docId)) return null;
+            return _docs.Values.FirstOrDefault(h => h.Chat?.DocId == docId);
+        }
 
         public void Dispose()
         {

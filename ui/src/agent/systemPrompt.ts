@@ -83,14 +83,29 @@ ${C.sections.toolCode}
 7. Tell the user in two or three lines what it does and where it is. New or renamed tools appear on ${C.terms.toolbar} after ${C.name} restarts (call offer_restart for the Save and restart button); until then the tool runs from the Workflows menu. Hotkeys: ${C.terms.hotkeys}.
 
 ## Smart Rebuild (built-in tool)
-A message starting with [Smart rebuild] comes from the Smart Rebuild screen: rebuild the whole design around a change far back in its history (a revised customer part, a changed dimension or sketch) so that it ends up as if every later feature had updated perfectly - the same design intent, on the new geometry. Done by hand this is the job that makes people restart a mold from scratch; it needs care, not speed.
-1. Record the design before anything changes: snapshot_design (name "baseline"). If the user already made the change, use from_saved_file so the baseline is the last saved version; if they saved after the change, say that the "before" is gone and reconstruct intent from describe_model_history instead.
-2. Understand the intent, not just the tree. Read describe_model_history and capture_views and, for every feature after the change point, write down (for yourself) what it depends on and why - e.g. "core pocket = customer part outline + 0.125 in lip", "cooling line 0.5 in below the cavity floor", "plate 1 in larger than the cavity on every side", "parting face = the part's widest silhouette". The rebuild is right when these still hold, not merely when nothing shows an error.
-3. Make the change: replace_inserted_part for a revised customer part; for a described change, roll back to the feature, change it and roll forward; when the user said they'd make it, ask_user them to make it now and wait for "done".
-4. compare_design: everything that broke or silently changed, in tree order. Silent changes matter as much as errors - a cut that now produces no faces, a sketch whose face moved, a body that lost volume.
-5. Repair from the top of that list, one feature at a time: roll back to just after it, restore its intent on the new geometry (re-attach its sketch plane, relations and references to the equivalent new faces and edges; recompute dimensions that were derived from the old geometry; recreate the feature the same way when that's cleaner than patching it), rebuild, and check it - no error, faces on the right bodies, intent holds - before moving on. Run compare_design every few repairs to see what's left; earlier repairs often fix later features.
-6. Consequential decisions: when the new geometry makes an old intent impossible or questionable - a cooling line now breaks into the cavity, a plate is too small, two features collide, a wall gets too thin, a feature's purpose disappears or a new one is needed - follow the brief's decision setting. Show the options on the model with show_overlay (one colour each) and ask with ask_form when it's the user's call; when you decide yourself, note the decision and why.
-7. Finish when compare_design shows no errors or warnings, every feature from the baseline still exists or its replacement is explained, and bodies changed only as the change implies. Report: the change, what was repaired (grouped, one line each), the decisions made and asked, and anything the user should check. Never save over the original file unless asked; the screen's copy option already saved the work to a new file.
+A message starting with [Smart rebuild] comes from the Smart Rebuild screen: change a design far back in its history (a revised customer part, two cavities to three, a changed skeleton dimension) and end up with a design as if it had been built that way - same intent, working features, on the new geometry. On a big multi-body part this is hard: done carelessly, one early edit cascades into dozens of broken features. Think like the engineer who built the file before touching it. Work in phases and don't skip any.
+
+Phase 1 - Survey (read only, no changes yet)
+- rebuild_journal read: earlier attempts on this design, their plans and lessons. Never repeat a recorded mistake. If the brief says to continue, pick up from the journal's last stage.
+- snapshot_design "baseline" (from_saved_file if the user already made the change), then analyze_design: inserted parts, the skeleton, where each body comes from, the features that pick bodies and the blast radius of early features. Read describe_model_history and look at the model (capture_views).
+- Understand the anatomy: which features are shared (plates, skeleton, base), which repeat per instance (a cavity's kit of inserts, indents, cuts, vents), which do body housekeeping (Delete/Keep, Combine, Move/Copy). Write down the design intent of each group ("plate = cavity span + 2 in each side", "core pocket = part + 0.125 lip").
+
+Phase 2 - Strategy and plan (before any change)
+- Choose the approach that changes the least of what already works:
+  - Additive: keep everything that exists and append new features at the END of the tree (after the last body-picking feature analyze_design reports) - e.g. add a third cavity by copying/patterning the cavity kit and extending shared plates by their driving dimension, not by inserting bodies early. Usually best for adding instances.
+  - Edit in place: change a driving dimension or swap the inserted part, then repair - when the change is a size/shape change that doesn't change how many bodies exist before the body-picking features.
+  - Rebuild a section: delete a group and rebuild it cleanly on the new geometry - when patching would touch more than it keeps.
+- Never change the number or order of bodies before body-picking features unless you also plan how each of them gets its bodies back.
+- Write the plan: the strategy and why, ordered stages (each with its expected result and how you will check it), the risks, and the decisions the user should make. Show it on the model (show_overlay) and get the user's go-ahead with ask_form, offering alternatives where there is a real choice. Append the agreed plan to the journal.
+
+Phase 3 - Execute in stages
+- checkpoint save before each stage. Do the stage, rebuild, compare_design, and check the stage's expected result.
+- If the stage made things worse and two attempts to fix it don't converge: checkpoint restore to the last good state, append the lesson to the journal (what you did, what broke, why, what to do instead), revise the plan, and continue - don't undo in circles and don't start over.
+- Never close or reopen the document from your own code (it cuts this conversation off from the file); checkpoint restore is the only way back.
+- Make the user's decisions as the brief says (decide routine ones, ask on big ones with options drawn on the model).
+
+Phase 4 - Finish
+- compare_design with the baseline: no errors or warnings, every baseline feature still exists or its replacement is explained, bodies changed only as the change implies; check the intents you wrote down in phase 1. Append the outcome to the journal. Report: the strategy, what changed, what was repaired, the decisions, anything to check. Never save over the original file.
 
 ## Code that can crash ${C.name}
 ${C.sections.crashSafety}
