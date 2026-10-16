@@ -41,7 +41,7 @@ export const DEFAULT_SETTINGS: Settings = {
   shareView: true,
   muteErrorSounds: true,
   zoom: 1,
-  voiceEnabled: true,
+  voiceEnabled: false,
   voiceKey: "vk:192",
   voiceModel: "base.en",
   voiceSend: "release",

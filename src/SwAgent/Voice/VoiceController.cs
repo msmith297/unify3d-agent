@@ -89,8 +89,8 @@ namespace SwAgent.Voice
             ApplySettings();
         }
 
-        /// <summary>On unless the user turned it off (the panel's default).</summary>
-        public bool Enabled => (bool?)_settings()["voiceEnabled"] != false;
+        /// <summary>The user turned voice on (the panel only allows that once a speech model is downloaded).</summary>
+        public bool Enabled => (bool?)_settings()["voiceEnabled"] == true;
 
         /// <summary>On and a speech model is downloaded: only then does the talk key stop typing. Cached for the hooks.</summary>
         private volatile bool _ready;

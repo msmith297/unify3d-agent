@@ -100,11 +100,19 @@ namespace SwAgent.Tests
             if (!File.Exists(model)) return; // nothing to test against on this machine
 
             var wav = Path.Combine(Path.GetTempPath(), "unify3d-voice-test.wav");
-            using (var synth = new SpeechSynthesizer())
+            // SAPI wants an STA thread (on the test runner's pool threads it can take the test host down).
+            var speak = new System.Threading.Thread(() =>
             {
-                synth.SetOutputToWaveFile(wav, new SpeechAudioFormatInfo(16000, AudioBitsPerSample.Sixteen, AudioChannel.Mono));
-                synth.Speak("Make this wall two millimeters thicker. Then add a fillet to the selected edge.");
-            }
+                using (var synth = new SpeechSynthesizer())
+                {
+                    synth.SetOutputToWaveFile(wav, new SpeechAudioFormatInfo(16000, AudioBitsPerSample.Sixteen, AudioChannel.Mono));
+                    synth.Speak("Make this wall two millimeters thicker. Then add a fillet to the selected edge.");
+                    synth.SetOutputToNull();
+                }
+            });
+            speak.SetApartmentState(System.Threading.ApartmentState.STA);
+            speak.Start();
+            Assert.True(speak.Join(30000), "text-to-speech didn't finish");
             using (var p = StartHelper())
             {
                 p.StandardInput.WriteLine(new JObject { ["op"] = "load", ["model"] = model }.ToString(Newtonsoft.Json.Formatting.None));
@@ -122,22 +130,29 @@ namespace SwAgent.Tests
                 }
                 Assert.NotNull(final);
                 var text = ((string)final["text"]).ToLowerInvariant();
-                Assert.Contains("wall", text);
-                Assert.Contains("fillet", text);
+                Assert.True(text.Contains("wall") && text.Contains("thicker"), text);
+                Assert.True(System.Text.RegularExpressions.Regex.IsMatch(text, @"fill?et"), text); // "fillet" or "filet"
                 Assert.True(partials > 0, "words should appear while the audio is still coming in");
                 p.StandardInput.WriteLine("{\"op\":\"quit\"}");
+                if (!p.WaitForExit(5000)) p.Kill();
             }
         }
 
+        /// <summary>The next message of one of these types; fails (never hangs) if the helper goes quiet for 30 s.</summary>
         private static JObject Next(Process p, params string[] types)
         {
-            string line;
-            while ((line = p.StandardOutput.ReadLine()) != null)
+            while (true)
             {
-                var msg = JObject.Parse(line);
+                var read = p.StandardOutput.ReadLineAsync();
+                if (!read.Wait(30000))
+                {
+                    p.Kill();
+                    throw new TimeoutException("The speech helper went quiet.");
+                }
+                if (read.Result == null) throw new InvalidOperationException("The speech helper exited.");
+                var msg = JObject.Parse(read.Result);
                 if (types.Contains((string)msg["type"])) return msg;
             }
-            throw new InvalidOperationException("The speech helper exited.");
         }
 
         private static Process StartHelper()

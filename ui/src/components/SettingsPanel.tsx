@@ -194,6 +194,9 @@ export function SettingsPanel() {
             {host?.solidworksVersion ? ` · SolidWorks ${host.solidworksVersion}` : ""}
           </span>
           <span className="flex gap-3">
+            <button className="hover:text-text" onClick={() => useStore.getState().startTour()} title="The first-run tour: what the agent can do and where things are">
+              Take the tour
+            </button>
             <button className="hover:text-text" onClick={() => location.reload()} title="Reload the panel (F5)">
               Reload panel
             </button>
@@ -221,7 +224,8 @@ const TALK_KEYS: [string, string][] = [
 function VoiceSettings() {
   const settings = useStore((s) => s.settings);
   const status = useStore((s) => s.voiceStatus);
-  const { saveSettings } = useStore.getState();
+  const want = useStore((s) => s.voiceWant);
+  const { saveSettings, enableVoice, disableVoice, downloadVoiceModel } = useStore.getState();
   const [voices, setVoices] = useState<{ name: string; culture: string }[]>([]);
   const speaking = (settings.speakReplies ?? "off") !== "off";
   useEffect(() => {
@@ -231,115 +235,127 @@ function VoiceSettings() {
   if (status && !status.available) {
     return <p className="text-[11.5px] text-text-3">The speech component isn't installed. Reinstall Unify3D Agent to use voice.</p>;
   }
-  const enabled = settings.voiceEnabled !== false;
   const modelId = settings.voiceModel ?? "base.en";
-  const current = status?.models.find((m) => m.id === modelId);
+  const models = status?.models ?? [];
+  const anyInstalled = models.some((m) => m.installed);
+  // Voice is only on with a model on disk; while the model to turn it on with downloads, the box shows that.
+  const on = settings.voiceEnabled === true && models.some((m) => m.id === modelId && m.installed);
+  const turningOn = !on && !!want && status?.download?.id === want;
+  const progress = Math.round((status?.download?.progress ?? 0) * 100);
   return (
     <>
-      <Toggle
-        checked={enabled}
-        onChange={(v) => saveSettings({ voiceEnabled: v })}
-        label="Hold a key and talk to the agent"
-        note="Your words appear as you speak and go out when you let go. What you select, change, sketch or mark up while talking goes along with them, in order. Speech is turned into text on this PC - the audio never leaves it."
-      />
-      {enabled && (
-        <>
-          <Field label="Key">
-            <Select value={settings.voiceKey ?? "vk:192"} onChange={(v) => saveSettings({ voiceKey: v })} options={TALK_KEYS} />
-          </Field>
-          <p className="mt-0.5 text-[11px] text-text-3">Works while SolidWorks is in front. A quick tap still types the key. Esc while holding it discards the message.</p>
+      <label className="flex cursor-default items-start gap-2 py-1">
+        <input
+          type="checkbox"
+          checked={on || turningOn}
+          onChange={(e) => (e.target.checked ? enableVoice(anyInstalled && !models.some((m) => m.id === modelId && m.installed) ? models.find((m) => m.installed)!.id : modelId) : disableVoice())}
+          className="mt-0.5 accent-[var(--accent)]"
+        />
+        <span>
+          <span className="block text-[12px] text-text">Hold a key and talk to the agent</span>
+          <span className="block text-[11px] text-text-3">
+            {turningOn
+              ? `Downloading the speech model (${progress}%) - voice turns on when it's done.`
+              : "Your words appear as you speak and go out when you let go. What you select, change, sketch or mark up while talking goes along with them, in order. Speech is turned into text on this PC - the audio never leaves it."}
+          </span>
+          {!on && !turningOn && !anyInstalled && <span className="block text-[11px] text-text-3">Turning it on downloads the speech model below ({models.find((m) => m.id === modelId)?.mb ?? 141} MB, once).</span>}
+        </span>
+      </label>
 
-          <div className="mt-2 text-[11.5px] text-text-2">Speech model (downloaded once)</div>
-          <div className="mt-0.5 flex flex-col">
-            {(status?.models ?? []).map((m) => {
-              const downloading = status?.download?.id === m.id;
-              return (
-                <label key={m.id} className="flex cursor-default items-start gap-2 rounded-[2px] px-1 py-1 hover:bg-card-2">
-                  <input type="radio" name="voiceModel" checked={modelId === m.id} onChange={() => saveSettings({ voiceModel: m.id })} className="mt-0.5 accent-[var(--accent)]" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[12px] text-text">
-                      {m.label} <span className="text-text-3">· {m.mb} MB</span>
-                    </span>
-                    <span className="block text-[11px] text-text-3">{m.note}</span>
-                    {downloading && (
-                      <span className="mt-1 block h-[4px] w-full overflow-hidden rounded-full bg-card-2">
-                        <span className="block h-full bg-accent transition-[width]" style={{ width: `${Math.round((status?.download?.progress ?? 0) * 100)}%` }} />
-                      </span>
-                    )}
+      <Field label="Key">
+        <Select value={settings.voiceKey ?? "vk:192"} onChange={(v) => saveSettings({ voiceKey: v })} options={TALK_KEYS} />
+      </Field>
+      <p className="mt-0.5 text-[11px] text-text-3">
+        Works while SolidWorks is in front. {(settings.voiceKey ?? "vk:192").startsWith("vk:") ? "A quick tap still types the key. " : ""}Esc while holding it discards the message.
+      </p>
+
+      <div className="mt-2 text-[11.5px] text-text-2">Speech model (downloaded once)</div>
+      <div className="mt-0.5 flex flex-col">
+        {models.map((m) => {
+          const downloading = status?.download?.id === m.id;
+          return (
+            <label key={m.id} className={`flex cursor-default items-start gap-2 rounded-[2px] px-1 py-1 hover:bg-card-2 ${m.installed ? "" : "opacity-90"}`}>
+              <input
+                type="radio"
+                name="voiceModel"
+                checked={modelId === m.id}
+                disabled={!m.installed}
+                title={m.installed ? undefined : "Download it first"}
+                onChange={() => saveSettings({ voiceModel: m.id })}
+                className="mt-0.5 accent-[var(--accent)]"
+              />
+              <span className="min-w-0 flex-1">
+                <span className="block text-[12px] text-text">
+                  {m.label} <span className="text-text-3">· {m.mb} MB</span>
+                </span>
+                <span className="block text-[11px] text-text-3">{m.note}</span>
+                {downloading && (
+                  <span className="mt-1 block h-[4px] w-full overflow-hidden rounded-full bg-card-2">
+                    <span className="block h-full bg-accent transition-[width]" style={{ width: `${progress}%` }} />
                   </span>
-                  {m.installed ? (
-                    <span className="flex shrink-0 items-center gap-1 text-[11px] text-text-3">
-                      <IconOk size={11} /> Installed
-                      {modelId !== m.id && (
-                        <button type="button" className="ml-1 text-text-3 hover:text-err" onClick={() => rpc("voice.deleteModel", { id: m.id })}>
-                          Remove
-                        </button>
-                      )}
-                    </span>
-                  ) : downloading ? (
-                    <button type="button" className="sw-btn !h-5 shrink-0 !px-1.5 text-[11px]" onClick={() => rpc("voice.cancelDownload")}>
-                      {Math.round((status?.download?.progress ?? 0) * 100)}% · Cancel
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      className="sw-btn !h-5 shrink-0 !px-1.5 text-[11px]"
-                      disabled={!!status?.download}
-                      onClick={() => {
-                        saveSettings({ voiceModel: m.id });
-                        rpc("voice.download", { id: m.id });
-                      }}
-                    >
-                      Download
+                )}
+              </span>
+              {m.installed ? (
+                <span className="flex shrink-0 items-center gap-1 text-[11px] text-text-3">
+                  <IconOk size={11} /> Installed
+                  {modelId !== m.id && (
+                    <button type="button" className="ml-1 text-text-3 hover:text-err" onClick={() => rpc("voice.deleteModel", { id: m.id })}>
+                      Remove
                     </button>
                   )}
-                </label>
-              );
-            })}
-          </div>
-          {status?.downloadError && <p className="mt-0.5 text-[11px] text-err">{status.downloadError}</p>}
-          {current && !current.installed && !status?.download && (
-            <p className="mt-0.5 text-[11px] text-text-3">Download a model to start talking. It comes from the whisper.cpp project on Hugging Face.</p>
-          )}
-          {current?.installed && (
-            <p className="mt-0.5 flex items-center gap-1 text-[11px] text-text-3">
-              {status?.engine === "loading" && (
-                <>
-                  <Spinner size={11} /> Loading the speech model…
-                </>
+                </span>
+              ) : downloading ? (
+                <button type="button" className="sw-btn !h-5 shrink-0 !px-1.5 text-[11px]" onClick={() => (on ? rpc("voice.cancelDownload") : disableVoice())}>
+                  {progress}% · Cancel
+                </button>
+              ) : (
+                <button type="button" className="sw-btn !h-5 shrink-0 !px-1.5 text-[11px]" disabled={!!status?.download} onClick={() => (on || anyInstalled ? downloadVoiceModel(m.id) : enableVoice(m.id))}>
+                  Download
+                </button>
               )}
-              {status?.engine === "ready" && "Ready - hold the key and talk."}
-              {status?.engine === "off" && "Starts the first time you hold the key."}
-              {status?.engine === "error" && <span className="text-err">{status.engineError}</span>}
-            </p>
+            </label>
+          );
+        })}
+      </div>
+      {status?.downloadError && <p className="mt-0.5 text-[11px] text-err">{status.downloadError}</p>}
+      {on && (
+        <p className="mt-0.5 flex items-center gap-1 text-[11px] text-text-3">
+          {status?.engine === "loading" && (
+            <>
+              <Spinner size={11} /> Loading the speech model…
+            </>
           )}
-
-          <Field label="Send">
-            <Select<"release" | "review">
-              value={settings.voiceSend ?? "release"}
-              onChange={(v) => saveSettings({ voiceSend: v })}
-              options={[
-                ["release", "Send it right away"],
-                ["review", "Put it in the message box to check first"],
-              ]}
-            />
-          </Field>
-          <Toggle
-            checked={settings.voiceViews !== false}
-            onChange={(v) => saveSettings({ voiceViews: v })}
-            label="Include the view as I turn and change the model"
-            note="Each time the view settles while you talk, a picture of it goes along (up to 10 per message, about 1,000 tokens each)."
-          />
-        </>
+          {status?.engine === "ready" && "Ready - hold the key and talk."}
+          {status?.engine === "off" && "Starts the first time you hold the key."}
+          {status?.engine === "error" && <span className="text-err">{status.engineError}</span>}
+        </p>
       )}
+      <p className="mt-0.5 text-[11px] text-text-3">Models come from the whisper.cpp project on Hugging Face.</p>
+
+      <Field label="Send">
+        <Select<"release" | "review">
+          value={settings.voiceSend ?? "release"}
+          onChange={(v) => saveSettings({ voiceSend: v })}
+          options={[
+            ["release", "Send it right away"],
+            ["review", "Put it in the message box to check first"],
+          ]}
+        />
+      </Field>
+      <Toggle
+        checked={settings.voiceViews !== false}
+        onChange={(v) => saveSettings({ voiceViews: v })}
+        label="Include the view as I turn and change the model"
+        note="Each time the view settles while you talk, a picture of it goes along (up to 10 per message, about 1,000 tokens each)."
+      />
       <Field label="Speak">
         <Select<"off" | "voice" | "always">
           value={settings.speakReplies ?? "off"}
           onChange={(v) => saveSettings({ speakReplies: v })}
           options={[
-            ["off", "No"],
-            ["voice", "Aloud, after a voice message"],
-            ["always", "Aloud, always"],
+            ["off", "Don't read replies aloud"],
+            ["voice", "Read replies aloud after a voice message"],
+            ["always", "Read every reply aloud"],
           ]}
         />
       </Field>

@@ -41,7 +41,7 @@ export function Header() {
       >
         <IconNewChat />
       </IconButton>
-      <IconButton title="Options" active={panel === "settings"} onClick={() => setPanel(panel === "settings" ? "chat" : "settings")}>
+      <IconButton tour="options" title="Options" active={panel === "settings"} onClick={() => setPanel(panel === "settings" ? "chat" : "settings")}>
         <IconGear />
       </IconButton>
     </header>

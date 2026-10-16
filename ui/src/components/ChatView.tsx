@@ -902,7 +902,9 @@ function ApprovalCard({ threadId }: { threadId: string }) {
 
 function QuestionCard({ call, threadId, run }: { call: ToolCall; threadId: string; run: RunState | undefined }) {
   const answer = useStore((s) => s.answerQuestion);
-  const [text, setText] = useState("");
+  // In the store, so a voice message can fill it in (Settings > Voice > Send: check first).
+  const text = useStore((s) => s.answerDrafts[threadId] ?? "");
+  const setText = (v: string) => useStore.getState().setAnswerDraft(threadId, v);
   const pending = run?.question?.toolUseId === call.id;
   const answered = typeof call.result?.content === "string" ? call.result.content : undefined;
   const options: string[] = call.input?.options ?? [];

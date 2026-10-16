@@ -8,6 +8,8 @@ import { ChatView } from "./components/ChatView";
 import { Composer } from "./components/Composer";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { AutoUpdatePrompt, UpdateDialog } from "./components/Update";
+import { Tour } from "./components/Tour";
+import { VoicePrompt } from "./components/VoicePrompt";
 import { ToolRunBanner } from "./components/ToolRunBanner";
 import { CrashNotice } from "./components/Recovery";
 import { DialogHost } from "./components/Dialog";
@@ -24,6 +26,9 @@ export default function App() {
   const swTheme = useStore((s) => s.swTheme);
   const dismissNotice = useStore((s) => s.dismissNotice);
   const zoom = useStore((s) => s.settings.zoom);
+  const touring = useStore((s) => s.tourStep !== null);
+  // One first-run question at a time: voice (after the tour), then updates.
+  const voiceAnswered = useStore((s) => !!s.settings.voiceAsked || !!s.settings.voiceEnabled || s.voiceStatus?.available === false);
   const [zoomBadge, setZoomBadge] = useState(false);
 
   useEffect(() => applyZoom(zoom), [zoom]);
@@ -100,12 +105,14 @@ export default function App() {
       )}
       <div className="zoom-chrome shrink-0">
         <Header />
-        <AutoUpdatePrompt />
+        {!touring && <VoicePrompt />}
+        {!touring && voiceAnswered && <AutoUpdatePrompt />}
         <CrashNotice />
         <ToolRunBanner />
       </div>
       <UpdateDialog />
       <DialogHost />
+      <Tour />
       {notice && (
         <div className="flex shrink-0 items-start gap-2 border-b border-line bg-accent-soft px-2 py-1.5 text-[11.5px] text-text shadow-[inset_0_1px_0_var(--bevel-hi)]">
           <span className="mt-px shrink-0"><IconInfo size={14} /></span>

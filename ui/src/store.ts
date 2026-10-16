@@ -114,6 +114,18 @@ interface State {
   voiceStatus: VoiceStatus | null;
   /** Discard the voice message being recorded. */
   cancelVoice(): void;
+  /** A speech model being downloaded to turn voice on with (it is selected and voice enabled when it arrives). */
+  voiceWant: string | null;
+  /** Turn voice on: with the model if it's downloaded, otherwise download it first. */
+  enableVoice(modelId?: string): void;
+  disableVoice(): void;
+  /** Download a model and switch to it when it arrives. */
+  downloadVoiceModel(modelId: string): void;
+  /** The first-run tour: the step shown, or null. */
+  tourStep: number | null;
+  startTour(): void;
+  setTourStep(step: number): void;
+  endTour(): void;
   runs: Record<string, RunState>;
   /** Follow-ups per thread, waiting for the running turn. */
   queue: Record<string, QueuedMessage[]>;
@@ -159,6 +171,9 @@ interface State {
   stop(threadId?: string): void;
   answerApproval(threadId: string, d: ApprovalDecision): void;
   answerQuestion(threadId: string, answer: string): void;
+  /** What's typed (or dictated) into a pending question's answer box, per thread. */
+  answerDrafts: Record<string, string>;
+  setAnswerDraft(threadId: string, text: string): void;
   saveSettings(patch: Partial<Settings>): Promise<void>;
   setApiKey(key: string): Promise<void>;
   setPanel(p: State["panel"]): void;
@@ -693,6 +708,30 @@ export const useStore = create<State>((set, get) => {
     }
   };
 
+  /**
+   * Keep the voice setting true to what's on disk: it is only on with a downloaded model. A finished download the
+   * user asked for selects that model and turns voice on; a cancelled or failed one leaves it off.
+   */
+  const reconcileVoice = (st: VoiceStatus) => {
+    set({ voiceStatus: st });
+    if (st.download) return; // wait for it
+    const s = get();
+    const installed = st.models.filter((m) => m.installed);
+    const want = s.voiceWant;
+    if (want) {
+      set({ voiceWant: null });
+      if (installed.some((m) => m.id === want)) {
+        get().saveSettings({ voiceEnabled: true, voiceModel: want, voiceAsked: true });
+        set({ notice: `Voice is on: hold ${talkKeyName(s.settings.voiceKey)} in SolidWorks and talk.` });
+        return;
+      }
+    }
+    const selected = s.settings.voiceModel ?? "base.en";
+    if (installed.some((m) => m.id === selected)) return;
+    if (installed.length > 0) get().saveSettings({ voiceModel: (installed.find((m) => m.id === "base.en") ?? installed[0]).id });
+    else if (s.settings.voiceEnabled) get().saveSettings({ voiceEnabled: false });
+  };
+
   /** Read the reply aloud (Settings > Voice): after voice messages, or always. */
   const speakReply = (docKey: string, threadId: string, outcome: string) => {
     const mode = get().settings.speakReplies ?? "off";
@@ -716,6 +755,17 @@ export const useStore = create<State>((set, get) => {
     if (p.docKey && p.docKey !== get().viewKey && get().docs[p.docKey]) await get().showDoc(p.docKey);
     set({ panel: "chat" });
     const s = get();
+    // The agent is waiting on a question in this chat: the voice message is the answer, not a new message.
+    const thread = currentThread(s);
+    const asked = thread ? s.runs[thread.id]?.question : null;
+    if (thread && asked && !asked.form) {
+      const picked = p.events.filter((e) => e.kind === "select" && e.t > 0).flatMap((e) => (e.items ?? []).map((i) => `${i.type}${i.label ? ` of ${i.label}` : ""}`));
+      const answer = [p.text.trim(), picked.length ? `(while answering I selected: ${picked.join("; ")})` : ""].filter(Boolean).join(" ");
+      if (!answer) return;
+      if ((s.settings.voiceSend ?? "release") === "release") get().answerQuestion(thread.id, answer);
+      else get().setAnswerDraft(thread.id, [s.answerDrafts[thread.id]?.trim(), answer].filter(Boolean).join(" "));
+      return;
+    }
     const key = draftKey(s);
     const seconds = Math.max(1, Math.round(p.durationMs / 1000));
     const attachment: Attachment = { id: uid(), kind: "voice", name: `Voice ${seconds} s`, voice: p };
@@ -857,6 +907,48 @@ export const useStore = create<State>((set, get) => {
     markup: { active: false, tool: "pen", color: MARKUP_COLORS[0], strokes: 0, frames: 0 },
     voice: VOICE_IDLE,
     voiceStatus: null,
+    voiceWant: null,
+    tourStep: null,
+
+    enableVoice(modelId) {
+      const s = get();
+      const id = modelId ?? s.settings.voiceModel ?? "base.en";
+      const models = s.voiceStatus?.models ?? [];
+      if (models.some((m) => m.id === id && m.installed)) {
+        get().saveSettings({ voiceEnabled: true, voiceModel: id, voiceAsked: true });
+        return;
+      }
+      // Voice can only be on with a model on disk: download it, and turn on when it arrives.
+      set({ voiceWant: id });
+      get().saveSettings({ voiceAsked: true });
+      rpc("voice.download", { id }).catch((err) => set({ voiceWant: null, notice: `Couldn't download the speech model: ${err.message}` }));
+    },
+
+    disableVoice() {
+      if (get().voiceWant) rpc("voice.cancelDownload").catch(() => {});
+      set({ voiceWant: null });
+      get().saveSettings({ voiceEnabled: false });
+    },
+
+    downloadVoiceModel(id) {
+      set({ voiceWant: id });
+      rpc("voice.download", { id }).catch((err) => set({ voiceWant: null, notice: `Couldn't download the speech model: ${err.message}` }));
+    },
+
+    startTour() {
+      set({ tourStep: 0, panel: "chat" });
+    },
+
+    setTourStep(step) {
+      set({ tourStep: step });
+    },
+
+    endTour() {
+      set({ tourStep: null });
+      get().saveSettings({ tourDone: true });
+      // Without a key nothing works yet: Options is where it goes.
+      if (get().apiKeySource === "none") set({ panel: "settings", notice: "Add your Anthropic API key to start chatting." });
+    },
     cancelVoice() {
       set({ voice: VOICE_IDLE });
       rpc("voice.cancel").catch(() => {});
@@ -910,7 +1002,9 @@ export const useStore = create<State>((set, get) => {
             if (r) set((s) => ({ selection: { ...s.selection, [r.docKey]: r.items } }));
           });
         }
-        set({ booted: true, panel: host.apiKeySource === "none" ? "settings" : "chat" });
+        // First run: the tour (it ends in Options when there's no key yet).
+        const firstRun = !settings.tourDone;
+        set({ booted: true, panel: host.apiKeySource === "none" && !firstRun ? "settings" : "chat", tourStep: firstRun ? 0 : null });
       } catch (err: any) {
         set({ bootError: err?.message ?? String(err) });
       }
@@ -973,9 +1067,9 @@ export const useStore = create<State>((set, get) => {
       );
 
       // Push-to-talk (the add-in's VoiceController).
-      on("voice.status", (st: VoiceStatus) => set({ voiceStatus: st }));
+      on("voice.status", (st: VoiceStatus) => reconcileVoice(st));
       rpc<VoiceStatus>("voice.status")
-        .then((st) => set({ voiceStatus: st }))
+        .then((st) => reconcileVoice(st))
         .catch(() => {});
       on("voice.state", (st: { phase: VoiceLive["phase"]; text: string; events: VoiceLive["events"]; docKey: string | null }) =>
         set((s) => ({
@@ -1222,6 +1316,13 @@ export const useStore = create<State>((set, get) => {
       if (!trimmed && attachments.length === 0) return;
 
       let thread = currentThread(get());
+      const asked = thread ? get().runs[thread.id]?.question : null;
+      if (thread && asked && !asked.form && trimmed && !attachments.some((a) => a.kind !== "voice")) {
+        // The agent is waiting on a question: this is the answer (a queued message would wait behind it forever).
+        get().answerQuestion(thread.id, trimmed);
+        set((s) => ({ drafts: { ...s.drafts, [dKey]: "" }, attachments: { ...s.attachments, [dKey]: [] } }));
+        return;
+      }
       if (thread && get().runs[thread.id]) {
         // The agent is working: queue it (sent when the turn ends, or at the next step with "Send now").
         const queued: QueuedMessage = { id: uid(), text: trimmed, attachments };
@@ -1260,6 +1361,14 @@ export const useStore = create<State>((set, get) => {
 
     queueSendNow(threadId, id) {
       const q = get().queue[threadId] ?? [];
+      const asked = get().runs[threadId]?.question;
+      const item = q.find((m) => m.id === id);
+      if (asked && !asked.form && item?.text && !item.staged) {
+        // The agent is waiting on a question, so it won't take a next step: answer it with this message.
+        set((s) => ({ queue: { ...s.queue, [threadId]: (s.queue[threadId] ?? []).filter((m) => m.id !== id) } }));
+        get().answerQuestion(threadId, item.text);
+        return;
+      }
       if (!get().runs[threadId]) {
         // Nothing running (e.g. the turn failed): send the queue now.
         const docKey = get().viewKey;
@@ -1370,6 +1479,12 @@ export const useStore = create<State>((set, get) => {
       const run = get().runs[threadId];
       run?.question?.resolve(answer);
       updateRun(threadId, { question: null });
+      set((s) => ({ answerDrafts: { ...s.answerDrafts, [threadId]: "" } }));
+    },
+
+    answerDrafts: {},
+    setAnswerDraft(threadId, text) {
+      set((s) => ({ answerDrafts: { ...s.answerDrafts, [threadId]: text } }));
     },
 
     async saveSettings(patch) {

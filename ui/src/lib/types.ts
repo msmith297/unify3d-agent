@@ -99,8 +99,12 @@ export interface Settings {
   zoom: number;
   /** Download updates in the background and install them when SolidWorks closes. Unset until the user is asked. */
   autoUpdate?: boolean | null;
-  /** Push-to-talk voice messages, transcribed on this PC (Whisper). */
+  /** Push-to-talk voice messages, transcribed on this PC (Whisper). Only on while a speech model is downloaded. */
   voiceEnabled?: boolean;
+  /** The user answered the "talk to the agent?" prompt shown after the tour. */
+  voiceAsked?: boolean;
+  /** The first-run tour was finished or skipped. */
+  tourDone?: boolean;
   /** The talk key: "vk:<Windows virtual key>" or "mouse:x1" / "mouse:x2" (the side buttons). */
   voiceKey?: string;
   /** Speech model id (see the add-in's SpeechModels). */

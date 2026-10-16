@@ -37,6 +37,11 @@ export function Composer() {
   const draft = useStore((s) => s.drafts[key] ?? "");
   const attachments = useStore((s) => s.attachments[key] ?? EMPTY);
   const running = useStore((s) => (thread ? !!s.runs[thread.id] : false));
+  // The agent is waiting on a question: what's sent here answers it.
+  const asking = useStore((s) => {
+    const q = thread ? s.runs[thread.id]?.question : null;
+    return !!q && !q.form;
+  });
   const settings = useStore((s) => s.settings);
   const hasDoc = useStore((s) => !!s.docs[s.viewKey]);
   const markupActive = useStore((s) => s.markup.active);
@@ -144,7 +149,7 @@ export function Composer() {
       {voicePhase !== "idle" && <VoiceBar />}
       {watch.active || watch.busy ? <WatchBar /> : markupActive ? <MarkupBar /> : hasDoc && voicePhase === "idle" && <SelectionChips />}
 
-      <div className="sw-input">
+      <div className="sw-input" data-tour="composer">
         {attachments.length > 0 && (
           <div className="flex flex-wrap gap-1.5 px-1.5 pt-1.5">
             {attachments.map((a) => (
@@ -165,7 +170,11 @@ export function Composer() {
             }
           }}
           placeholder={
-            running
+            asking
+              ? talkKey
+                ? `Answer the agent's question above… or hold ${talkKey} and say it`
+                : "Answer the agent's question above…"
+              : running
               ? "Add a follow-up - it's queued until the agent finishes…"
               : hasDoc
                 ? talkKey
@@ -178,9 +187,13 @@ export function Composer() {
       </div>
 
       <div className="mt-1 flex items-center gap-0.5">
-        <Dropdown title="Model" icon={<IconAgent size={14} />} value={model} items={MODELS.map((m) => ({ id: m.id, label: m.label, note: m.note }))} onChange={setThreadModel} disabled={running} />
-        <Dropdown<Effort> title="Effort" value={effort} items={EFFORTS.map((e) => ({ id: e.id, label: e.label, note: e.note }))} onChange={setThreadEffort} disabled={running} />
-        <ToolsPalette disabled={running || markupActive} />
+        <span className="inline-flex items-center gap-0.5" data-tour="model">
+          <Dropdown title="Model" icon={<IconAgent size={14} />} value={model} items={MODELS.map((m) => ({ id: m.id, label: m.label, note: m.note }))} onChange={setThreadModel} disabled={running} />
+          <Dropdown<Effort> title="Effort" value={effort} items={EFFORTS.map((e) => ({ id: e.id, label: e.label, note: e.note }))} onChange={setThreadEffort} disabled={running} />
+        </span>
+        <span className="inline-flex" data-tour="tools">
+          <ToolsPalette disabled={running || markupActive} />
+        </span>
         <div className="flex-1" />
         {overlayCount > 0 && (
           <button type="button" className="sw-btn mr-1 !h-[22px] !px-1.5 text-[11px]" onClick={() => useStore.getState().clearOverlay()} title="Remove what the agent drew on your view">
@@ -202,7 +215,7 @@ export function Composer() {
                 <IconWatch recording={watch.active} />
               </IconButton>
             )}
-            <IconButton title="Draw on the view (markup)" active={markupActive} onClick={() => (markupActive ? undefined : startMarkup())}>
+            <IconButton tour="markup" title="Draw on the view (markup)" active={markupActive} onClick={() => (markupActive ? undefined : startMarkup())}>
               <IconMarkup />
             </IconButton>
             <IconButton title="Attach a screenshot of the current view" onClick={attachView} disabled={markupActive}>
@@ -213,8 +226,13 @@ export function Composer() {
         {running ? (
           <>
             {canSend && (
-              <button type="button" onClick={submit} title="Queue this message (Enter): it's sent when the agent finishes" className="sw-btn sw-btn-primary mr-1 !h-6 !px-2.5">
-                <IconSend size={13} /> Queue
+              <button
+                type="button"
+                onClick={submit}
+                title={asking ? "Answer the agent's question with this (Enter)" : "Queue this message (Enter): it's sent when the agent finishes"}
+                className="sw-btn sw-btn-primary mr-1 !h-6 !px-2.5"
+              >
+                <IconSend size={13} /> {asking ? "Answer" : "Queue"}
               </button>
             )}
             <button type="button" onClick={() => stop()} title="Stop" className="sw-btn !h-6 !px-2">
@@ -333,9 +351,14 @@ const clock = (ms: number) => {
 function VoiceBar() {
   const voice = useStore((s) => s.voice);
   const key = useStore((s) => talkKeyName(s.settings.voiceKey));
+  const answering = useStore((s) => {
+    const t = currentThread(s);
+    const q = t ? s.runs[t.id]?.question : null;
+    return !!q && !q.form;
+  });
   const { cancelVoice } = useStore.getState();
   const label =
-    voice.phase === "listening" ? `Listening - let go of ${key} to send` : voice.phase === "transcribing" ? "Finishing the transcript…" : "Pen is on - press Esc in SolidWorks to send";
+    voice.phase === "listening" ? `Listening - let go of ${key} to ${answering ? "answer the question" : "send"}` : voice.phase === "transcribing" ? "Finishing the transcript…" : "Pen is on - press Esc in SolidWorks to send";
   const bars = [0.55, 0.85, 1, 0.8, 0.5];
   return (
     <div className="sw-rollout mb-1.5">
