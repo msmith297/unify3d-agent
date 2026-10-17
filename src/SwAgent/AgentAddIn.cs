@@ -165,9 +165,6 @@ namespace SwAgent
                     case "options":
                         Controller.SendCommand("openSettings");
                         break;
-                    case "smartrebuild":
-                        Controller.SendCommand("smartRebuild");
-                        break;
                 }
             }
             catch (Exception ex)
@@ -181,7 +178,7 @@ namespace SwAgent
         {
             try
             {
-                var needsDoc = arg.StartsWith("t") || arg == "ask" || arg == "view" || arg == "smartrebuild";
+                var needsDoc = arg.StartsWith("t") || arg == "ask" || arg == "view";
                 return !needsDoc || Application.Sw.ActiveDoc != null ? 1 : 0;
             }
             catch

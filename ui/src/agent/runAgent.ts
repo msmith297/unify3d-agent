@@ -130,7 +130,7 @@ export interface AgentRunOptions {
   approval: ApprovalMode;
   realisticAppearance: boolean;
   verbosity: Verbosity;
-  userTools: { name: string; title: string; description: string; kind?: string }[];
+  userTools: { name: string; title: string; description: string; kind?: string; builtIn?: boolean }[];
   signal: AbortSignal;
   cb: AgentCallbacks;
 }

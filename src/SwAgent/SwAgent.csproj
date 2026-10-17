@@ -54,6 +54,12 @@
     <None Include="update.ps1" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <!-- Built-in Unify3D tools (tools/builtin/<name>: TOOL.md, inputs.json, icons, ...) ship next to the dll as builtin-tools,
+       read-only; see UserTools.BuiltInRoot. Same folder layout as the user's own tools. -->
+  <ItemGroup>
+    <None Include="..\..\tools\builtin\**\*" Link="builtin-tools\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <!-- The built React UI (ui/dist) ships next to the dll as wwwroot. -->
   <ItemGroup>
     <None Include="..\..\ui\dist\**\*" Link="wwwroot\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" Condition="Exists('..\..\ui\dist\index.html')" />

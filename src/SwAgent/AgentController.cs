@@ -281,18 +281,6 @@ namespace SwAgent
             // Files for the chat: picked, dropped on the panel, or a tool's files input. 3D models are described
             // (views + measurements) separately, so the composer can show the file at once and fill it in when ready.
             bridge.RegisterAsync("files.pick", async p => await PickFiles());
-            bridge.Register("doc.saveAsCopy", p => SaveAsNewFile((string)p["docKey"], (string)p["name"]));
-            bridge.Register("rebuild.status", p =>
-            {
-                try
-                {
-                    return RebuildTools.Status(DocumentFor((string)p["docKey"])?.Model);
-                }
-                catch
-                {
-                    return new JObject { ["journal"] = false };
-                }
-            });
             bridge.RegisterAsync("files.describe", async p => (object)await FileAttachments.EntryAsync(_app.Sw, (string)p["path"]));
             bridge.RegisterAsync("files.entries", async p =>
             {
@@ -645,28 +633,6 @@ namespace SwAgent
             if (_docs.TryGetValue(docKey, out var h)) return h.Chat;
             if (Reopened(docKey) is ChatDocumentHandler again) return again.Chat;
             throw new InvalidOperationException("That document is no longer open.");
-        }
-
-        /// <summary>
-        /// Smart Rebuild "work on a copy": save the document under a new name in the same folder and keep working in the new
-        /// file (Save As). The original file on disk is left as it was. Never overwrites an existing file.
-        /// </summary>
-        private JObject SaveAsNewFile(string docKey, string name)
-        {
-            var model = DocumentFor(docKey)?.Model;
-            if (model == null) return new JObject { ["ok"] = false, ["reason"] = "The document isn't open." };
-            var current = model.GetPathName();
-            if (string.IsNullOrEmpty(current)) return new JObject { ["ok"] = false, ["reason"] = "Save the document once first, so the copy has a folder to go in." };
-            name = string.Join("_", (name ?? "").Trim().Split(System.IO.Path.GetInvalidFileNameChars()));
-            if (name.Length == 0) return new JObject { ["ok"] = false, ["reason"] = "Give the copy a name." };
-            var target = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(current), name + System.IO.Path.GetExtension(current));
-            if (System.IO.File.Exists(target)) return new JObject { ["ok"] = false, ["reason"] = $"{System.IO.Path.GetFileName(target)} already exists - choose another name." };
-            int errors = 0, warnings = 0;
-            var ok = model.Extension.SaveAs3(target, (int)swSaveAsVersion_e.swSaveAsCurrentVersion, (int)swSaveAsOptions_e.swSaveAsOptions_Silent, null, null, ref errors, ref warnings);
-            if (!ok) return new JObject { ["ok"] = false, ["reason"] = $"Save As failed ({(swFileSaveError_e)errors})." };
-            Log.Info($"Smart Rebuild: working on a copy {target} (original {current} unchanged)");
-            RebuildTools.RegisterWorkingCopy(target, current);
-            return new JObject { ["ok"] = true, ["path"] = target, ["original"] = current };
         }
 
         private static HashSet<string> ToolUseIds(JToken p) =>
