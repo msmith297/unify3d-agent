@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Local speech-to-text for push-to-talk (Whisper via whisper.cpp). A separate process on purpose: native audio and
+    inference code that crashes takes down this helper, never SolidWorks. The add-in starts it and talks to it over
+    stdin/stdout (one JSON object per line, see Program.cs). It ships in a "speech" folder next to SwAgent.dll.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <RootNamespace>SwAgent.Speech</RootNamespace>
+    <AssemblyName>Unify3D.Speech</AssemblyName>
+    <Version>0.2.0</Version>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <OutputPath>..\SwAgent\bin\$(Configuration)\net48\speech\</OutputPath>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591;MSB3270</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Whisper.net" Version="1.9.1" />
+    <PackageReference Include="Whisper.net.Runtime" Version="1.9.1" />
+    <PackageReference Include="NAudio.WinMM" Version="2.2.1" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+
+  <!-- Whisper.net.Runtime brings native libraries for every platform; SolidWorks only runs on Windows x64. -->
+  <Target Name="OnlyWinX64Runtime" BeforeTargets="AssignTargetPaths">
+    <ItemGroup>
+      <None Remove="@(None)" Condition="$([System.String]::Copy('%(None.TargetPath)').StartsWith('runtimes')) And !$([System.String]::Copy('%(None.TargetPath)').Contains('win-x64'))" />
+      <None Remove="@(None)" Condition="'%(None.Filename)%(None.Extension)' == 'ggml-metal.metal'" />
+    </ItemGroup>
+  </Target>
+
+</Project>

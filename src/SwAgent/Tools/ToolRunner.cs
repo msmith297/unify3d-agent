@@ -11,6 +11,7 @@ using Newtonsoft.Json.Linq;
 using SolidWorks.Interop.sldworks;
 using SolidWorks.Interop.swconst;
 using SwAgent.Infrastructure;
+using SwAgent.ModelFiles;
 using SwAgent.Scripting;
 using SwAgent.UI;
 using Xarial.XCad.SolidWorks;
@@ -26,12 +27,17 @@ namespace SwAgent.Tools
     ///      feature history while the page is open, the view and selection when the user presses OK. Nothing moves:
     ///      the camera, the view and the model are left exactly as they are.
     ///   3. The tool's hard-coded macro runs (one undo step). For a tool without an agent that is the whole job.
-    ///   4. Otherwise everything is staged into one prompt and handed to the agent in the panel's "Tool runs" chat,
+    ///      3D models among its files are read in the background (ModelFileContext): six views + measurements.
+    ///   4. Otherwise everything is staged into one prompt and handed to the agent in the chat the user is in,
     ///      at the tool's intelligence level.
     /// </summary>
     internal sealed class ToolRunner
     {
         private const int HistoryBudget = 24000;
+
+        /// <summary>The inputs of each tool's latest run (hybrid tools' agent runs the macro with them via run_tool_macro).</summary>
+        internal static readonly System.Collections.Concurrent.ConcurrentDictionary<string, ToolInputs> LastInputs =
+            new System.Collections.Concurrent.ConcurrentDictionary<string, ToolInputs>();
 
         private readonly ISwApplication _app;
         private readonly ToolRegistry _tools;
@@ -86,8 +92,8 @@ namespace SwAgent.Tools
                         }
                     };
                     var pageTask = page.ShowAsync(_scripts);
-                    // 2a. While the user fills the page in: what doesn't depend on their inputs.
-                    if (spec.Agent) await CaptureModelContextAsync(spec, ctx, context);
+                    // 2a. While the user fills the page in: what doesn't depend on their inputs (hybrid tools: only if needed, below).
+                    if (spec.Agent && !spec.AgentFallback) await CaptureModelContextAsync(spec, ctx, context);
                     inputs = await pageTask;
                     if (inputs == null)
                     {
@@ -95,18 +101,28 @@ namespace SwAgent.Tools
                         return;
                     }
                 }
-                else if (spec.Agent)
+                else if (spec.Agent && !spec.AgentFallback)
                 {
                     await CaptureModelContextAsync(spec, ctx, context);
                 }
 
-                // 3. The hard-coded part.
+                // 3. The hard-coded part. Its inputs are kept for run_tool_macro (the agent re-runs or adapts it after a hand-over).
+                LastInputs[spec.Name] = inputs;
                 string macroOutput = null;
-                if (spec.Macro != null)
+                if (spec.Macro != null && spec.Paused.Contains("macro"))
+                {
+                    // SolidWorks closed while this macro ran last time: don't run it blind again.
+                    context["failure"] = "This tool's macro is paused because SolidWorks closed (crashed) while it was running last time. " +
+                                         "Do the job carefully with execute_csharp, find what in the macro crashed SolidWorks, and fix it with " +
+                                         "edit_user_tool (which un-pauses it). The macro:\n" + spec.Macro;
+                }
+                else if (spec.Macro != null)
                 {
                     _status($"Unify3D ▸ {spec.Title}...");
                     var watch = Stopwatch.StartNew();
-                    var result = await _scripts.RunMacroAsync(ctx, spec.Title, spec.Macro, inputs);
+                    ToolResult result;
+                    using (CrashGuard.Enter("macro", spec.Name, spec.Title, spec.Macro))
+                        result = await _scripts.RunMacroAsync(ctx, spec.Title, spec.Macro, inputs);
                     var text = TextOf(result);
                     var userError = Regex.Match(text, @"MacroInputException: (.+)");
                     if (userError.Success)
@@ -114,7 +130,7 @@ namespace SwAgent.Tools
                         _status($"Unify3D ▸ {spec.Title}: {userError.Groups[1].Value.Trim()}");
                         return;
                     }
-                    if (!result.IsError && !spec.Agent)
+                    if (!result.IsError && (!spec.Agent || spec.AgentFallback))
                     {
                         var value = Regex.Match(text, @"--- return value ---\s*\n(.+)");
                         _status($"Unify3D ▸ {spec.Title}: {(value.Success ? value.Groups[1].Value.Trim().Trim('"') : "done")}  ({watch.Elapsed.TotalSeconds:0.0} s, Ctrl+Z to undo)");
@@ -123,8 +139,14 @@ namespace SwAgent.Tools
                     }
                     if (result.IsError)
                     {
-                        Log.Warn($"Tool '{name}' macro failed:\n{text}");
-                        context["failure"] = text;
+                        var handoff = Regex.Match(text, @"(?:AgentHandoffException|NeedsAgent): (.+)");
+                        Log.Warn($"Tool '{name}' macro {(handoff.Success ? "handed over to the agent" : "failed")}:\n{text}");
+                        if (handoff.Success)
+                            context["handoff"] = $"The macro in the \"{spec.Title}\" tool handed this case to you: " + handoff.Groups[1].Value.Trim() + "\n\nMacro output:\n" + text;
+                        else
+                            context["failure"] = text;
+                        // Hybrid tools capture the model context only when the agent is actually needed.
+                        if (spec.AgentFallback) await CaptureModelContextAsync(spec, ctx, context);
                     }
                     else
                     {
@@ -136,8 +158,9 @@ namespace SwAgent.Tools
                 _status($"Unify3D ▸ {spec.Title}: working...");
                 await CaptureViewAsync(spec, ctx, context);
                 if (macroOutput != null) context["macroOutput"] = macroOutput;
+                var payload = await BuildPayloadAsync(spec, inputs, context);
                 showPane?.Invoke();
-                _send("runTool", BuildPayload(spec, inputs, context));
+                _send("runTool", payload);
             }
             catch (Exception ex)
             {
@@ -187,8 +210,11 @@ namespace SwAgent.Tools
             }
         }
 
-        /// <summary>Everything the panel needs to stage the agent's prompt (it numbers the selections as [S1]...).</summary>
-        private static JObject BuildPayload(ToolSpec spec, ToolInputs inputs, JObject context)
+        /// <summary>
+        /// Everything the panel needs to stage the agent's prompt (it numbers the selections as [S1]...). 3D models among
+        /// the files are read here (in the background, see ModelFileContext) and arrive as views + measurements.
+        /// </summary>
+        private async Task<JObject> BuildPayloadAsync(ToolSpec spec, ToolInputs inputs, JObject context)
         {
             var list = new JArray();
             foreach (var s in spec.Inputs)
@@ -213,8 +239,16 @@ namespace SwAgent.Tools
                         break;
                     }
                     case "files":
-                        entry["files"] = new JArray(inputs.Files(s.Id).Select(FileEntry));
+                    {
+                        var files = new JArray();
+                        foreach (var path in inputs.Files(s.Id))
+                        {
+                            if (ModelFileContext.IsModelFile(path)) _status($"Unify3D ▸ {spec.Title}: reading {Path.GetFileName(path)}...");
+                            files.Add(await FileAttachments.EntryAsync(_app.Sw, path));
+                        }
+                        entry["files"] = files;
                         break;
+                    }
                     default:
                         entry["value"] = JToken.FromObject(inputs[s.Id] ?? "");
                         break;
@@ -229,30 +263,6 @@ namespace SwAgent.Tools
                 ["inputs"] = list,
                 ["context"] = context,
             };
-        }
-
-        /// <summary>Images and PDFs travel as data (the model reads them directly); 3D models as a path for now.</summary>
-        private static JObject FileEntry(string path)
-        {
-            var ext = Path.GetExtension(path).ToLowerInvariant();
-            var media = ext == ".png" ? "image/png" : ext == ".jpg" || ext == ".jpeg" ? "image/jpeg" : ext == ".gif" ? "image/gif"
-                : ext == ".webp" ? "image/webp" : ext == ".pdf" ? "application/pdf" : null;
-            var entry = new JObject { ["name"] = Path.GetFileName(path), ["path"] = path };
-            try
-            {
-                var size = new FileInfo(path).Length;
-                if (media != null && size <= (media == "application/pdf" ? 30_000_000 : 5_000_000))
-                {
-                    entry["mediaType"] = media;
-                    entry["data"] = Convert.ToBase64String(File.ReadAllBytes(path));
-                }
-                else entry["kind"] = media == null ? "model" : "too_large";
-            }
-            catch (Exception ex)
-            {
-                entry["error"] = ex.Message;
-            }
-            return entry;
         }
 
         private static string TextOf(ToolResult r) =>

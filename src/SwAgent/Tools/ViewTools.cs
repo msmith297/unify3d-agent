@@ -7,7 +7,9 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Threading.Tasks;
 using SolidWorks.Interop.sldworks;
+using SwAgent.ModelFiles;
 using SolidWorks.Interop.swconst;
 
 namespace SwAgent.Tools
@@ -40,20 +42,35 @@ namespace SwAgent.Tools
 
             [ToolParam("Zoom to fit before each named view (default true). 'current' is never re-zoomed.")]
             public bool? ZoomToFit { get; set; }
+
+            [ToolParam("Only for what the off-screen renderer can't show - 3D sketches, sketch geometry that is off screen, annotations, " +
+                       "dimensions, RealView appearances in other orientations: true re-orients the user's real view for the named views " +
+                       "and restores it afterwards (the user sees it move). Default false: named views are rendered off-screen.")]
+            public bool? MoveCamera { get; set; }
+
+            [ToolParam("Entities to highlight in the rendered views: reference ids like \"S1\" (faces, edges, features, bodies, components). " +
+                       "Default: whatever is selected now.")]
+            public string[] Highlight { get; set; }
+
+            [ToolParam("Frame the rendered views on these references (close-ups of a face, feature or component), e.g. [\"S2\"].")]
+            public string[] Focus { get; set; }
+
+            [ToolParam("Assemblies: component names to leave out of the rendered views (e.g. the lid, to see into the cavity).")]
+            public string[] Hide { get; set; }
+
+            [ToolParam("A custom viewing direction for one more rendered view: [x, y, z] from the model towards the eye, e.g. [1, -0.5, 1].")]
+            public double[] Direction { get; set; }
         }
 
         [AgentTool("capture_views",
-            "Screenshot of the SolidWorks graphics area for the chat's document. Named views temporarily re-orient the " +
-            "model and restore the user's view afterwards. Use it to verify geometry after changes.")]
-        public ToolResult CaptureViews(ToolContext ctx, CaptureInput input)
+            "Look at the chat's document. 'current' is a real screenshot of exactly what the user sees (true colours and " +
+            "appearances - the ground truth). Every other view is rendered off-screen from the live model's geometry, so the " +
+            "user's camera never moves: any standard or custom direction, with the selection or [S1] references highlighted, " +
+            "close-ups (focus) and components hidden. Use it freely to verify geometry after changes. Only set move_camera for " +
+            "the rare things the renderer doesn't show (3D sketches, off-screen sketch geometry, annotations).")]
+        public async Task<ToolResult> CaptureViews(ToolContext ctx, CaptureInput input)
         {
             var model = ctx.RequireModel();
-            if (!ReferenceEquals(ctx.Sw.ActiveDoc, model))
-            {
-                throw new ToolException($"'{model.GetTitle()}' is not the active window. Activate it first " +
-                                        "(swApp.ActivateDoc3) - screenshots need the document on screen.");
-            }
-
             var views = (input.Views == null || input.Views.Length == 0) ? new[] { ViewName.current } : input.Views.Distinct().ToArray();
             var maxSize = Math.Min(1600, Math.Max(320, input.MaxSize ?? 1280));
             var zoom = input.ZoomToFit ?? true;
@@ -62,14 +79,46 @@ namespace SwAgent.Tools
             {
                 views = new[] { ViewName.current }; // drawings have no 3D orientations
             }
+            var wantsScreen = input.MoveCamera == true || views.Contains(ViewName.current);
+            if (wantsScreen && !ReferenceEquals(ctx.Sw.ActiveDoc, model))
+            {
+                throw new ToolException($"'{model.GetTitle()}' is not the active window. Activate it first " +
+                                        "(swApp.ActivateDoc3) - screenshots need the document on screen. (Off-screen views work without it.)");
+            }
 
-            var shots = CaptureMany(model, views, zoom);
+            List<(string Name, Bitmap Image)> shots;
+            string renderNote = null;
+            if (input.MoveCamera == true || isDrawing)
+            {
+                shots = CaptureMany(model, views, zoom);
+            }
+            else
+            {
+                shots = views.Contains(ViewName.current) ? CaptureMany(model, new[] { ViewName.current }, false) : new List<(string, Bitmap)>();
+                var specs = views.Where(v => v != ViewName.current).Select(Spec).ToList();
+                if (input.Direction?.Length == 3) specs.Add(new MeshRenderer.ViewSpec { Name = "custom", Dir = input.Direction, Up = Math.Abs(input.Direction[1]) > 0.95 * Norm(input.Direction) ? new[] { 0.0, 0, -1 } : new[] { 0.0, 1, 0 } });
+                if (specs.Count > 0)
+                {
+                    try
+                    {
+                        var (rendered, note) = await RenderOffscreen(ctx, model, input, specs, shots.Count + specs.Count == 1 ? maxSize : 560);
+                        shots.AddRange(rendered);
+                        renderNote = note;
+                    }
+                    catch
+                    {
+                        foreach (var sh in shots) sh.Image.Dispose();
+                        throw;
+                    }
+                }
+            }
             try
             {
                 using (var composed = shots.Count == 1 ? Fit(shots[0].Image, maxSize) : Tile(shots, maxSize))
                 {
                     var b64 = Convert.ToBase64String(EncodeJpeg(composed, 85));
                     var note = $"Captured {string.Join(", ", shots.Select(s => s.Name))} ({composed.Width}x{composed.Height}).";
+                    if (renderNote != null) note += " " + renderNote;
                     var cam = SelectionTools.Camera(ctx.Sw, model);
                     if (cam != null) note += " Current camera: " + (string)cam["text"];
                     if (isDrawing && input.Views != null && input.Views.Any(v => v != ViewName.current))
@@ -128,6 +177,92 @@ namespace SwAgent.Tools
             }
             return result;
         }
+
+        /// <summary>
+        /// Render views of the live model without touching the user's view: read the geometry on this (UI) thread,
+        /// draw on a background thread.
+        /// </summary>
+        private static async Task<(List<(string Name, Bitmap Image)> Shots, string Note)> RenderOffscreen(
+            ToolContext ctx, IModelDoc2 model, CaptureInput input, List<MeshRenderer.ViewSpec> specs, int tileWidth)
+        {
+            var live = LiveModelMesh.For(ctx.Sw, model, input.Hide);
+            if (live.Mesh.TriangleCount == 0) throw new ToolException("There's no visible solid or surface body to render.");
+
+            var highlight = input.Highlight != null ? Resolve(ctx, model, input.Highlight) : CurrentSelection(model);
+            var opts = new MeshRenderer.RenderOptions
+            {
+                TriColor = live.TriColor,
+                Highlight = live.Mark(ctx.Sw, highlight),
+                Focus = input.Focus != null ? live.Mark(ctx.Sw, Resolve(ctx, model, input.Focus)) : null,
+            };
+            var tileHeight = (int)(tileWidth * 0.72);
+            var shots = new (string Name, Bitmap Image)[specs.Count];
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            await Task.Run(() => Parallel.For(0, specs.Count, i =>
+                shots[i] = (specs[i].Name + " (rendered)", MeshRenderer.RenderView(live.Mesh, live.TriFace, specs[i], 'Y', tileWidth, tileHeight, default, opts))));
+            var note = $"Named views were rendered off-screen from the model's geometry ({live.Mesh.TriangleCount} triangles, {watch.ElapsedMilliseconds} ms) - " +
+                       "the user's view didn't move. Colours are the model's face/body/part colours; textures, RealView, sketches and annotations aren't drawn" +
+                       (opts.Highlight != null ? "; highlighted faces are blue" : "") + ".";
+            return (shots.ToList(), note);
+        }
+
+        private static List<object> Resolve(ToolContext ctx, IModelDoc2 model, IEnumerable<string> ids)
+        {
+            var list = new List<object>();
+            foreach (var id in ids)
+            {
+                try
+                {
+                    list.Add(SelectionTools.Resolve(model, ctx.Refs, id));
+                }
+                catch (ToolException)
+                {
+                    // An id that no longer resolves just isn't highlighted.
+                }
+            }
+            return list;
+        }
+
+        private static List<object> CurrentSelection(IModelDoc2 model)
+        {
+            var list = new List<object>();
+            if (!(model.SelectionManager is ISelectionMgr sm)) return list;
+            for (var i = 1; i <= sm.GetSelectedObjectCount2(-1); i++)
+            {
+                try
+                {
+                    var o = sm.GetSelectedObject6(i, -1);
+                    if (o != null) list.Add(o);
+                }
+                catch
+                {
+                    // Skip unreadable selections.
+                }
+            }
+            return list;
+        }
+
+        /// <summary>Standard views in SolidWorks' convention (Y up; front looks along -Z).</summary>
+        private static MeshRenderer.ViewSpec Spec(ViewName v)
+        {
+            double[] up = { 0, 1, 0 };
+            double[] dir;
+            switch (v)
+            {
+                case ViewName.front: dir = new[] { 0.0, 0, 1 }; break;
+                case ViewName.back: dir = new[] { 0.0, 0, -1 }; break;
+                case ViewName.left: dir = new[] { -1.0, 0, 0 }; break;
+                case ViewName.right: dir = new[] { 1.0, 0, 0 }; break;
+                case ViewName.top: dir = new[] { 0.0, 1, 0 }; up = new[] { 0.0, 0, -1 }; break;
+                case ViewName.bottom: dir = new[] { 0.0, -1, 0 }; up = new[] { 0.0, 0, 1 }; break;
+                case ViewName.dimetric: dir = new[] { 1.0, 0.75, 1.9 }; break;
+                case ViewName.trimetric: dir = new[] { 1.3, 0.9, 1.9 }; break;
+                default: dir = new[] { 1.0, 1, 1 }; break;
+            }
+            return new MeshRenderer.ViewSpec { Name = v.ToString(), Dir = dir, Up = up };
+        }
+
+        private static double Norm(double[] v) => Math.Sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
 
         private static swStandardViews_e ToStandardView(ViewName v)
         {

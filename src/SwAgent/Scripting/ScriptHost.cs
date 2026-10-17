@@ -72,8 +72,10 @@ namespace SwAgent.Scripting
             "Run C# against the live SolidWorks API (full COM API: ISldWorks, IModelDoc2, IFeatureManager, ISketchManager, " +
             "IModelDocExtension, ...). Use for everything the other tools don't cover: creating sketches and features, " +
             "editing dimensions, assemblies and mates, drawings, custom properties, exports. Lengths are meters and angles " +
-            "radians (use mm()/deg()). Each call is recorded as one undo step. Returns console output, the last expression's " +
-            "value, compile errors with line numbers, or the exception.")]
+            "radians (use mm()/deg()). Each call is recorded as one undo step. Measuring helpers: Geo.EdgePoints(edge), " +
+            "Geo.LoopPoints(loop), Geo.Frame(planarFace) -> u/v/n frame (ToUV, ToModel, Height), Geo.LoopUV(loop, frame), " +
+            "Geo.Distance(point or loop, edge/edges/loop), Geo.Inside(uv, polygon), Geo.Box(uv) - use them instead of hand-written " +
+            "edge sampling. Returns console output, the last expression's value, compile errors with line numbers, or the exception.")]
         public async Task<ToolResult> Execute(ToolContext ctx, ExecuteInput input)
         {
             var session = _sessions.GetOrAdd(ctx.ThreadId ?? "default", _ => new Session());
@@ -114,7 +116,10 @@ namespace SwAgent.Scripting
             var originalOut = Console.Out;
             var runWatch = Stopwatch.StartNew();
             var treeBefore = SwAgent.Tools.FeatureDiff.Take(model);
+            var fingerprint = SwAgent.Tools.UndoLedger.Begin(model);
             ScriptState<object> state;
+            var guard = CrashGuard.Enter("cell", null, title, input.Code);
+            var quiet = new QuietDialogs(ctx.Sw);
             try
             {
                 Console.SetOut(new CellWriter(globals.Output));
@@ -129,9 +134,12 @@ namespace SwAgent.Scripting
             }
             finally
             {
+                quiet.Dispose();
+                guard.Dispose();
                 Console.SetOut(originalOut);
                 TryFinishUndo(model, title);
                 runWatch.Stop();
+                SwAgent.Tools.UndoLedger.Record(model, ctx.ToolUseId, title, fingerprint);
             }
 
             // Keep the new state even if the cell threw, so earlier variables survive a failing cell.

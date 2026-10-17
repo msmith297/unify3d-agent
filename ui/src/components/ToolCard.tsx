@@ -19,7 +19,7 @@ import {
 import type { ImageBlockParam, TextBlockParam, ToolResultBlockParam } from "../lib/types";
 import type { RunState } from "../store";
 
-export type ToolStatus = "streaming" | "queued" | "approval" | "running" | "ok" | "error" | "stopped";
+export type ToolStatus = "streaming" | "queued" | "approval" | "running" | "ok" | "error" | "retried" | "stopped";
 
 export interface ToolCall {
   id: string;
@@ -28,6 +28,10 @@ export interface ToolCall {
   /** Raw partial JSON while the call is still streaming. */
   partial?: string;
   result?: ToolResultBlockParam;
+  /** A failed attempt the agent moved on from (retried or worked around) - shown quietly, not as a failure. */
+  soft?: boolean;
+  /** Failed attempts with the same title folded into this (successful) call. */
+  retries?: number;
 }
 
 const ICONS: Record<string, ReactNode> = {
@@ -104,7 +108,7 @@ export function partialField(json: string, key: string): string | undefined {
 
 export function statusFor(call: ToolCall, run: RunState | undefined): ToolStatus {
   if (call.partial !== undefined) return "streaming";
-  if (call.result) return call.result.is_error ? "error" : "ok";
+  if (call.result) return call.result.is_error ? (call.soft ? "retried" : "error") : "ok";
   if (!run) return "stopped";
   if (run.approval?.toolUseId === call.id) return "approval";
   if (run.runningToolId === call.id) return "running";
@@ -136,10 +140,15 @@ export function ToolCard({
       <button type="button" onClick={() => setOpen((o) => !o)} className={`sw-rollout-head !font-normal ${expanded ? "" : "collapsed"}`} aria-expanded={expanded}>
         <Caret open={expanded} className="text-text-3" />
         <span className="flex shrink-0">{ICONS[call.name] ?? <IconMacro />}</span>
-        <span className={`min-w-0 flex-1 truncate text-[12px] ${working ? "shimmer" : "text-text"}`}>
+        <span className={`min-w-0 flex-1 truncate text-[12px] ${working ? "shimmer" : status === "retried" ? "text-text-3" : "text-text"}`}>
           {toolTitle(call.name, call.input, call.partial)}
           {working && <WorkingDots />}
         </span>
+        {status === "ok" && call.retries ? (
+          <span className="shrink-0 text-[10.5px] text-text-3" title={`Worked after ${call.retries} earlier attempt${call.retries > 1 ? "s" : ""}`}>
+            {call.retries + 1} tries
+          </span>
+        ) : null}
         <StatusBadge status={status} />
       </button>
 
@@ -161,7 +170,7 @@ export function ToolCard({
           {texts.length > 0 && (
             <pre
               className={`selectable sw-input max-h-[260px] overflow-auto whitespace-pre-wrap px-2 py-1.5 font-mono text-[11px] leading-[1.45] ${
-                call.result?.is_error ? "!bg-err-soft text-err" : "text-text-2"
+                call.result?.is_error && !call.soft ? "!bg-err-soft text-err" : "text-text-2"
               }`}
             >
               {texts.join("\n")}
@@ -206,6 +215,12 @@ function StatusBadge({ status }: { status: ToolStatus }) {
       );
     case "ok":
       return <IconOk size={12} title="Done" />;
+    case "retried":
+      return (
+        <span className="shrink-0 text-[10.5px] text-text-3" title="This attempt didn't work; the agent adjusted and carried on">
+          retried
+        </span>
+      );
     case "error":
       return <IconError size={13} title="Failed" />;
     case "stopped":

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { IconQuestion } from "./SwIcons";
+import { Answered } from "./Answered";
 import { useStore, type RunState } from "../store";
 import type { FormField, FormSpec } from "../lib/types";
 import type { ToolCall } from "./ToolCard";
@@ -34,6 +35,23 @@ export function FormCard({ call, threadId, run }: { call: ToolCall; threadId: st
     } catch {
       answered = null;
     }
+  }
+
+  if (!pending) {
+    const show = (v: unknown) => (v === undefined ? "-" : Array.isArray(v) ? v.join(", ") || "-" : typeof v === "boolean" ? (v ? "Yes" : "No") : String(v) || "-");
+    const summary = !answered ? null : answered._skipped ? "Skipped - the agent used its proposals" : fields.slice(0, 3).map((f) => show(answered?.[f.id])).join(" · ") + (fields.length > 3 ? " …" : "");
+    return (
+      <Answered question={spec.title} answer={summary}>
+        <div className="flex flex-col gap-1">
+          {fields.map((f) => (
+            <div key={f.id} className="text-[11.5px]">
+              <span className="text-text-3">{f.label}: </span>
+              <span className="selectable text-text-2">{show(answered?.[f.id])}</span>
+            </div>
+          ))}
+        </div>
+      </Answered>
+    );
   }
 
   return (

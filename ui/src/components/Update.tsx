@@ -3,7 +3,7 @@ import { X } from "lucide-react";
 import { Markdown } from "./Markdown";
 import { IconUpdate, Spinner } from "./SwIcons";
 import { rpc } from "../lib/bridge";
-import { useStore } from "../store";
+import { resumePanel, useStore } from "../store";
 import type { UpdateInfo } from "../lib/types";
 
 const OFFERED: UpdateInfo["status"][] = ["available", "downloading", "ready"];
@@ -54,7 +54,7 @@ export function UpdateDialog() {
   const install = async () => {
     setBusy(true);
     setError(null);
-    const r = await rpc<{ ok: boolean; reason?: string; unsaved?: Unsaved[] }>("update.restartAndInstall", { saveDocuments: true }).catch((e) => ({
+    const r = await rpc<{ ok: boolean; reason?: string; unsaved?: Unsaved[] }>("update.restartAndInstall", { saveDocuments: true, panel: resumePanel() }).catch((e) => ({
       ok: false,
       reason: String(e?.message ?? e),
     }));

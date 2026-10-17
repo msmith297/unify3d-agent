@@ -28,6 +28,9 @@ namespace SwAgent.Tools
 
         public string ThreadId { get; }
 
+        /// <summary>The agent's tool_use id for this call, when it came from the agent (see UndoLedger).</summary>
+        public string ToolUseId { get; set; }
+
         /// <summary>Selection references from the chat ([S1] -> persistent-reference bytes, base64).</summary>
         public IReadOnlyDictionary<string, string> Refs { get; }
 

@@ -101,6 +101,26 @@ namespace SwAgent.Scripting
         /// </summary>
         public void Fail(string message) => throw new MacroInputException(message);
 
+        /// <summary>
+        /// In a hard-coded or hybrid tool's macro: hand the job to the agent for a case the code doesn't cover (e.g. an unusual shape),
+        /// with what you found so far. The agent finishes it at the tool's intelligence level.
+        /// </summary>
+        public void NeedsAgent(string why) => throw new AgentHandoffException(why);
+
+        /// <summary>
+        /// Reliable measuring helpers: Geo.EdgePoints(edge), Geo.LoopPoints(loop), Geo.Frame(planarFace) (u/v/n frame),
+        /// Geo.LoopUV(loop, frame), Geo.Distance(point|loop, edge|edges|loop), Geo.Inside(uv, polygon), Geo.Box(uv).
+        /// </summary>
+        public Geometry Geo { get; } = new Geometry();
+
+        /// <summary>
+        /// Draw on the user's view (anchored to the model, follows the camera): Overlay.Line/Arrow/Polygon/Circle/Marker/
+        /// Dimension/Label(points in meters...), Overlay.Body(tempBody) for exact proposed solids, Overlay.Clear().
+        /// </summary>
+        public OverlayApi Overlay => _overlay ?? (_overlay = new OverlayApi(this));
+
+        private OverlayApi _overlay;
+
         /// <summary>Millimeters to meters (the API's length unit).</summary>
         public double mm(double value) => value / 1000.0;
 
@@ -235,6 +255,14 @@ namespace SwAgent.Scripting
     public sealed class MacroInputException : Exception
     {
         public MacroInputException(string message) : base(message)
+        {
+        }
+    }
+
+    /// <summary>A hard-coded tool's macro handing a case it doesn't cover to the agent (NeedsAgent).</summary>
+    public sealed class AgentHandoffException : Exception
+    {
+        public AgentHandoffException(string message) : base(message)
         {
         }
     }

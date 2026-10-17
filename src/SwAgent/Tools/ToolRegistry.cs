@@ -127,6 +127,8 @@ namespace SwAgent.Tools
             }));
         }
 
+        private static string Truncate(string s, int max) => s == null || s.Length <= max ? s : s.Substring(0, max) + "...";
+
         public async Task<ToolResult> InvokeAsync(string name, JObject input, ToolContext ctx)
         {
             if (!_tools.TryGetValue(name, out var entry)) return ToolResult.Error($"Unknown tool '{name}'.");
@@ -150,10 +152,14 @@ namespace SwAgent.Tools
             try
             {
                 var started = DateTime.UtcNow;
-                var raw = entry.Method.Invoke(entry.Target, new[] { ctx, typedInput });
                 ToolResult result;
+                // If SolidWorks dies during a tool call, the next start says which call it was (CrashGuard). Code cells, tool
+                // macros and tool tests record themselves with their code, which is more useful than this line.
+                var selfGuarded = name == "execute_csharp" || name == "run_tool_macro" || name == "test_tool";
+                using (selfGuarded ? null : Infrastructure.CrashGuard.Enter("tool", null, name, Truncate(input?.ToString(Newtonsoft.Json.Formatting.None), 4000)))
                 try
                 {
+                    var raw = entry.Method.Invoke(entry.Target, new[] { ctx, typedInput });
                     result = raw is Task<ToolResult> task ? await task : (ToolResult)raw;
                 }
                 catch (ToolException expected)

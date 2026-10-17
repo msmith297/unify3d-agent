@@ -1,8 +1,9 @@
 import { useCallback, useRef, useState } from "react";
 import { useOutside } from "./Menu";
-import { Caret, IconCancel, IconEdit, IconNewChat, IconPart, IconToolbox, ToolIcon } from "./SwIcons";
+import { Caret, IconCancel, IconEdit, IconNewChat, IconPart, IconRebuild, IconToolbox, ToolIcon } from "./SwIcons";
 import { EMPTY, draftKey, useStore } from "../store";
 import { rpc } from "../lib/bridge";
+import { confirmAction } from "./Dialog";
 import { svgDataUrl } from "../lib/toolIcons";
 import type { Tier, UserToolInfo } from "../lib/types";
 import { TIERS } from "../lib/models";
@@ -23,7 +24,7 @@ export function ToolsPalette({ disabled }: { disabled?: boolean }) {
   const all = useStore((s) => s.userTools ?? EMPTY);
   const workflows = all.filter((t) => t.kind !== "tool");
   const tools = all.filter((t) => t.kind === "tool");
-  const hasDoc = useStore((s) => !!s.docs[s.viewKey]);
+  const hasDoc = useStore((s) => !!s.docs[s.activeDocKey ?? ""]);
   const { runUserTool, deleteUserTool, send, setDraft } = useStore.getState();
 
   const prefill = (text: string) => {
@@ -53,28 +54,29 @@ export function ToolsPalette({ disabled }: { disabled?: boolean }) {
           className="sw-tool !h-[22px] !min-w-[22px] !p-0"
           title="Delete"
           onClick={() => {
-            if (confirm(`Delete "${t.title}"? This removes its folder.`)) deleteUserTool(t.name);
+            confirmAction(`Delete this ${t.kind === "tool" ? "tool" : "workflow"}?`, <p>"{t.title}" and its folder are deleted.</p>, "Delete", true).then((ok) => { if (ok) deleteUserTool(t.name); });
           }}
         >
           <IconCancel size={9} />
         </button>
       </div>
-      {run ? (
+      {run || t.kind === "tool" ? (
         <button
           className="sw-btn sw-btn-primary shrink-0 !h-[22px] !px-2"
           disabled={disabled}
           title="Run with the current selection. Text in the message box is passed as notes."
           onClick={() => {
             setOpen(false);
-            runUserTool(t.name);
+            if (t.kind === "tool") rpc("userTools.run", { name: t.name });
+            else runUserTool(t.name);
           }}
         >
           Run
         </button>
       ) : (
         t.agent === false ? (
-          <span className="shrink-0 self-center text-[10.5px] text-text-3" title="Runs its macro directly - no agent">
-            instant
+          <span className="shrink-0 self-center text-[10.5px] text-text-3" title="Hard coded: runs its macro directly - no agent">
+            hard coded
           </span>
         ) : (
           <select
@@ -148,7 +150,17 @@ export function ToolsPalette({ disabled }: { disabled?: boolean }) {
                 <IconPart size={13} /> From this model
               </button>
             )}
-            <button className="sw-btn" title="A quick command on the Unify3D ribbon tab that you can put on a hotkey" onClick={() => prefill("Help me create a new tool (a quick ribbon command) that ")}>
+            <button
+              className="sw-btn"
+              title="Rebuild this design around a change far back in its history - a revised customer part, a changed dimension"
+              onClick={() => {
+                setOpen(false);
+                useStore.setState({ panel: "smartRebuild" });
+              }}
+            >
+              <IconRebuild size={13} /> Smart Rebuild…
+            </button>
+            <button className="sw-btn" title="A quick command on the Unify3D ribbon tab that you can put on a hotkey" onClick={() => { setOpen(false); useStore.setState({ panel: "newTool" }); }}>
               <IconNewChat size={13} /> New tool…
             </button>
           </div>

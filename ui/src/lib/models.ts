@@ -37,9 +37,17 @@ export const DEFAULT_SETTINGS: Settings = {
   markDocumentDirty: true,
   showProgress: true,
   realisticAppearance: true,
+  verbosity: "medium",
   shareView: true,
   muteErrorSounds: true,
   zoom: 1,
+  voiceEnabled: false,
+  voiceKey: "vk:192",
+  voiceModel: "base.en",
+  voiceSend: "release",
+  voiceViews: true,
+  speakReplies: "off",
+  speakRate: 0,
 };
 
 export function modelOption(id: string): ModelOption {
@@ -52,7 +60,8 @@ export function modelOption(id: string): ModelOption {
  */
 export const TIERS: Record<Tier, { label: string; note: string; anthropic: { model: string; effort: "low" | "medium" | "high" } }> = {
   fast: { label: "Fast", note: "Quickest - simple, mechanical jobs", anthropic: { model: "claude-haiku-5-5", effort: "low" } },
-  balanced: { label: "Balanced", note: "Default - most tools", anthropic: { model: "claude-sonnet-5-5", effort: "low" } },
+  balanced: { label: "Balanced", note: "Default - most tools", anthropic: { model: "claude-sonnet-5-5", effort: "medium" } },
+  high: { label: "High", note: "Careful geometry work", anthropic: { model: "claude-opus-5-5", effort: "medium" } },
   max: { label: "Max", note: "Hardest geometry reasoning", anthropic: { model: "claude-opus-5-5", effort: "high" } },
 };
 

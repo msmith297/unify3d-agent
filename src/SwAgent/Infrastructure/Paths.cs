@@ -11,12 +11,26 @@ namespace SwAgent.Infrastructure
         public static string WebRoot => Path.Combine(AddInDir, "wwwroot");
 
         /// <summary>%APPDATA%\SwAgent: settings and the encrypted API key.</summary>
-        public static string RoamingDir => Ensure(Path.Combine(
+        public static string RoamingDir => Ensure(TestRoot != null ? Path.Combine(TestRoot, "Roaming") : Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "SwAgent"));
 
         /// <summary>%LOCALAPPDATA%\SwAgent: logs, WebView2 profile, crash-recovery chat backups.</summary>
-        public static string LocalDir => Ensure(Path.Combine(
+        public static string LocalDir => Ensure(TestRoot != null ? Path.Combine(TestRoot, "Local") : Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SwAgent"));
+
+        /// <summary>
+        /// Tests set SWAGENT_DATA_DIR (tests/SwAgent.Tests/test.runsettings) so they never read or delete the user's real
+        /// crash record, logs or settings. A relative value goes under the temp folder.
+        /// </summary>
+        private static string TestRoot
+        {
+            get
+            {
+                var v = Environment.GetEnvironmentVariable("SWAGENT_DATA_DIR");
+                if (string.IsNullOrWhiteSpace(v)) return null;
+                return Path.IsPathRooted(v) ? v : Path.Combine(Path.GetTempPath(), v);
+            }
+        }
 
         public static string LogDir => Ensure(Path.Combine(LocalDir, "logs"));
         public static string WebViewDataDir => Ensure(Path.Combine(LocalDir, "WebView2"));

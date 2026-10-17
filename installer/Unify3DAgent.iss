@@ -14,6 +14,10 @@
 #ifndef AppVersion
   #define AppVersion "0.0.0"
 #endif
+; Windows file versions are numbers only: a prerelease such as 0.2.0-nightly.20261015 passes /DFileVersion=0.2.0.
+#ifndef FileVersion
+  #define FileVersion AppVersion
+#endif
 ; Inno reads "{" as a constant: the GUID's opening brace is doubled.
 #define AddInGuid "{{6D2B1C1E-4A0F-4F1E-9C7B-3E5A8D2F7B41}"
 #define SourceDir "..\src\SwAgent\bin\Release\net48"
@@ -27,7 +31,7 @@ AppPublisher={#AppPublisher}
 AppPublisherURL={#AppUrl}
 AppSupportURL={#AppUrl}/issues
 AppUpdatesURL={#AppUrl}/releases
-VersionInfoVersion={#AppVersion}
+VersionInfoVersion={#FileVersion}
 DefaultDirName={autopf}\{#AppName}
 DisableProgramGroupPage=yes
 DisableDirPage=auto

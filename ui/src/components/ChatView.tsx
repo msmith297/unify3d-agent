@@ -1,26 +1,50 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, X } from "lucide-react";
-import { IconCancel, IconCopy, IconEdit, IconError, IconEye, IconOk, IconQuestion, IconResend, IconShield, ToolIcon } from "./SwIcons";
+import { IconCancel, IconCopy, IconDocs, IconEdit, IconError, IconEye, IconMic, IconModelFile, IconOk, IconQuestion, IconResend, IconShield, IconWatch, ToolIcon } from "./SwIcons";
 import { Markdown } from "./Markdown";
 import { BrandLogo } from "./Brand";
 import { FormCard } from "./FormCard";
+import { Answered } from "./Answered";
+import { RestartCard } from "./Recovery";
 import { svgDataUrl } from "../lib/toolIcons";
+import { breakLabel, isBreak } from "../lib/sessions";
 import { Caret } from "./SwIcons";
-import { ToolCard, statusFor, type ToolCall } from "./ToolCard";
-import { highlights as pickHighlights } from "../agent/workSummary";
-import { currentThread, isPrompt, promptText, useStore, writesAfter, type RunState } from "../store";
+import { ToolCard, statusFor, toolTitle, type ToolCall } from "./ToolCard";
+import { breakdown, highlights as pickHighlights } from "../agent/workSummary";
+import { MODEL_TAG, VOICE_TAG, WATCH_TAG, cellIdsAfter, currentThread, isPrompt, promptText, useStore, writesAfter, type RunState } from "../store";
+import { ask } from "./Dialog";
+import { rpc } from "../lib/bridge";
 import { modelOption } from "../lib/models";
 import type { ContentBlockParam, ImageBlockParam, MessageParam, Thread, ToolResultBlockParam, TurnMeta } from "../lib/types";
 import type { LiveBlock } from "../agent/runAgent";
 
+/** A 3D model or "Watch me" log attached to a prompt: its text block and the images that follow it. */
+interface Extra {
+  kind: "model" | "watch" | "pdf" | "voice";
+  title: string;
+  body: string;
+  images: string[];
+}
+
 type Item =
-  | { kind: "prompt"; key: string; index: number; text: string; images: string[]; refs: { id: string; text: string }[]; view: string | null }
+  | {
+      kind: "prompt";
+      key: string;
+      index: number;
+      text: string;
+      images: string[];
+      refs: { id: string; text: string }[];
+      view: string | null;
+      extras: Extra[];
+    }
   | { kind: "progress"; key: string; text: string }
   | { kind: "text"; key: string; text: string; streaming?: boolean }
   | { kind: "tool"; key: string; call: ToolCall }
+  | { kind: "restart"; key: string; id: string; reason?: string; title?: string }
+  | { kind: "divider"; key: string; label: string }
   | { kind: "question"; key: string; call: ToolCall }
   | { kind: "footer"; key: string; turn: TurnMeta; isLast: boolean }
-  | { kind: "work"; key: string; items: Item[]; highlights: Item[]; steps: number; durationMs?: number }
+  | { kind: "work"; key: string; items: Item[]; highlights: Item[]; steps: number; durationMs?: number; breakdown: string; more: number }
   | { kind: "thinking"; key: string };
 
 export function ChatView() {
@@ -93,7 +117,7 @@ function renderItem(item: Item, thread: Thread, run: RunState | undefined, onIma
         </div>
       );
     case "thinking":
-      return <div className="pl-1 text-[12px] shimmer">Thinking…</div>;
+      return <ThinkingIndicator run={run} />;
     case "text":
       return (
         <div className="selectable px-0.5 text-text">
@@ -102,14 +126,26 @@ function renderItem(item: Item, thread: Thread, run: RunState | undefined, onIma
       );
     case "tool":
       return (
-        <ToolCard call={item.call} status={statusFor(item.call, run)} onImage={onImage}>
-          {run?.approval?.toolUseId === item.call.id && <ApprovalCard threadId={thread.id} />}
-        </ToolCard>
+        <>
+          <ToolCard call={item.call} status={statusFor(item.call, run)} onImage={onImage}>
+            {run?.approval?.toolUseId === item.call.id && <ApprovalCard threadId={thread.id} />}
+          </ToolCard>
+        </>
       );
     case "question":
       return item.call.name === "ask_form" ? <FormCard call={item.call} threadId={thread.id} run={run} /> : <QuestionCard call={item.call} threadId={thread.id} run={run} />;
     case "footer":
       return <TurnFooter turn={item.turn} isLast={item.isLast} running={!!run} />;
+    case "divider":
+      return (
+        <div className="my-1 flex items-center gap-2 text-[10.5px] text-text-3" title="Messages above are from an earlier session">
+          <div className="h-px flex-1 bg-line-strong" />
+          <span className="shrink-0">{item.label}</span>
+          <div className="h-px flex-1 bg-line-strong" />
+        </div>
+      );
+    case "restart":
+      return <RestartCard reason={item.reason} title={item.title} onDismiss={() => useStore.getState().dismissRestart(thread.id, item.id)} />;
     case "work":
       return <WorkGroup item={item} thread={thread} run={run} onImage={onImage} />;
   }
@@ -131,7 +167,7 @@ function WorkGroup({
   onImage: (s: string) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const hidden = item.steps - item.highlights.filter((h) => h.kind === "tool").length;
+
   return (
     <div className="flex flex-col gap-1.5">
       <button
@@ -139,18 +175,23 @@ function WorkGroup({
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
         className="flex items-center gap-1.5 self-start rounded-[3px] px-1 py-0.5 text-[11.5px] text-text-3 hover:bg-accent-soft hover:text-text"
-        title={open ? "Show only the main changes" : "Show every step, including checks, searches and retries"}
+        title={open ? "Show only the outcomes" : "Show every step: lookups, checks, tests and retries"}
       >
         <Caret open={open} />
         <span>
           {item.steps} step{item.steps === 1 ? "" : "s"}
           {item.durationMs !== undefined && ` · ${formatDuration(item.durationMs)}`}
-          {!open && hidden > 0 && ` · ${hidden} hidden`}
+          {item.breakdown && <span className="text-text-3/80"> · {item.breakdown}</span>}
         </span>
       </button>
       {(open ? item.items : item.highlights).map((sub) => (
         <Fragment key={sub.key}>{renderItem(sub, thread, run, onImage)}</Fragment>
       ))}
+      {!open && item.more > 0 && (
+        <button type="button" onClick={() => setOpen(true)} className="self-start pl-1 text-[11px] text-text-3 hover:text-text hover:underline">
+          + {item.more} earlier change{item.more === 1 ? "" : "s"}
+        </button>
+      )}
     </div>
   );
 }
@@ -167,7 +208,8 @@ function foldTurn(segment: Item[], turn: TurnMeta | undefined, key: string): Ite
   if (last < 0) return segment;
   const work = segment.slice(0, last + 1);
   const calls = work.filter((it): it is Extract<Item, { kind: "tool" | "question" }> => it.kind === "tool" || it.kind === "question");
-  const keep = new Set(pickHighlights(calls.map((c) => c.call)).map((c) => c.id));
+  const picked = pickHighlights(calls.map((c) => c.call));
+  const keep = new Set(picked.map((c) => c.id));
   const group: Item = {
     kind: "work",
     key,
@@ -175,8 +217,97 @@ function foldTurn(segment: Item[], turn: TurnMeta | undefined, key: string): Ite
     highlights: calls.filter((c) => keep.has(c.call.id)),
     steps: calls.filter((c) => c.kind === "tool").length,
     durationMs: turn?.durationMs,
+    breakdown: breakdown(calls.map((c) => c.call)),
+    more: picked.more ?? 0,
   };
   return [group, ...segment.slice(last + 1)];
+}
+
+/**
+ * Trying something, seeing it fail and adjusting is normal agent work, not a failure. A failed call that the agent
+ * moved on from (anything after it in the turn, or the turn is still running) is shown quietly as "retried"; when
+ * the next attempt with the same title worked, the failed one is folded into it. Red stays only for a turn that
+ * ended on a failure.
+ */
+function quietFailures(segment: Item[], finished: boolean): Item[] {
+  const tools = segment.filter((it): it is Extract<Item, { kind: "tool" }> => it.kind === "tool");
+  const drop = new Set<string>();
+  const retries = new Map<string, number>();
+  tools.forEach((it, i) => {
+    if (!it.call.result?.is_error) return;
+    const later = tools.slice(i + 1);
+    if (later.length === 0 && finished) return; // the turn ended here: a real failure
+    const title = toolTitle(it.call.name, it.call.input);
+    const retry = later.find((l) => toolTitle(l.call.name, l.call.input) === title);
+    if (retry && retry.call.result && !retry.call.result.is_error) {
+      drop.add(it.key);
+      retries.set(retry.key, (retries.get(retry.key) ?? 0) + 1 + (retries.get(it.key) ?? 0));
+    }
+  });
+  return segment
+    .filter((it) => !drop.has(it.key))
+    .map((it) => {
+      if (it.kind !== "tool") return it;
+      const i = tools.findIndex((t) => t.key === it.key);
+      const soft = !!it.call.result?.is_error && (i < tools.length - 1 || !finished);
+      const n = retries.get(it.key);
+      return soft || n ? { ...it, call: { ...it.call, soft, retries: n } } : it;
+    });
+}
+
+/** "Thinking..." with how long the model has been at it, so a long think never looks like a hang. */
+function ThinkingIndicator({ run }: { run: RunState | undefined }) {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => tick((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const seconds = run?.requestStartedAt ? Math.floor((Date.now() - run.requestStartedAt) / 1000) : 0;
+  const time = seconds >= 60 ? `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s` : `${seconds}s`;
+  return (
+    <div className="flex flex-col gap-0.5 pl-1 text-[12px]">
+      <div>
+        <span className="shimmer">{seconds >= 45 ? "Thinking it through" : "Thinking"}</span>
+        <span className="working-dots text-text-3">
+          <span>.</span>
+          <span>.</span>
+          <span>.</span>
+        </span>
+        {seconds >= 5 && <span className="text-text-3"> {time}</span>}
+      </div>
+      {run?.status && <div className="text-[11px] text-text-3">{run.status}</div>}
+      {!run?.status && seconds >= 90 && (
+        <div className="text-[11px] text-text-3">
+          Still connected and working - big requests can take a few minutes to plan. Lower the effort below for quicker starts, or press Stop and break the request into steps.
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The newest successful save/edit of a tool in the chat: the restart offer goes under it, once. */
+/**
+ * The Save and restart button under the last reply: when the agent asked for it (offer_restart), or - as a safety net -
+ * when the last turn saved a tool (RestartCard then shows only if the ribbon really is out of date).
+ */
+function restartOffer(thread: Thread): { id: string; reason?: string; title?: string } | null {
+  let savedTool: string | undefined;
+  let savedId = "";
+  for (let i = thread.messages.length - 1; i >= 0; i--) {
+    const m = thread.messages[i];
+    if (isPrompt(m)) break;
+    if (m.role !== "assistant" || typeof m.content === "string") continue;
+    for (const b of m.content) {
+      if (b.type !== "tool_use") continue;
+      const input = b.input as { reason?: string; kind?: string; title?: string };
+      if (b.name === "offer_restart") return { id: b.id, reason: input?.reason };
+      if ((b.name === "save_user_tool" || b.name === "edit_user_tool") && input?.kind !== "workflow" && savedTool === undefined) {
+        savedTool = input?.title ?? "";
+        savedId = b.id;
+      }
+    }
+  }
+  return savedTool !== undefined ? { id: savedId, title: savedTool || undefined } : null;
 }
 
 /** Flatten API messages (+ the live stream) into display items. */
@@ -198,21 +329,35 @@ function buildItems(thread: Thread, run: RunState | undefined, showProgress: boo
   let segment: Item[] = [];
   const flushSegment = (promptIdx: number, finished: boolean) => {
     const turn = footerAfter.get(promptIdx);
+    segment = quietFailures(segment, finished);
     items.push(...(finished && promptIdx >= 0 ? foldTurn(segment, turn, `w${promptIdx}`) : segment));
     segment = [];
   };
   const flushFooter = (promptIdx: number) => {
     flushSegment(promptIdx, true);
+    if (promptIdx === lastPrompt) {
+      // Not after "Not now", and not once SolidWorks has restarted since (by the button or any other way).
+      const offer = restartOffer(thread);
+      const turnAt = Date.parse(thread.turns.find((t) => t.msgIndex === promptIdx)?.at ?? "") || 0;
+      const done = turnAt > 0 && turnAt < useStore.getState().sessionStart;
+      if (offer && !done && !thread.restartDismissed?.includes(offer.id)) items.push({ kind: "restart", key: `r${promptIdx}`, ...offer });
+    }
     const turn = footerAfter.get(promptIdx);
     if (turn) items.push({ kind: "footer", key: `f${promptIdx}`, turn, isLast: promptIdx === lastPrompt });
   };
 
   let currentPrompt = -1;
+  let prevTurn: TurnMeta | undefined;
+  const sessionNow = useStore.getState().sessionStart;
   thread.messages.forEach((m, i) => {
     if (isPrompt(m)) {
       if (currentPrompt >= 0) flushFooter(currentPrompt);
       else flushSegment(-1, false);
       currentPrompt = i;
+      // Where an earlier SolidWorks session (or a day or more) ends: a divider labelled for the messages above it.
+      const turn = thread.turns.find((t) => t.msgIndex === i);
+      if (turn && prevTurn && isBreak(prevTurn, turn, sessionNow)) items.push({ kind: "divider", key: `d${i}`, label: breakLabel(prevTurn, sessionNow) });
+      if (turn) prevTurn = turn;
       items.push(promptItem(m, i));
       return;
     }
@@ -223,6 +368,7 @@ function buildItems(thread: Thread, run: RunState | undefined, showProgress: boo
       else if (b.type === "text" && b.text.trim()) segment.push({ kind: "text", key, text: b.text });
       else if (b.type === "tool_use") {
         const call: ToolCall = { id: b.id, name: b.name, input: b.input, result: results.get(b.id) };
+        if (call.name === "offer_restart") return; // shown as the button under the reply
         segment.push(call.name === "ask_user" || call.name === "ask_form" ? { kind: "question", key, call } : { kind: "tool", key, call });
       }
     });
@@ -245,7 +391,7 @@ function liveItems(live: LiveBlock[] | null, showProgress: boolean): Item[] {
     const key = `live${i}`;
     if (b.type === "thinking" && b.text.trim() && showProgress) out.push({ kind: "progress", key, text: b.text.trim() });
     else if (b.type === "text" && b.text) out.push({ kind: "text", key, text: b.text, streaming: i === live.length - 1 });
-    else if (b.type === "tool_use" && b.name !== "ask_user") {
+    else if (b.type === "tool_use" && b.name !== "ask_user" && b.name !== "offer_restart") {
       out.push({ kind: "tool", key, call: { id: b.id ?? key, name: b.name ?? "tool", input: undefined, partial: b.json ?? "" } });
     }
   });
@@ -261,22 +407,114 @@ function promptItem(m: MessageParam, index: number): Item {
   let refs: { id: string; text: string }[] = [];
   let view: string | null = null;
   let afterContext = false;
+  const extras: Extra[] = [];
+  let extra: Extra | null = null;
   for (const b of blocks) {
     if (b.type === "text") {
+      extra = null;
       if (b.text.startsWith("<sw_context>")) {
         refs = [...refs, ...parseRefs(b.text)];
         afterContext = true;
+      } else if (b.text.startsWith(MODEL_TAG) || b.text.startsWith(WATCH_TAG) || b.text.startsWith(VOICE_TAG)) {
+        extra = parseExtra(b.text);
+        extras.push(extra);
       } else texts.push(b.text);
     } else if (b.type === "image") {
       const src = (b as ImageBlockParam).source;
       if (src.type !== "base64") continue;
       const url = `data:${src.media_type};base64,${src.data}`;
-      // Images after the context block are the automatic "what the user sees" screenshot.
-      if (afterContext) view = url;
+      // Images right after a model / watch block belong to it; after the context block, it's the user's view.
+      if (extra) extra.images.push(url);
+      else if (afterContext) view = url;
       else images.push(url);
+    } else if ((b.type as string) === "document") {
+      extra = null;
+      extras.push({ kind: "pdf", title: (b as { title?: string }).title ?? "PDF", body: "", images: [] });
     }
   }
-  return { kind: "prompt", key: `p${index}`, index, text: texts.join("\n\n"), images, refs, view };
+  return { kind: "prompt", key: `p${index}`, index, text: texts.join("\n\n"), images, refs, view, extras };
+}
+
+function parseExtra(raw: string): Extra {
+  if (raw.startsWith(VOICE_TAG)) {
+    const head = /^<\w+([^>]*)>/.exec(raw)?.[1] ?? "";
+    const attr = (name: string) => new RegExp(`${name}="([^"]*)"`).exec(head)?.[1];
+    const body = raw.replace(/^<[^>]*>\n?/, "").replace(/\n?<\/voice_timeline>\s*$/, "").trim();
+    const images = Number(attr("images") ?? 0);
+    const markups = Number(attr("markups") ?? 0);
+    const views = images - markups;
+    const parts = [attr("duration"), views > 0 && `${views} view${views === 1 ? "" : "s"}`, markups > 0 && `${markups} markup${markups === 1 ? "" : "s"}`].filter(Boolean);
+    // The timeline without the explanation for the agent.
+    return { kind: "voice", title: `Voice message · ${parts.join(" · ")}`, body: body.split("\n").filter((l) => /^\d+:\d\d/.test(l)).join("\n"), images: [] };
+  }
+  const watch = raw.startsWith(WATCH_TAG);
+  const head = /^<\w+([^>]*)>/.exec(raw);
+  const attr = (name: string) => new RegExp(`${name}="([^"]*)"`).exec(head?.[1] ?? "")?.[1]?.replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+  const body = raw.replace(/^<[^>]*>\n?/, "").replace(/\n?<\/(model_file|watch_log)>\s*$/, "").trim();
+  const steps = attr("steps");
+  return {
+    kind: watch ? "watch" : "model",
+    title: watch ? `Watch log${steps ? ` · ${steps} step${steps === "1" ? "" : "s"}` : ""}${attr("doc") ? ` · ${attr("doc")}` : ""}` : attr("name") ?? "3D model",
+    body,
+    images: [],
+  };
+}
+
+/** A 3D model or Watch me log in a sent prompt: a compact card that opens to the text the agent got. */
+function ExtraCard({ extra, onImage }: { extra: Extra; onImage: (s: string) => void }) {
+  const [open, setOpen] = useState(false);
+  if (extra.kind === "pdf") {
+    return (
+      <span className="flex max-w-[92%] items-center gap-1 rounded-[3px] border border-line bg-card-2 px-1.5 py-0.5 text-[11px] text-text-2">
+        <IconDocs size={13} />
+        <span className="truncate">{extra.title}</span>
+      </span>
+    );
+  }
+  const line =
+    extra.kind === "model"
+      ? (extra.body.split("\n").find((l) => l.startsWith("Size:")) ?? extra.body.split("\n").find((l) => l.includes("couldn't be read")) ?? "")
+      : extra.kind === "voice"
+        ? extra.body
+            .split("\n")
+            .map((l) => l.replace(/^\d+:\d\d\s+/, ""))
+            .filter((l) => !l.startsWith("said:") && !l.startsWith("[image"))
+            .slice(0, 3)
+            .join(" · ")
+        : (extra.body.split("\n").find((l) => /^\d+\. /.test(l)) ?? "");
+  return (
+    <div className="flex max-w-[92%] flex-col items-end gap-1">
+      <div className="flex items-stretch gap-1.5 overflow-hidden rounded-[3px] border border-line bg-card-2 shadow-[var(--shadow)]">
+        {extra.images.slice(0, 1).map((src, i) => (
+          <button key={i} onClick={() => onImage(src)} title="Open the image" className="shrink-0 border-r border-line">
+            <img src={src} alt="" className="h-[52px] w-auto" />
+          </button>
+        ))}
+        <button type="button" onClick={() => setOpen((o) => !o)} className="flex min-w-0 flex-col items-start justify-center py-1 pr-2 text-left" title={open ? "Hide details" : "Show what the agent received"}>
+          <span className="flex items-center gap-1 text-[11.5px] font-semibold text-text">
+            {extra.kind === "model" ? <IconModelFile size={13} /> : extra.kind === "voice" ? <IconMic size={13} /> : <IconWatch size={13} />}
+            <span className="truncate">{extra.title}</span>
+            <Caret open={open} className="text-text-3" />
+          </span>
+          {line && <span className="max-w-[260px] truncate text-[10.5px] text-text-3">{line.replace(/^Size: /, "")}</span>}
+        </button>
+      </div>
+      {open && (
+        <>
+          <div className="selectable max-h-[220px] overflow-y-auto whitespace-pre-wrap rounded-[3px] border border-line bg-card-2 px-2 py-1 text-[11px] text-text-2">{extra.body}</div>
+          {extra.images.length > 1 && (
+            <div className="flex flex-wrap justify-end gap-1.5">
+              {extra.images.slice(1).map((src, i) => (
+                <button key={i} onClick={() => onImage(src)} className="overflow-hidden rounded-[2px] border border-input-border shadow-[var(--shadow)]">
+                  <img src={src} alt="" className="h-[48px] w-auto" />
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
 }
 
 /** "[S1] Face of Boss-Extrude1 - planar, ..." lines from the context block, shortened for chips. */
@@ -304,16 +542,53 @@ function PromptBubble({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const [copied, setCopied] = useState(false);
-  const { text, images, refs, view, index } = item;
+  const { text, images, refs, view, index, extras } = item;
 
-  /** Resending drops later replies; changes already made to the model stay (Ctrl+Z undoes them). */
-  const confirmRewind = () => {
-    const writes = writesAfter(thread, index);
-    if (writes === 0) return true;
-    return confirm(
-      `The replies after this message will be replaced. The agent made ${writes} change${writes > 1 ? "s" : ""} to the model ` +
-        `since then - ${writes > 1 ? "they stay" : "it stays"} in the model (use Ctrl+Z in SolidWorks to undo ${writes > 1 ? "them" : "it"}). Continue?`,
-    );
+  /**
+   * Resending drops later replies. Changes the agent made to the model since then can be undone in one go (the
+   * add-in undoes step by step until the model matches its state when this message was sent) or kept.
+   */
+  const confirmRewind = async (): Promise<boolean> => {
+    if (writesAfter(thread, index) === 0) return true;
+    const docKey = useStore.getState().viewKey;
+    const toolUseIds = cellIdsAfter(thread, index);
+    const changes = await rpc<{ changes: number }>("history.undoable", { docKey, toolUseIds })
+      .then((r) => r?.changes ?? -1)
+      .catch(() => -1);
+    if (changes === 0) return true; // the model is already back where it was
+    const s = (n: number, one: string, many: string) => (n === 1 ? one : many);
+    const keep = { value: "keep", label: "Keep changes" };
+    const choice = await ask({
+      title: "Replace the replies after this message?",
+      message:
+        changes > 0 ? (
+          <p>
+            The agent made {changes} {s(changes, "change", "changes")} to the model since then. Undo {s(changes, "it", "them")} to put the
+            model back the way it was when you sent this message, or keep {s(changes, "it", "them")} and continue from the current model.
+          </p>
+        ) : (
+          <p>
+            The agent changed the model since then. Those changes can't be undone automatically here (SolidWorks was restarted or the
+            document reopened since) - they stay in the model; use Ctrl+Z in SolidWorks to undo them.
+          </p>
+        ),
+      actions:
+        changes > 0
+          ? [
+              keep,
+              {
+                value: "undo",
+                label: `Undo ${changes} ${s(changes, "change", "changes")}`,
+                primary: true,
+                run: async () => {
+                  const r = await rpc<{ ok: boolean; message?: string }>("history.undoSince", { docKey, toolUseIds });
+                  if (!r?.ok) return r?.message ?? "The undo didn't complete.";
+                },
+              },
+            ]
+          : [{ ...keep, label: "Continue", primary: true }],
+    });
+    return choice !== null;
   };
 
   const copy = async () => {
@@ -326,9 +601,9 @@ function PromptBubble({
     }
   };
 
-  const submitEdit = () => {
-    if (!draft.trim() && images.length === 0) return;
-    if (!confirmRewind()) return;
+  const submitEdit = async () => {
+    if (!draft.trim() && images.length === 0 && extras.length === 0) return;
+    if (!(await confirmRewind())) return;
     setEditing(false);
     resendFrom(index, draft);
   };
@@ -360,7 +635,7 @@ function PromptBubble({
           </button>
           <button
             onClick={submitEdit}
-            disabled={!draft.trim() && images.length === 0}
+            disabled={!draft.trim() && images.length === 0 && extras.length === 0}
             className="sw-btn sw-btn-primary"
           >
             Send
@@ -370,7 +645,7 @@ function PromptBubble({
     );
   }
 
-  if (/^\[Run tool: /.test(text)) return <ToolRunPrompt text={text} images={images} refs={refs} view={view} onImage={onImage} />;
+  if (/^\[Run tool: /.test(text)) return <ToolRunPrompt text={text} images={images} refs={refs} view={view} extras={extras} onImage={onImage} />;
 
   return (
     <div className="group mt-2 flex flex-col items-end gap-1 first:mt-0">
@@ -383,6 +658,9 @@ function PromptBubble({
           ))}
         </div>
       )}
+      {extras.map((x, i) => (
+        <ExtraCard key={i} extra={x} onImage={onImage} />
+      ))}
       {text && <PromptText text={text} />}
       {(refs.length > 0 || view) && (
         <div className="flex max-w-[92%] flex-wrap items-center justify-end gap-1">
@@ -416,7 +694,7 @@ function PromptBubble({
               >
                 <IconEdit size={13} />
               </BubbleAction>
-              <BubbleAction title="Resend" onClick={() => confirmRewind() && resendFrom(index)}>
+              <BubbleAction title="Resend" onClick={async () => (await confirmRewind()) && resendFrom(index)}>
                 <IconResend size={13} />
               </BubbleAction>
             </>
@@ -436,12 +714,14 @@ function ToolRunPrompt({
   images,
   refs,
   view,
+  extras,
   onImage,
 }: {
   text: string;
   images: string[];
   refs: { id: string; text: string }[];
   view: string | null;
+  extras: Extra[];
   onImage: (s: string) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -449,7 +729,7 @@ function ToolRunPrompt({
   const m = /^\[Run tool: ([a-z0-9-]+)\]\s*([\s\S]*)$/.exec(text);
   const tool = m ? tools.find((t) => t.name === m[1]) : undefined;
   const body = (m?.[2] ?? "").replace(/<\/?tool_inputs>/g, "").trim();
-  const hasDetails = !!body || images.length > 0 || refs.length > 0 || !!view;
+  const hasDetails = !!body || images.length > 0 || refs.length > 0 || !!view || extras.length > 0;
   return (
     <div className="mt-2 flex flex-col items-end gap-1 first:mt-0">
       <button
@@ -465,6 +745,9 @@ function ToolRunPrompt({
       {open && (
         <div className="flex max-w-[92%] flex-col items-end gap-1">
           {body && <div className="selectable whitespace-pre-wrap rounded-[3px] border border-line bg-card-2 px-2 py-1 text-[11.5px] text-text-2">{body}</div>}
+          {extras.map((x, i) => (
+            <ExtraCard key={i} extra={x} onImage={onImage} />
+          ))}
           {(images.length > 0 || view) && (
             <div className="flex flex-wrap justify-end gap-1.5">
               {[...images, ...(view ? [view] : [])].map((src, i) => (
@@ -624,10 +907,19 @@ function ApprovalCard({ threadId }: { threadId: string }) {
 
 function QuestionCard({ call, threadId, run }: { call: ToolCall; threadId: string; run: RunState | undefined }) {
   const answer = useStore((s) => s.answerQuestion);
-  const [text, setText] = useState("");
+  // In the store, so a voice message can fill it in (Settings > Voice > Send: check first).
+  const text = useStore((s) => s.answerDrafts[threadId] ?? "");
+  const setText = (v: string) => useStore.getState().setAnswerDraft(threadId, v);
   const pending = run?.question?.toolUseId === call.id;
   const answered = typeof call.result?.content === "string" ? call.result.content : undefined;
   const options: string[] = call.input?.options ?? [];
+  if (!pending)
+    return (
+      <Answered question={String(call.input?.question ?? "")} answer={answered ?? null}>
+        <div className="selectable text-[12px] text-text-2">{call.input?.question}</div>
+        {options.length > 0 && <div className="mt-1 text-[11px] text-text-3">Options: {options.join(" · ")}</div>}
+      </Answered>
+    );
   return (
     <div className={`sw-rollout px-2 py-1.5 ${pending ? "!border-accent" : ""}`}>
       <div className="mb-1.5 flex items-start gap-2">
@@ -684,7 +976,7 @@ const SUGGESTIONS = [
 ];
 
 function EmptyState() {
-  const doc = useStore((s) => s.docs[s.viewKey]);
+  const doc = useStore((s) => s.docs[s.activeDocKey ?? ""]);
   const send = useStore((s) => s.send);
   const setDraft = useStore((s) => s.setDraft);
   return (
@@ -695,7 +987,7 @@ function EmptyState() {
       <div className="text-[14px] font-semibold text-text">{doc ? `Ask about ${doc.title}` : "Ask Unify3D anything"}</div>
       <p className="mt-1 max-w-[300px] text-[12px] text-text-2">
         {doc
-          ? "It can read and change this document through the SolidWorks API. The conversation is saved inside the file."
+          ? "It works in the active document through the SolidWorks API. This chat keeps going as you open and switch files."
           : "Open or create a part, assembly or drawing to keep the conversation with that file."}
       </p>
       <div className="mt-4 flex w-full max-w-[340px] flex-col gap-1.5">

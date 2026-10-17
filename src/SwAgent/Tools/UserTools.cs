@@ -22,6 +22,30 @@ namespace SwAgent.Tools
 
         private static readonly Regex NamePattern = new Regex("^[a-z0-9][a-z0-9-]{1,47}$");
 
+        /// <summary>
+        /// Front matter "agent:" value for a run style: hardcoded -> false (macro only), agent -> true (the agent writes the
+        /// code each run), hybrid -> hybrid (macro first; the agent takes over what it hands on, then improves it).
+        /// Older names: instant = hardcoded, smart = agent, built / fallback = hybrid.
+        /// </summary>
+        private static string AgentValue(string runStyle, bool? agent, bool hasMacro)
+        {
+            switch ((runStyle ?? "").Trim().ToLowerInvariant().Replace(" ", "").Replace("-", ""))
+            {
+                case "hybrid":
+                case "built":
+                case "fallback":
+                    return hasMacro ? "hybrid" : "true";
+                case "hardcoded":
+                case "instant":
+                    return hasMacro ? "false" : "true";
+                case "agent":
+                case "agentintheloop":
+                case "smart":
+                    return "true";
+            }
+            return agent == false && hasMacro ? "false" : "true";
+        }
+
         public static string Root => Directory.CreateDirectory(Path.Combine(Paths.RoamingDir, "tools")).FullName;
 
         /// <summary>Raised after a tool is saved or deleted (the UI refreshes its palette and the agent's index).</summary>
@@ -74,11 +98,16 @@ namespace SwAgent.Tools
             [ToolParam("Tools: the inputs of its PropertyManager page (shown on the left like a native command). Omit for tools that just act on the selection.")]
             public ToolInputSpec[] Inputs { get; set; }
 
-            [ToolParam("Tools: true (default) if an agent finishes the job after the macro (the macro then only prepares and gathers data); " +
-                       "false if the macro does everything and no agent is ever needed.")]
+            [ToolParam("Tools: run style - hardcoded | agent | hybrid. hardcoded: the macro is the whole tool; a case it wasn't written for stops " +
+                       "with its Fail message. agent: agent in the loop - the agent does the job each run from TOOL.md's skill, writing code from the " +
+                       "context. hybrid: the macro runs first and does the job when it fits; for a case it can't handle it calls NeedsAgent(\"why\") " +
+                       "and the agent takes over - adapts the code, finishes, then improves the macro so the tool learns.")]
+            public string RunStyle { get; set; }
+
+            [ToolParam("Older form of run_style: true = smart, false = instant. Prefer run_style.")]
             public bool? Agent { get; set; }
 
-            [ToolParam("Tools with an agent: how much intelligence the job needs - fast (simple, mechanical), balanced (default) or max (hard geometry reasoning). " +
+            [ToolParam("Tools with an agent: how much intelligence the job needs - fast (simple, mechanical), balanced (default), high (careful geometry work) or max (hardest reasoning). " +
                        "Maps to the user's provider (e.g. Claude Haiku / Sonnet / Opus); the user can change it in the tool's page.")]
             public string Intelligence { get; set; }
 
@@ -112,8 +141,9 @@ namespace SwAgent.Tools
 
             [ToolParam("An icon designed for this tool, as SVG markup: viewBox=\"0 0 16 16\", drawn to read clearly at 16-20 px next to SolidWorks' own " +
                        "commands - a simple pictogram of what the tool makes or does (e.g. a mold block with a cavity, a plate with holes), " +
-                       "SolidWorks style: flat fills with subtle top-to-bottom gradients, 0.75-1 px darker outlines, steel greys plus one accent " +
-                       "(blue #2F84D6, orange #E8912D, green #3AA655 or red #D94A38), no text, no thin details, transparent background. " +
+                       "in the Unify3D look (like its brushed-metal U logo): brushed steel fills as top-to-bottom gradients (#F4F5F6 to #9AA0A6), " +
+                       "graphite for dark parts and details (#55595F to #1C1F22), 0.75-1 px graphite outlines (#26292D), a small white highlight " +
+                       "at most - monochrome metal, no blue or other colour accents, no text, no thin details, transparent background. " +
                        "Shown on the tool's ribbon button and in the Tools menu.")]
             public string IconSvg { get; set; }
         }
@@ -153,11 +183,16 @@ namespace SwAgent.Tools
             [ToolParam("Tools: replace the inputs of its PropertyManager page (shown on the left like a native command). Omit for tools that just act on the selection.")]
             public ToolInputSpec[] Inputs { get; set; }
 
-            [ToolParam("Tools: true (default) if an agent finishes the job after the macro (the macro then only prepares and gathers data); " +
-                       "false if the macro does everything and no agent is ever needed.")]
+            [ToolParam("Tools: run style - hardcoded | agent | hybrid. hardcoded: the macro is the whole tool; a case it wasn't written for stops " +
+                       "with its Fail message. agent: agent in the loop - the agent does the job each run from TOOL.md's skill, writing code from the " +
+                       "context. hybrid: the macro runs first and does the job when it fits; for a case it can't handle it calls NeedsAgent(\"why\") " +
+                       "and the agent takes over - adapts the code, finishes, then improves the macro so the tool learns.")]
+            public string RunStyle { get; set; }
+
+            [ToolParam("Older form of run_style: true = smart, false = instant. Prefer run_style.")]
             public bool? Agent { get; set; }
 
-            [ToolParam("Tools with an agent: how much intelligence the job needs - fast (simple, mechanical), balanced (default) or max (hard geometry reasoning). " +
+            [ToolParam("Tools with an agent: how much intelligence the job needs - fast (simple, mechanical), balanced (default), high (careful geometry work) or max (hardest reasoning). " +
                        "Maps to the user's provider (e.g. Claude Haiku / Sonnet / Opus); the user can change it in the tool's page.")]
             public string Intelligence { get; set; }
 
@@ -177,8 +212,9 @@ namespace SwAgent.Tools
 
             [ToolParam("An icon designed for this tool, as SVG markup: viewBox=\"0 0 16 16\", drawn to read clearly at 16-20 px next to SolidWorks' own " +
                        "commands - a simple pictogram of what the tool makes or does (e.g. a mold block with a cavity, a plate with holes), " +
-                       "SolidWorks style: flat fills with subtle top-to-bottom gradients, 0.75-1 px darker outlines, steel greys plus one accent " +
-                       "(blue #2F84D6, orange #E8912D, green #3AA655 or red #D94A38), no text, no thin details, transparent background. " +
+                       "in the Unify3D look (like its brushed-metal U logo): brushed steel fills as top-to-bottom gradients (#F4F5F6 to #9AA0A6), " +
+                       "graphite for dark parts and details (#55595F to #1C1F22), 0.75-1 px graphite outlines (#26292D), a small white highlight " +
+                       "at most - monochrome metal, no blue or other colour accents, no text, no thin details, transparent background. " +
                        "Shown on the tool's ribbon button and in the Tools menu.")]
             public string IconSvg { get; set; }
         }
@@ -232,7 +268,7 @@ namespace SwAgent.Tools
             if (!string.IsNullOrWhiteSpace(input.Model)) sb.AppendLine($"model: {OneLine(input.Model)}");
             if (kind == "tool")
             {
-                sb.AppendLine($"agent: {(input.Agent == false && !string.IsNullOrWhiteSpace(input.Macro) ? "false" : "true")}");
+                sb.AppendLine($"agent: {AgentValue(input.RunStyle, input.Agent, !string.IsNullOrWhiteSpace(input.Macro))}");
                 sb.AppendLine($"intelligence: {(ToolSpec.Tiers.Contains(input.Intelligence) ? input.Intelligence : "balanced")}");
                 sb.AppendLine($"confirm: {(input.Confirm == "always" ? "always" : "missing")}");
                 if (input.Context?.Length > 0) sb.AppendLine($"context: {string.Join(", ", input.Context.Select(c => c.Trim().ToLowerInvariant()))}");
@@ -278,7 +314,7 @@ namespace SwAgent.Tools
             if (!File.Exists(md)) throw new ToolException($"Tool '{input.Name}' has no TOOL.md.");
             if (string.IsNullOrWhiteSpace(input.Append) && (input.Replacements?.Length ?? 0) == 0 && string.IsNullOrWhiteSpace(input.Description) &&
                 string.IsNullOrWhiteSpace(input.Title) && string.IsNullOrWhiteSpace(input.IconSvg) && string.IsNullOrWhiteSpace(input.Macro) &&
-                string.IsNullOrWhiteSpace(input.Preview) && input.Inputs == null && input.Agent == null && input.Intelligence == null &&
+                string.IsNullOrWhiteSpace(input.Preview) && input.Inputs == null && input.Agent == null && input.RunStyle == null && input.Intelligence == null &&
                 input.Confirm == null && input.Context == null)
                 throw new ToolException("Nothing to change: pass append, replacements, description, title, icon_svg, macro, preview, inputs or a tool setting.");
             if (!string.IsNullOrWhiteSpace(input.IconSvg)) WriteIcon(dir, input.IconSvg, iconChanged: true);
@@ -308,10 +344,18 @@ namespace SwAgent.Tools
                 SetHeader(header, "updated", Now());
                 if (!string.IsNullOrWhiteSpace(input.Description)) SetHeader(header, "description", OneLine(input.Description));
                 if (!string.IsNullOrWhiteSpace(input.Title)) SetHeader(header, "title", OneLine(input.Title));
-                if (input.Agent != null) SetHeader(header, "agent", input.Agent == false ? "false" : "true");
+                if (input.RunStyle != null || input.Agent != null) SetHeader(header, "agent", AgentValue(input.RunStyle, input.Agent, true));
                 if (ToolSpec.Tiers.Contains(input.Intelligence)) SetHeader(header, "intelligence", input.Intelligence);
                 if (input.Confirm == "always" || input.Confirm == "missing") SetHeader(header, "confirm", input.Confirm);
                 if (input.Context?.Length > 0) SetHeader(header, "context", string.Join(", ", input.Context.Select(c => c.Trim().ToLowerInvariant())));
+                // A new preview or macro replaces the one that crashed SolidWorks: un-pause it.
+                var paused = header.FirstOrDefault(l => l.StartsWith("paused:", StringComparison.OrdinalIgnoreCase));
+                if (paused != null)
+                {
+                    var left = paused.Substring(7).Split(new[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries)
+                        .Where(p => !(p == "preview" && !string.IsNullOrWhiteSpace(input.Preview)) && !(p == "macro" && !string.IsNullOrWhiteSpace(input.Macro)));
+                    SetHeader(header, "paused", string.Join(", ", left));
+                }
             }
             File.WriteAllText(md, (header.Count > 0 ? string.Join("\n", header) + "\n" : "") + body, new UTF8Encoding(false));
             Log.Info($"Edited user tool '{input.Name}'");
@@ -427,9 +471,11 @@ namespace SwAgent.Tools
                         ["hasMacro"] = File.Exists(Path.Combine(dir, "macro.cs")),
                         ["model"] = fm.TryGetValue("model", out var m) ? m : null,
                         ["agent"] = !fm.TryGetValue("agent", out var ag) || ag != "false" || !File.Exists(Path.Combine(dir, "macro.cs")),
+                        ["runStyle"] = !File.Exists(Path.Combine(dir, "macro.cs")) ? "agent" : ag == "false" ? "hardcoded" : ag == "hybrid" || ag == "fallback" ? "hybrid" : "agent",
                         ["intelligence"] = fm.TryGetValue("intelligence", out var tier) && ToolSpec.Tiers.Contains(tier) ? tier : "balanced",
                         ["hasInputs"] = File.Exists(Path.Combine(dir, "inputs.json")),
                         ["hasPreview"] = File.Exists(Path.Combine(dir, "preview.cs")),
+                        ["paused"] = fm.TryGetValue("paused", out var pz) ? pz : "",
                         ["updated"] = fm.TryGetValue("updated", out var u) ? u : File.GetLastWriteTimeUtc(md).ToString("o"),
                         ["iconSvg"] = ReadIconSvg(dir),
                         ["hasPng"] = File.Exists(Path.Combine(dir, "icon.png")),

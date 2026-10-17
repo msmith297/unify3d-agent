@@ -28,17 +28,23 @@ namespace SwAgent.Chat
             AgentAddIn.Instance?.Controller?.OnDocumentOpened(this);
         }
 
-        private void OnStreamRead(IXDocument doc) => Chat.ReadFromFile(doc);
+        // SolidWorks calls these on its own: an exception escaping them would close SolidWorks (see Safe).
+        private void OnStreamRead(IXDocument doc) => Safe.Run("Reading the chat from the file", () =>
+        {
+            Chat.ReadFromFile(doc);
+            // The panel may have asked for this chat before SolidWorks read it from the file: let it reload.
+            AgentAddIn.Instance?.Controller?.OnChatReadFromFile(this);
+        });
 
-        private void OnStreamWrite(IXDocument doc)
+        private void OnStreamWrite(IXDocument doc) => Safe.Run("Writing the chat into the file", () =>
         {
             Chat.WriteToFile(doc);
             AgentAddIn.Instance?.Controller?.OnDocumentSaved(this);
-        }
+        });
 
-        private void OnNewSelection(IXDocument doc, IXSelObject obj) => AgentAddIn.Instance?.Controller?.OnSelectionChanged(this);
+        private void OnNewSelection(IXDocument doc, IXSelObject obj) => Safe.Run("Selection event", () => AgentAddIn.Instance?.Controller?.OnSelectionChanged(this));
 
-        private void OnClearSelection(IXDocument doc) => AgentAddIn.Instance?.Controller?.OnSelectionChanged(this);
+        private void OnClearSelection(IXDocument doc) => Safe.Run("Selection event", () => AgentAddIn.Instance?.Controller?.OnSelectionChanged(this));
 
         public void Dispose()
         {

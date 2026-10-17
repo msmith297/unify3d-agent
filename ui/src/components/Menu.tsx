@@ -75,7 +75,10 @@ export function IconButton({
   active,
   disabled,
   className = "",
+  tour,
 }: {
+  /** data-tour name, for the first-run tour's spotlight. */
+  tour?: string;
   title: string;
   onClick?: () => void;
   children: ReactNode;
@@ -84,7 +87,7 @@ export function IconButton({
   className?: string;
 }) {
   return (
-    <button type="button" title={title} aria-label={title} aria-pressed={active} disabled={disabled} onClick={onClick} className={`sw-tool ${className}`}>
+    <button type="button" title={title} aria-label={title} aria-pressed={active} disabled={disabled} onClick={onClick} className={`sw-tool ${className}`} data-tour={tour}>
       {children}
     </button>
   );

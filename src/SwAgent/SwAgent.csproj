@@ -8,7 +8,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <RootNamespace>SwAgent</RootNamespace>
     <AssemblyName>SwAgent</AssemblyName>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <!-- Copy every NuGet dependency next to SwAgent.dll; SolidWorks loads us via COM codebase. -->
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <!-- Registration needs admin rights, so it's done by scripts/register.ps1 instead of on every build. -->
@@ -30,6 +30,18 @@
     <Reference Include="System.Security" />
     <Reference Include="Microsoft.VisualBasic" />
     <Reference Include="System.Net.Http" />
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.Speech" />
+  </ItemGroup>
+
+  <!-- Local speech-to-text for push-to-talk: a separate process, built into bin\...\speech (see SwAgent.Speech). -->
+  <ItemGroup>
+    <ProjectReference Include="..\SwAgent.Speech\SwAgent.Speech.csproj" ReferenceOutputAssembly="false" Private="false" />
+  </ItemGroup>
+
+  <!-- Headless tests (tests/SwAgent.Tests) exercise the parts that don't need SolidWorks. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="SwAgent.Tests" />
   </ItemGroup>
 
   <!-- Brand mark (assets/brand), used for the add-in, task pane and ribbon icons. -->

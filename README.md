@@ -33,6 +33,27 @@ SLDWORKS.exe
     staged with the inputs for the agent at the tool's **intelligence** tier (Fast / Balanced / Max), shown in the panel
     as a single "executing" line.
 - The agent creates both with an in-chat questionnaire, from a description, from "what you just did", or from the model.
+- **Watch me** (the eye button in the chat box) records what you do in the active part or assembly while it is on:
+  every feature you add, edit, rename, suppress or delete, with its type and parameters ("Added Fillet3 (Fillet):
+  constant radius 2 mm on 4 edges - with 4 edges of Boss-Extrude1 selected", "Edited Boss-Extrude1: end blind 10 mm
+  -> blind 15 mm"), what you selected for it, and a thumbnail of the view after each change. The log is kept compact:
+  a feature tweaked right after creating it is one step with its final values, a value dragged through several
+  numbers is one edit, something added and deleted again disappears. The camera is never moved. Press
+  **Stop & attach** and the log, the final parameters of every feature it touches, the view before and after and a
+  strip of step thumbnails go with your next message - "Turn what I just did into a tool" then builds the tool or
+  workflow from exactly those steps.
+- **3D model files** in a tool's files input, or attached to a chat message (paper-clip button, or drop them on the
+  chat box), are read in the background instead of being passed as a bare path. The agent gets six rendered views in
+  one image (isometric, front, top, right, back iso, from below, each with an axis triad) and a measurement summary:
+  size and bounding box, volume, surface area, bodies / shells, watertightness, units, and SolidWorks mass properties
+  where SolidWorks read the file.
+  - STL, 3MF and OBJ are parsed, measured and rendered entirely off the SolidWorks UI thread (a small software
+    renderer - no window, no GPU, nothing on screen changes).
+  - STEP, IGES, Parasolid, SLDPRT and SLDASM are opened by SolidWorks as **hidden** documents, measured,
+    tessellated in short slices (SolidWorks stays responsive), and closed again together with anything they pulled in;
+    a file you already have open is read in place and left alone. Your documents, camera and view are not touched.
+  - Budget: meshes up to 300 MB / 40 s, CAD files up to 400 MB / 90 s, 2.5 M triangles; results are cached per file
+    version. If a file can't be read, the agent gets its path and the reason.
 
 Both are created with the agent and stored in `%APPDATA%\SwAgent\tools\<name>\` (`TOOL.md`, `inputs.json`, `macro.cs`, `preview.cs`, `icon.svg`).
 
@@ -110,6 +131,9 @@ harmless to SolidWorks.
   The panel then loads the Vite dev server. Right-click > Inspect opens DevTools.
 - **UI without SolidWorks:** run `npm --prefix ui run dev` and open `http://localhost:5173/?demo`. A mock host
   (`ui/src/lib/mockHost.ts`) stands in for the add-in and seeds a sample conversation.
+- **Tests:** `dotnet test tests/SwAgent.Tests -c Release` runs the headless tests (mesh reading, measuring and
+  rendering; the Watch me diff and log). They need no SolidWorks; set `SWAGENT_TEST_DUMP` to a folder to save a
+  sample six-view sheet there.
 - **Logs:** `%LOCALAPPDATA%\SwAgent\logs\swagent-YYYYMMDD.log`. Settings > *Open logs* opens the folder.
 - **Rebuilding the add-in:** close SolidWorks first, because it locks `SwAgent.dll`. You only need to re-register
   if the output path changes.
@@ -121,7 +145,10 @@ harmless to SolidWorks.
 | `src/SwAgent/AgentAddIn.cs` | Add-in entry point: ribbon commands, context menus, task pane, document handlers |
 | `src/SwAgent/AgentController.cs` | RPC surface for the UI; document, selection and chat events |
 | `src/SwAgent/Chat/` | In-file chat storage and crash backups |
-| `src/SwAgent/Tools/` | Agent tools: model inspection, view capture, API reference, registry |
+| `src/SwAgent/Tools/` | Agent tools: model inspection, view capture, API reference, registry; `ToolRunner` runs the user's tools |
+| `src/SwAgent/ModelFiles/` | 3D model context: mesh readers (STL/3MF/OBJ), measurements, software renderer, hidden SolidWorks loading |
+| `src/SwAgent/Watch/` | "Watch me": feature snapshots and diffs, the compact activity log, the recorder |
+| `tests/SwAgent.Tests/` | Headless tests (xUnit) for the parts that don't need SolidWorks |
 | `src/SwAgent/Scripting/` | Roslyn C# REPL that `execute_csharp` runs on |
 | `src/SwAgent/UI/` | WebView2 task pane and JSON-RPC bridge |
 | `ui/src/agent/` | System prompt and the agent loop (streaming, tools, approvals) |

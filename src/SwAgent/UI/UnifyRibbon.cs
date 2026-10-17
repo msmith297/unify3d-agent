@@ -18,9 +18,11 @@ namespace SwAgent.UI
     /// The "Unify3D" ribbon tab (and Unify3D menu/toolbar): the panel commands, then the user's Tools - small, fast
     /// commands with their own icons - and "New Tool". Workflows live in the chat panel, not here.
     ///
-    /// Built with the plain SolidWorks command API (xCAD command groups are fixed at start-up) and rebuilt whenever
-    /// a tool is saved, edited, deleted or gets a new icon. Every command keeps the same user ID for as long as it
-    /// exists, so keyboard shortcuts assigned in Tools > Customize > Keyboard stay on the right command.
+    /// Built once, at start-up, with the plain SolidWorks command API. SolidWorks doesn't apply command-group changes
+    /// made while it runs (a rebuilt group keeps stale callbacks until restart - a new button can even run another
+    /// command), so tools saved during a session reach the ribbon after a restart; IsStale tells the panel to offer
+    /// one. Every command keeps the same user ID for as long as it exists, so keyboard shortcuts assigned in
+    /// Tools > Customize > Keyboard stay on the right command.
     /// Buttons call back into the add-in object by name: OnUnifyCommand("chat") / OnUnifyEnable("t104").
     /// </summary>
     internal sealed class UnifyRibbon : IDisposable
@@ -40,6 +42,12 @@ namespace SwAgent.UI
             ("view", 4, "Attach View", "Attach a screenshot of the current view to your message", () => Icons.Camera),
         };
 
+        /// <summary>Built-in Unify3D tools: shipped with the add-in, their own box on the tab.</summary>
+        private static readonly (string Arg, int Id, string Title, string Hint, Func<byte[]> Icon)[] BuiltIn =
+        {
+            ("smartrebuild", 7, "Smart Rebuild", "Rebuild the whole design around a change far back in its history - a new customer part, a changed dimension", () => Icons.SmartRebuild),
+        };
+
         private static readonly (string Arg, int Id, string Title, string Hint, Func<byte[]> Icon)[] Trailing =
         {
             ("newtool", 5, "New Tool", "Create a new tool with the agent", () => Icons.NewTool),
@@ -50,6 +58,16 @@ namespace SwAgent.UI
         private readonly Timer _debounce = new Timer { Interval = 400 };
         private Dictionary<int, string> _toolById = new Dictionary<int, string>();
         private bool _created;
+        private string _builtSignature;
+
+        /// <summary>Tools were added, removed, renamed or re-iconed since the ribbon was built.</summary>
+        public bool IsStale() => _builtSignature != null && Signature() != _builtSignature;
+
+        private static string Signature() => string.Join("|", UserTools.ListTools().Where(t => (string)t["kind"] == "tool").Select(t =>
+        {
+            var png = Path.Combine(UserTools.Root, (string)t["name"], "icon.png");
+            return $"{t["name"]}:{t["title"]}:{(File.Exists(png) ? File.GetLastWriteTimeUtc(png).Ticks : 0)}";
+        }));
 
         public UnifyRibbon(ICommandManager cmdMgr)
         {
@@ -76,11 +94,13 @@ namespace SwAgent.UI
         {
             try
             {
+                _builtSignature = Signature();
                 var tools = UserTools.ListTools().Where(t => (string)t["kind"] == "tool").ToList();
                 var ids = StableIds(tools.Select(t => (string)t["name"]).ToList());
 
                 var commands = new List<(string Arg, int Id, string Title, string Hint, byte[] Icon)>();
                 commands.AddRange(Fixed.Select(f => (f.Arg, f.Id, f.Title, f.Hint, f.Icon())));
+                commands.AddRange(BuiltIn.Select(f => (f.Arg, f.Id, f.Title, f.Hint, f.Icon())));
                 foreach (var t in tools)
                 {
                     var name = (string)t["name"];
@@ -117,13 +137,13 @@ namespace SwAgent.UI
                 _toolById = tools.ToDictionary(t => ids[(string)t["name"]], t => (string)t["name"]);
                 _created = true;
 
-                // One tab: panel commands | tools + New Tool | Options.
+                // One tab: Unify3D Agent commands + Options | built-in Unify3D tools | the user's tools + New Tool.
                 int Cmd(int id) => group.get_CommandID(indexes[id]);
                 var boxes = new List<int[]>
                 {
-                    Fixed.Select(f => Cmd(f.Id)).ToArray(),
+                    Fixed.Select(f => Cmd(f.Id)).Concat(new[] { Cmd(6) }).ToArray(),
+                    BuiltIn.Select(f => Cmd(f.Id)).ToArray(),
                     tools.Select(t => Cmd(ids[(string)t["name"]])).Concat(new[] { Cmd(5) }).ToArray(),
-                    new[] { Cmd(6) },
                 };
                 foreach (var type in DocTypes)
                 {

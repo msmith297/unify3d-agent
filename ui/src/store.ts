@@ -5,24 +5,33 @@ import { DEFAULT_SETTINGS, SETTINGS_VERSION, tierModel } from "./lib/models";
 import type {
   Attachment,
   ChatData,
+  ResumePanel,
   ContentBlockParam,
   DocInfo,
   Effort,
+  FileEntry,
+  ImageMediaType,
   HostState,
   MessageParam,
   SelectionItem,
   Settings,
   SwThemeInfo,
+  CrashInfo,
   ToolRunPayload,
   FormSpec,
   UpdateInfo,
   UserToolInfo,
   Thread,
+  VoicePayload,
+  VoiceStatus,
   ToolDef,
   ToolRunResult,
   TurnMeta,
   Usage,
+  WatchEntry,
+  WatchResult,
 } from "./lib/types";
+import { recordSession } from "./lib/sessions";
 import { WRITE_TOOLS, runAgent, type ApprovalDecision, type ApprovalRequest, type LiveBlock } from "./agent/runAgent";
 
 export interface ChatSlot {
@@ -30,6 +39,24 @@ export interface ChatSlot {
   docId: string;
   data: ChatData;
   recovered: boolean;
+}
+
+/** A follow-up typed while the agent was working: sent when the run ends, or at its next step with "Send now". */
+export interface QueuedMessage {
+  id: string;
+  text: string;
+  attachments: Attachment[];
+  now?: boolean;
+  /** A tool run waiting for the agent: its staged prompt and run settings (text is then just its label). */
+  staged?: { blocks: ContentBlockParam[]; refs: Record<string, string>; run: RunOverride };
+}
+
+/** Settings for one run that differ from the chat's own (a tool's intelligence level, auto-approval). */
+export interface RunOverride {
+  model?: string;
+  effort?: Effort;
+  autoApprove?: boolean;
+  label?: string;
 }
 
 export interface RunState {
@@ -43,6 +70,10 @@ export interface RunState {
   /** Ribbon tool runs: the tool's title (shown in the "executing" banner) and when it started. */
   label?: string;
   startedAt?: number;
+  /** When the current request to the model started (the thinking timer). */
+  requestStartedAt?: number;
+  /** A status line, e.g. a stalled connection being retried. */
+  status?: string | null;
 }
 
 /** The last ribbon tool run's outcome, shown briefly in the banner. */
@@ -77,26 +108,62 @@ interface State {
   excludedSel: number[];
   /** Per document: signature of a selection the agent made (it selects entities to build features). Hidden, never sent. */
   agentSel: Record<string, string>;
-  markup: { active: boolean; tool: MarkupTool; color: string; strokes: number };
+  markup: { active: boolean; tool: MarkupTool; color: string; strokes: number; frames: number };
+  /** Push-to-talk: what is being said and done right now. */
+  voice: VoiceLive;
+  voiceStatus: VoiceStatus | null;
+  /** Discard the voice message being recorded. */
+  cancelVoice(): void;
+  /** A speech model being downloaded to turn voice on with (it is selected and voice enabled when it arrives). */
+  voiceWant: string | null;
+  /** Turn voice on: with the model if it's downloaded, otherwise download it first. */
+  enableVoice(modelId?: string): void;
+  disableVoice(): void;
+  /** Download a model and switch to it when it arrives. */
+  downloadVoiceModel(modelId: string): void;
+  /** The first-run tour: the step shown, or null. */
+  tourStep: number | null;
+  startTour(): void;
+  setTourStep(step: number): void;
+  endTour(): void;
   runs: Record<string, RunState>;
+  /** Follow-ups per thread, waiting for the running turn. */
+  queue: Record<string, QueuedMessage[]>;
+  queueSendNow(threadId: string, id: string): void;
+  queueEdit(threadId: string, id: string): void;
+  queueRemove(threadId: string, id: string): void;
   drafts: Record<string, string>;
   attachments: Record<string, Attachment[]>;
-  panel: "chat" | "settings";
+  panel: "chat" | "settings" | "newTool" | "smartRebuild";
   focusTick: number;
   notice: string | null;
+  /** "Watch me": recording what the user does in a document (live log from the add-in). */
+  watch: WatchState;
 
   boot(): Promise<void>;
   showDoc(key: string): Promise<void>;
   newChat(): Promise<void>;
   selectThread(threadId: string): Promise<void>;
   deleteThread(threadId: string): Promise<void>;
+  /** "Not now" on a Save-and-restart offer. */
+  dismissRestart(threadId: string, offerId: string): void;
+  /** From the New tool screen: start the agent on a tool described there. */
+  startNewTool(spec: NewToolSpec): Promise<void>;
+  /** When this SolidWorks session started (or the panel, with older add-ins): ms since epoch. */
+  sessionStart: number;
+  /** Items the agent has drawn on the user's view (show_overlay); 0 when nothing is shown. */
+  overlayCount: number;
+  clearOverlay(): void;
   setThreadModel(model: string): void;
   setThreadEffort(effort: Effort): void;
   setDraft(text: string): void;
   addAttachment(a: Attachment): void;
   removeAttachment(id: string): void;
   attachView(): Promise<void>;
-  send(text: string): Promise<void>;
+  /** model / effort apply when this starts a new chat. */
+  send(text: string, opts?: { model?: string; effort?: Effort }): Promise<void>;
+  /** From the Smart Rebuild screen; returns a problem to show, or null once the agent has started. */
+  startSmartRebuild(spec: SmartRebuildSpec): Promise<string | null>;
   retry(): Promise<void>;
   /** Drop everything after the prompt at msgIndex and run again, optionally with edited text. */
   resendFrom(msgIndex: number, editedText?: string): Promise<void>;
@@ -104,15 +171,25 @@ interface State {
   stop(threadId?: string): void;
   answerApproval(threadId: string, d: ApprovalDecision): void;
   answerQuestion(threadId: string, answer: string): void;
+  /** What's typed (or dictated) into a pending question's answer box, per thread. */
+  answerDrafts: Record<string, string>;
+  setAnswerDraft(threadId: string, text: string): void;
   saveSettings(patch: Partial<Settings>): Promise<void>;
   setApiKey(key: string): Promise<void>;
   setPanel(p: State["panel"]): void;
   setIncludeSelection(v: boolean): void;
   toggleSelItem(index: number): void;
   runUserTool(name: string): Promise<void>;
-  /** A ribbon tool that needs the agent. Runs in the background "Tool runs" chat. */
+  /** A ribbon tool that needs the agent. Runs in the chat the user is in (queued if the agent is busy there). */
   runQuickTool(payload: ToolRunPayload): Promise<void>;
   toolOutcome: ToolRunOutcome | null;
+  crash: CrashInfo | null;
+  ribbonStale: boolean;
+  dismissCrash(): void;
+  /** Start a chat that hands the agent the crash details so it finds and fixes the cause. */
+  askAboutCrash(): Promise<void>;
+  /** Save open documents and restart SolidWorks (for new tools to reach the ribbon). */
+  saveAndRestart(): Promise<string | null>;
   deleteUserTool(name: string): Promise<void>;
   startMarkup(): Promise<void>;
   setMarkup(patch: { tool?: MarkupTool; color?: string }): void;
@@ -121,9 +198,55 @@ interface State {
   finishMarkup(): Promise<void>;
   cancelMarkup(): void;
   dismissNotice(): void;
+  /** Open the file dialog and attach what the user picks (images, PDFs, 3D models). */
+  pickFiles(): Promise<void>;
+  /** Attach files the add-in described (picked, dropped, ...); 3D models are read in the background. */
+  addFileEntries(entries: FileEntry[]): void;
+  startWatch(): Promise<void>;
+  /** Stop recording and attach the log (with views before/after) to the next message. */
+  stopWatch(): Promise<void>;
+  cancelWatch(): void;
 }
 
+export interface WatchState {
+  active: boolean;
+  /** Stopping: the add-in is finishing the log and capturing the final view. */
+  busy: boolean;
+  docKey: string | null;
+  doc: string | null;
+  startedAt: number;
+  entries: WatchEntry[];
+}
+
+const WATCH_IDLE: WatchState = { active: false, busy: false, docKey: null, doc: null, startedAt: 0, entries: [] };
+
+/**
+ * Chats aren't tied to documents: they all live in one workspace list (stored by the add-in in its own folder), so a
+ * chat keeps going while files are opened, created and switched. Tools act on the active document.
+ */
+export const WORKSPACE = "workspace";
+
 export type MarkupTool = "pen" | "arrow" | "circle" | "highlighter";
+
+/** The live voice message: idle, listening (key held), transcribing (key let go), pen (waiting for the markup to end). */
+export interface VoiceLive {
+  phase: "idle" | "listening" | "transcribing" | "pen";
+  text: string;
+  level: number;
+  events: { t: number; kind: string; summary: string }[];
+  docKey: string | null;
+}
+export const VOICE_IDLE: VoiceLive = { phase: "idle", text: "", level: 0, events: [], docKey: null };
+
+/** The talk key as a person reads it. */
+export function talkKeyName(key: string | undefined): string {
+  const k = key ?? "vk:192";
+  if (k === "mouse:x1") return "the mouse Back button";
+  if (k === "mouse:x2") return "the mouse Forward button";
+  const vk = Number(k.slice(3));
+  const names: Record<number, string> = { 192: "`", 20: "Caps Lock", 163: "Right Ctrl", 119: "F8", 120: "F9", 19: "Pause", 145: "Scroll Lock" };
+  return names[vk] ?? `key ${vk}`;
+}
 export const MARKUP_COLORS = ["#E5302A", "#F2B11F", "#2F84D6", "#2E9E3E"];
 export const MARKUP_NAME = "Markup";
 
@@ -172,6 +295,9 @@ function stageToolPrompt(p: ToolRunPayload, label: string, refBase: number): { b
         } else if (f.data && f.mediaType === "application/pdf") {
           attachments.push({ type: "document", source: { type: "base64", media_type: "application/pdf", data: f.data }, title: f.name } as unknown as ContentBlockParam);
           names.push(`${f.name} (attached PDF)`);
+        } else if (f.kind === "model" && f.summary) {
+          attachments.push(...modelBlocks(f));
+          names.push(`${f.name} (3D model - ${f.views ? "views and measurements" : "what could be read"} attached)`);
         } else {
           names.push(`${f.name} (${f.kind === "model" ? "3D model, not attached - open it with execute_csharp if you need it" : f.error ?? "not attached"}: ${f.path})`);
         }
@@ -183,8 +309,12 @@ function stageToolPrompt(p: ToolRunPayload, label: string, refBase: number): { b
     }
   }
   const c = p.context ?? {};
-  if (c.failure) contextLines.unshift(`The tool's macro failed - finish the job, then fix the macro (edit_user_tool) so the next run works:\n${c.failure.slice(0, 4000)}`);
-  if (c.macroOutput) contextLines.unshift(`Output of the tool's macro (already run):\n${c.macroOutput.slice(0, 6000)}`);
+  if (c.handoff) contextLines.unshift(`${c.handoff.slice(0, 6000)}
+
+Finish this case yourself. If it is a case the macro should cover, extend the macro (edit_user_tool) afterwards.`);
+  const toolName = p.title ?? p.tool;
+  if (c.failure) contextLines.unshift(`The macro in the "${toolName}" tool failed - finish the job, then fix the macro (edit_user_tool) so the next run works:\n${c.failure.slice(0, 4000)}`);
+  if (c.macroOutput) contextLines.unshift(`Output of the macro in the "${toolName}" tool (already run):\n${c.macroOutput.slice(0, 6000)}`);
   if (c.model) contextLines.push(`Model:\n${c.model}`);
   if (c.history) contextLines.push(`Feature history:\n${c.history}`);
 
@@ -194,6 +324,135 @@ function stageToolPrompt(p: ToolRunPayload, label: string, refBase: number): { b
   if (c.view) blocks.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: c.view } });
   return { blocks, refs };
 }
+
+/** Text blocks the panel adds for attachments; the chat shows them as cards, not as the user's words. */
+export const MODEL_TAG = "<model_file";
+export const WATCH_TAG = "<watch_log";
+export const VOICE_TAG = "<voice_timeline";
+export function isAttachmentText(text: string): boolean {
+  return text.startsWith(MODEL_TAG) || text.startsWith(WATCH_TAG) || text.startsWith(VOICE_TAG);
+}
+
+const clock = (ms: number) => {
+  const s = Math.max(0, Math.round(ms / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+};
+
+/**
+ * A voice message for the agent: one timeline of what the user said and did (selections get reference ids that
+ * continue from startN, like the context block's), then the images it mentions, in order. Without refs (a message
+ * handed over mid-run) the selections are described only.
+ */
+export function voiceBlocks(v: VoicePayload, startN: number | null): { blocks: ContentBlockParam[]; refs: Record<string, string>; count: number } {
+  const refs: Record<string, string> = {};
+  let n = startN ?? 0;
+  let image = 0;
+  const images: ContentBlockParam[] = [];
+  type Row = { t: number; line: string };
+  const rows: Row[] = v.segments.map((s) => ({ t: s.t0, line: `said: "${s.text}"` }));
+  for (const e of v.events) {
+    let line: string;
+    switch (e.kind) {
+      case "view":
+      case "markup":
+        if (!e.image) continue;
+        image++;
+        images.push({ type: "image", source: { type: "base64", media_type: (e.mediaType ?? "image/jpeg") as ImageMediaType, data: e.image } });
+        line =
+          e.kind === "view"
+            ? `[image ${image}: the view at this moment${image === 1 ? " (when they started talking)" : ""}]`
+            : `[image ${image}: the user's markup - pen strokes, arrows or circles they drew over this view]`;
+        break;
+      case "select": {
+        const items = (e.items ?? []).map((it) => {
+          const what = `${it.type}${it.label ? ` of ${it.label}` : ""}${it.detail ? ` - ${it.detail}` : ""}`;
+          if (startN === null || !it.ref) return what;
+          const id = `S${++n}`;
+          refs[id] = it.ref;
+          return `[${id}] ${what}`;
+        });
+        line = (e.summary.startsWith("Already") ? "already selected: " : "selected: ") + items.join("; ");
+        break;
+      }
+      default:
+        line = e.summary.charAt(0).toLowerCase() + e.summary.slice(1);
+    }
+    rows.push({ t: e.t, line });
+  }
+  rows.sort((a, b) => a.t - b.t);
+  const markups = v.events.filter((e) => e.kind === "markup").length;
+  const head =
+    `${VOICE_TAG} duration="${clock(v.durationMs)}" images="${image}" markups="${markups}">\n` +
+    "A voice message: the user talked while working in SolidWorks. Speech was transcribed on their PC, so expect recognition errors, " +
+    "especially in names - prefer what the timeline and images show. What they said and what they did are interleaved by time " +
+    '(m:ss from when they started); "this", "here" and "that face" usually mean what they selected or marked at that moment.' +
+    (image ? ` The ${image} image${image === 1 ? "" : "s"} follow this block in order.` : "") +
+    "\n\n";
+  const body = rows.map((r) => `${clock(r.t)}  ${r.line}`).join("\n");
+  const blocks: ContentBlockParam[] = [{ type: "text", text: `${head}${body}\n</voice_timeline>` }, ...images];
+  return { blocks, refs, count: n - (startN ?? 0) };
+}
+
+const escapeAttr = (v: string) => v.replace(/[&"<>]/g, (c) => ({ "&": "&amp;", '"': "&quot;", "<": "&lt;", ">": "&gt;" })[c]!);
+
+/** A 3D model for the agent: the measurement summary, then the six-view sheet. */
+export function modelBlocks(f: FileEntry): ContentBlockParam[] {
+  const text = f.summary ?? `3D model: ${f.name} - not read${f.error ? ` (${f.error})` : ""}. Path: ${f.path}`;
+  const blocks: ContentBlockParam[] = [{ type: "text", text: `${MODEL_TAG} name="${escapeAttr(f.name)}" path="${escapeAttr(f.path)}">\n${text}\n</model_file>` }];
+  if (f.views) blocks.push({ type: "image", source: { type: "base64", media_type: (f.viewsMediaType ?? "image/jpeg") as ImageMediaType, data: f.views } });
+  return blocks;
+}
+
+/** A "Watch me" recording for the agent: the log, then the views before / after and the step thumbnails. */
+export function watchBlocks(w: WatchResult): ContentBlockParam[] {
+  const images: { label: string; data: string }[] = [];
+  if (w.before) images.push({ label: "the view when recording started", data: w.before });
+  if (w.after) images.push({ label: "the view when it stopped", data: w.after });
+  if (w.film) images.push({ label: "thumbnails of the steps, labelled STEP n like the log", data: w.film });
+  const note = images.length ? `\nAttached after this block, in order: ${images.map((i) => i.label).join("; ")}.` : "";
+  return [
+    { type: "text", text: `${WATCH_TAG} doc="${escapeAttr(w.doc)}" steps="${w.steps}">\n${w.text}${note}\n</watch_log>` },
+    ...images.map((i): ContentBlockParam => ({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: i.data } })),
+  ];
+}
+
+/** Follow-ups delivered mid-run ("Send now"): text and attachments, after the tool results. */
+function queuedBlocks(q: QueuedMessage[]): ContentBlockParam[] {
+  const blocks: ContentBlockParam[] = [];
+  for (const m of q) {
+    if (m.staged) {
+      blocks.push(...m.staged.blocks); // a queued tool run: its whole staged prompt
+      continue;
+    }
+    if (m.text) blocks.push({ type: "text", text: m.text });
+    for (const a of m.attachments) blocks.push(...attachmentBlocks(a));
+  }
+  return blocks;
+}
+
+/** Content blocks for whatever is attached to a message. */
+function attachmentBlocks(a: Attachment): ContentBlockParam[] {
+  switch (a.kind) {
+    case "image":
+      return [{ type: "image", source: { type: "base64", media_type: a.mediaType, data: a.data } }];
+    case "pdf":
+      return [{ type: "document", source: { type: "base64", media_type: "application/pdf", data: a.data }, title: a.name } as unknown as ContentBlockParam];
+    case "model":
+      return modelBlocks(a.entry ?? { name: a.name, path: a.path, kind: "model" });
+    case "watch":
+      return watchBlocks(a.watch);
+    case "voice":
+      return voiceBlocks(a.voice, null).blocks;
+  }
+}
+
+/** Threads whose running turn answers a voice message (its reply may be read aloud). */
+const speakAfter = new Set<string>();
+let lastVoice: VoicePayload | null = null;
+
+/** 3D models being read by the add-in, by attachment id (send waits for them). */
+const describing = new Map<string, Promise<void>>();
+const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 
 /** Stable empty array for selectors (a fresh [] each call would re-render forever). */
 export const EMPTY: never[] = [];
@@ -259,6 +518,7 @@ export const useStore = create<State>((set, get) => {
       revision: raw.revision ?? 0,
       activeThreadId: raw.activeThreadId ?? null,
       threads: raw.threads ?? [],
+      imported: raw.imported ?? [],
     };
     data.threads = (data.threads ?? []).map((t) => ({ ...t, turns: t.turns ?? [], messages: t.messages ?? [] }));
     set((s) => ({
@@ -276,10 +536,10 @@ export const useStore = create<State>((set, get) => {
     docKey: string,
     threadId: string,
     hasMarkup: boolean,
-    opts: { noView?: boolean } = {},
+    opts: { noView?: boolean; reserved?: number } = {},
   ): Promise<{ blocks: ContentBlockParam[]; refs: Record<string, string> }> => {
     const s = get();
-    const doc = s.docs[docKey];
+    const doc = s.docs[s.activeDocKey ?? ""];
     const lines: string[] = [];
     const refs: Record<string, string> = {};
     const extra: ContentBlockParam[] = [];
@@ -292,9 +552,9 @@ export const useStore = create<State>((set, get) => {
     const snap = await rpc<SelectionSnapshot | null>("selection.snapshot", { docKey }).catch(() => null);
     if (snap?.view?.text) lines.push(`Camera: ${snap.view.text}`);
 
-    const items = isAgentSelection(s, docKey) ? [] : snap?.items ?? [];
+    const items = isAgentSelection(s, s.activeDocKey ?? "") ? [] : snap?.items ?? [];
     const thread = s.chats[docKey]?.data.threads.find((t) => t.id === threadId);
-    let n = Object.keys(thread?.selRefs ?? {}).length;
+    let n = Object.keys(thread?.selRefs ?? {}).length + (opts.reserved ?? 0);
     if (items.length > 0 && !s.includeSelection) {
       lines.push("Selection: (the user chose not to share it)");
     } else {
@@ -312,7 +572,7 @@ export const useStore = create<State>((set, get) => {
     }
 
     if (hasMarkup) {
-      lines.push("The image attached above is the user's markup: strokes, arrows and circles drawn over their current view.");
+      lines.push("The images named Markup attached above are the user's markup: strokes, arrows and circles drawn over their view - one image per view they marked.");
     } else if (s.settings.shareView && !opts.noView && doc.type !== "other") {
       const shot = await rpc<ToolRunResult>("tools.run", {
         docKey,
@@ -329,7 +589,7 @@ export const useStore = create<State>((set, get) => {
     return { blocks: [{ type: "text", text: `<sw_context>\n${lines.join("\n")}\n</sw_context>` }, ...extra], refs };
   };
 
-  const startRun = async (docKey: string, threadId: string, extra: Partial<RunState> = {}) => {
+  const startRun = async (docKey: string, threadId: string, extra: Partial<RunState> = {}, run: RunOverride = {}) => {
     const keyRes = await rpc<{ key: string | null }>("apiKey.get");
     if (!keyRes.key) {
       set({ panel: "settings", notice: "Add your Anthropic API key to start chatting." });
@@ -343,7 +603,9 @@ export const useStore = create<State>((set, get) => {
       runs: { ...s.runs, [threadId]: { docKey, threadId, live: null, runningToolId: null, approval: null, question: null, controller, ...extra } },
     }));
     const started = performance.now();
-    const selectionAtStart = selSig(get().selection[docKey] ?? []);
+    let outcome = "end_turn";
+    const selDoc = get().activeDocKey ?? "";
+    const selectionAtStart = selSig(get().selection[selDoc] ?? []);
     rpc("agent.activity", { running: true }).catch(() => {});
     const turnIndex = thread.turns.length - 1;
     const patchTurn = (patch: Partial<TurnMeta>) =>
@@ -355,11 +617,12 @@ export const useStore = create<State>((set, get) => {
     try {
       const result = await runAgent({
         apiKey: keyRes.key,
-        model: thread.model,
-        effort: thread.effort,
+        model: run.model ?? thread.model,
+        effort: run.effort ?? thread.effort,
         tools: get().tools,
-        approval: get().settings.approval,
+        approval: run.autoApprove ? "auto" : get().settings.approval,
         realisticAppearance: get().settings.realisticAppearance,
+        verbosity: get().settings.verbosity ?? "medium",
         userTools: get().userTools,
         signal: controller.signal,
         cb: {
@@ -388,23 +651,42 @@ export const useStore = create<State>((set, get) => {
                 };
               }),
             })),
-          approve: (req) => new Promise<ApprovalDecision>((resolve) => updateRun(threadId, { approval: { ...req, resolve } })),
+          approve: (req) =>
+            new Promise<ApprovalDecision>((resolve) => {
+              updateRun(threadId, { approval: { ...req, resolve } });
+              void revealRun(docKey, threadId);
+            }),
+          onRequest: (at) => updateRun(threadId, { requestStartedAt: at }),
+          onStatus: (text) => updateRun(threadId, { status: text }),
           ask: (toolUseId, question, options, form) =>
-            new Promise<string>((resolve) => updateRun(threadId, { question: { toolUseId, question, options, form, resolve } })),
-          runTool: (name, input) =>
+            new Promise<string>((resolve) => {
+              updateRun(threadId, { question: { toolUseId, question, options, form, resolve } });
+              void revealRun(docKey, threadId);
+            }),
+          runTool: (name, input, toolUseId) =>
             rpc<ToolRunResult>("tools.run", {
               docKey,
               threadId,
               name,
               input,
+              toolUseId,
               refs: get().chats[docKey]?.data.threads.find((t) => t.id === threadId)?.selRefs ?? {},
             }),
-          isAutoApproved: () => !!get().chats[docKey]?.data.threads.find((t) => t.id === threadId)?.autoApprove,
+          takeSteering: () => {
+            const q = get().queue[threadId] ?? [];
+            const now = q.filter((m) => m.now);
+            if (now.length === 0) return null;
+            set((s) => ({ queue: { ...s.queue, [threadId]: (s.queue[threadId] ?? []).filter((m) => !m.now) } }));
+            return queuedBlocks(now);
+          },
+          isAutoApproved: () => !!run.autoApprove || !!get().chats[docKey]?.data.threads.find((t) => t.id === threadId)?.autoApprove,
           setAutoApproved: () => updateThread(docKey, threadId, (t) => ({ ...t, autoApprove: true })),
         },
       });
       patchTurn({ stop: result.stop, error: result.error, durationMs: Math.round(performance.now() - started) });
+      outcome = result.stop;
     } catch (err: any) {
+      outcome = "error";
       const status = err?.status;
       const message =
         status === 401 ? "The API key was rejected. Check it in Settings."
@@ -420,20 +702,236 @@ export const useStore = create<State>((set, get) => {
       });
       rpc("agent.activity", { running: false }).catch(() => {});
       // Selection events can lag the last API call; read the final state once the run is over.
-      const after = await rpc<{ docKey: string; items: SelectionItem[] } | null>("selection.get", { docKey }).catch(() => null);
+      const afterDoc = get().activeDocKey ?? "";
+      const after = afterDoc ? await rpc<{ docKey: string; items: SelectionItem[] } | null>("selection.get", { docKey: afterDoc }).catch(() => null) : null;
       if (after) {
         const sig = selSig(after.items);
         set((s) => ({
-          selection: { ...s.selection, [docKey]: after.items },
-          agentSel: sig !== selectionAtStart && after.items.length > 0 ? { ...s.agentSel, [docKey]: sig } : s.agentSel,
+          selection: { ...s.selection, [afterDoc]: after.items },
+          agentSel: afterDoc !== selDoc || (sig !== selectionAtStart && after.items.length > 0) ? { ...s.agentSel, [afterDoc]: sig } : s.agentSel,
         }));
       }
       await persist(docKey);
+      speakReply(docKey, threadId, outcome);
+      flushQueue(docKey, threadId, outcome);
     }
+  };
+
+  /**
+   * Keep the voice setting true to what's on disk: it is only on with a downloaded model. A finished download the
+   * user asked for selects that model and turns voice on; a cancelled or failed one leaves it off.
+   */
+  const reconcileVoice = (st: VoiceStatus) => {
+    set({ voiceStatus: st });
+    if (st.download) return; // wait for it
+    const s = get();
+    const installed = st.models.filter((m) => m.installed);
+    const want = s.voiceWant;
+    if (want) {
+      set({ voiceWant: null });
+      if (installed.some((m) => m.id === want)) {
+        get().saveSettings({ voiceEnabled: true, voiceModel: want, voiceAsked: true });
+        set({ notice: `Voice is on: hold ${talkKeyName(s.settings.voiceKey)} in SolidWorks and talk.` });
+        return;
+      }
+    }
+    const selected = s.settings.voiceModel ?? "base.en";
+    if (installed.some((m) => m.id === selected)) return;
+    if (installed.length > 0) get().saveSettings({ voiceModel: (installed.find((m) => m.id === "base.en") ?? installed[0]).id });
+    else if (s.settings.voiceEnabled) get().saveSettings({ voiceEnabled: false });
+  };
+
+  /** Remember that a chat worked in the active document (shown in the chat list; the chat follows the work). */
+  const noteFile = (threadId: string) => {
+    const s = get();
+    const doc = s.docs[s.activeDocKey ?? ""];
+    if (!doc) return;
+    const slot = s.chats[WORKSPACE];
+    const t = slot?.data.threads.find((x) => x.id === threadId);
+    if (!t) return;
+    const files = t.files ?? [];
+    if (files.some((f) => f.key === doc.key || (doc.path ? f.path === doc.path : !f.path && f.title === doc.title))) return;
+    updateSlot(WORKSPACE, (d) => ({
+      ...d,
+      threads: d.threads.map((x) => (x.id === threadId ? { ...x, files: [...files, { title: doc.title, path: doc.path || null, key: doc.key }] } : x)),
+    }));
+  };
+
+  /** Chats an older version saved inside a file: copied into the workspace list once (by thread id). */
+  const importDocChats = async (docKey: string) => {
+    if (!docKey || docKey === WORKSPACE || !get().docs[docKey]) return;
+    const res = await rpc<{ data: ChatData }>("chat.load", { docKey }).catch(() => null);
+    const theirs = res?.data?.threads ?? [];
+    if (theirs.length === 0) return;
+    await loadChat(WORKSPACE);
+    const slot = get().chats[WORKSPACE];
+    if (!slot) return;
+    const have = new Set(slot.data.threads.map((t) => t.id));
+    const done = new Set(slot.data.imported ?? []);
+    const doc = get().docs[docKey];
+    const fresh = theirs
+      .filter((t) => !have.has(t.id) && !done.has(t.id))
+      .map((t) => ({ ...t, turns: t.turns ?? [], messages: t.messages ?? [], files: t.files ?? (doc ? [{ title: doc.title, path: doc.path || null, key: doc.key }] : []) }));
+    if (fresh.length === 0) return;
+    updateSlot(WORKSPACE, (d) => ({
+      ...d,
+      threads: [...d.threads, ...fresh].sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? "")),
+      imported: [...(d.imported ?? []), ...fresh.map((t) => t.id)],
+    }));
+    await persist(WORKSPACE);
+  };
+
+  /** Read the reply aloud (Settings > Voice): after voice messages, or always. */
+  const speakReply = (docKey: string, threadId: string, outcome: string) => {
+    const mode = get().settings.speakReplies ?? "off";
+    const fromVoice = speakAfter.delete(threadId);
+    if (outcome !== "end_turn" || mode === "off" || (mode === "voice" && !fromVoice)) return;
+    const messages = get().chats[docKey]?.data.threads.find((t) => t.id === threadId)?.messages ?? [];
+    const last = [...messages].reverse().find((m) => m.role === "assistant");
+    if (!last || typeof last.content === "string") return;
+    const text = last.content
+      .filter((b) => b.type === "text")
+      .map((b) => (b as { text: string }).text)
+      .join("\n\n");
+    if (text.trim()) rpc("voice.speak", { text }).catch(() => {});
+  };
+
+  /** A voice message arrived from the add-in: into that document's chat, sent at once or left to check first. */
+  const receiveVoice = async (p: VoicePayload) => {
+    if (p === lastVoice) return; // the same event twice (a panel reload re-registers listeners)
+    lastVoice = p;
+    set({ voice: VOICE_IDLE });
+    set({ panel: "chat" });
+    const s = get();
+    // The agent is waiting on a question in this chat: the voice message is the answer, not a new message.
+    const thread = currentThread(s);
+    const asked = thread ? s.runs[thread.id]?.question : null;
+    if (thread && asked && !asked.form) {
+      const picked = p.events.filter((e) => e.kind === "select" && e.t > 0).flatMap((e) => (e.items ?? []).map((i) => `${i.type}${i.label ? ` of ${i.label}` : ""}`));
+      const answer = [p.text.trim(), picked.length ? `(while answering I selected: ${picked.join("; ")})` : ""].filter(Boolean).join(" ");
+      if (!answer) return;
+      if ((s.settings.voiceSend ?? "release") === "release") get().answerQuestion(thread.id, answer);
+      else get().setAnswerDraft(thread.id, [s.answerDrafts[thread.id]?.trim(), answer].filter(Boolean).join(" "));
+      return;
+    }
+    const key = draftKey(s);
+    const seconds = Math.max(1, Math.round(p.durationMs / 1000));
+    const attachment: Attachment = { id: uid(), kind: "voice", name: `Voice ${seconds} s`, voice: p };
+    const text = [s.drafts[key]?.trim(), p.text.trim()].filter(Boolean).join(" ");
+    set((st) => ({
+      drafts: { ...st.drafts, [key]: text },
+      attachments: { ...st.attachments, [key]: [...(st.attachments[key] ?? []).filter((a) => a.kind !== "voice"), attachment] },
+      focusTick: st.focusTick + 1,
+    }));
+    if ((s.settings.voiceSend ?? "release") === "release") await get().send(text);
+  };
+
+  /**
+   * After a run: queued follow-ups go out together as the next prompt. If the user pressed Stop they go back into
+   * the composer instead (nothing is lost, nothing is sent behind their back); after an error they wait.
+   */
+  const flushQueue = (docKey: string, threadId: string, outcome: string) => {
+    const q = get().queue[threadId] ?? [];
+    if (q.length === 0 || outcome === "error") return;
+    if (outcome === "aborted") {
+      // Stop: follow-ups go back into the composer, queued tool runs are dropped (the user can click the tool again).
+      set((s) => ({ queue: { ...s.queue, [threadId]: [] } }));
+      const typed = q.filter((m) => !m.staged);
+      const text = typed.map((m) => m.text).filter(Boolean).join("\n\n");
+      const attachments = typed.flatMap((m) => m.attachments);
+      set((s) => ({
+        drafts: { ...s.drafts, [threadId]: [text, s.drafts[threadId]].filter(Boolean).join("\n\n") },
+        attachments: { ...s.attachments, [threadId]: [...attachments, ...(s.attachments[threadId] ?? [])] },
+      }));
+      return;
+    }
+    if (q[0].staged) {
+      // One tool run; the rest wait for the next turn to end.
+      const [first, ...rest] = q;
+      set((s) => ({ queue: { ...s.queue, [threadId]: rest } }));
+      const st = first.staged!;
+      void submitBlocks(docKey, threadId, st.blocks, st.refs, st.run);
+      return;
+    }
+    const n = q.findIndex((m) => m.staged);
+    const batch = n < 0 ? q : q.slice(0, n);
+    set((s) => ({ queue: { ...s.queue, [threadId]: n < 0 ? [] : q.slice(n) } }));
+    void submitPrompt(docKey, threadId, batch.map((m) => m.text).filter(Boolean).join("\n\n"), batch.flatMap((m) => m.attachments));
+  };
+
+  /** The agent needs the user (a question, an approval): show that chat and bring the pane up - tool runs happen out of sight. */
+  const revealRun = async (docKey: string, threadId: string) => {
+    const s = get();
+    const shown = s.panel === "chat" && s.chats[docKey]?.data.activeThreadId === threadId;
+    if (!shown) {
+      updateSlot(docKey, (d) => ({ ...d, activeThreadId: threadId }));
+      set({ panel: "chat" });
+    }
+    rpc("app.showPane").catch(() => {});
+  };
+
+  /** Add a prompt (text, attachments, the user's selection and view) to a thread and run the agent. */
+  const submitPrompt = async (docKey: string, threadId: string, trimmed: string, attachments: Attachment[], run: RunOverride = {}) => {
+    // The agent's drawings on the view belong to the conversation so far: a new message starts clean.
+    if (get().overlayCount > 0) get().clearOverlay();
+    const blocks: ContentBlockParam[] = [];
+    if (trimmed) blocks.push({ type: "text", text: trimmed });
+    // A voice message's selections are numbered first, so the context block's ids continue after them.
+    const thread = get().chats[docKey]?.data.threads.find((t) => t.id === threadId);
+    const taken = Object.keys(thread?.selRefs ?? {}).length;
+    let reserved = 0;
+    const voiceRefs: Record<string, string> = {};
+    for (const a of attachments) {
+      if (a.kind === "voice") {
+        const v = voiceBlocks(a.voice, taken + reserved);
+        blocks.push(...v.blocks);
+        Object.assign(voiceRefs, v.refs);
+        reserved += v.count;
+      } else blocks.push(...attachmentBlocks(a));
+    }
+    const hasVoice = attachments.some((a) => a.kind === "voice");
+    if (hasVoice) speakAfter.add(threadId);
+    // A voice message carries its own views; the context block then only adds the document, camera and selection.
+    const ctx = await buildContext(docKey, threadId, attachments.some((a) => a.kind === "image" && a.name.startsWith(MARKUP_NAME)), {
+      reserved,
+      noView: hasVoice,
+    });
+    blocks.push(...ctx.blocks);
+    await submitBlocks(docKey, threadId, blocks, { ...voiceRefs, ...ctx.refs }, run);
+  };
+
+  /** Add a user message (already built) to a thread and run the agent on it, with optional settings for this run. */
+  const submitBlocks = async (docKey: string, threadId: string, blocks: ContentBlockParam[], refs: Record<string, string>, run: RunOverride = {}) => {
+    updateThread(docKey, threadId, (t) => {
+      const last = t.messages[t.messages.length - 1];
+      // After a stopped or failed turn the history can end on a user message; extend it rather than
+      // sending two user messages in a row (no assistant output follows it, so nothing is invalidated).
+      const messages: MessageParam[] =
+        last && last.role === "user"
+          ? [...t.messages.slice(0, -1), { role: "user", content: [...asBlocks(last.content), ...blocks] }]
+          : [...t.messages, { role: "user", content: blocks }];
+      const msgIndex = messages.length - 1;
+      return {
+        ...t,
+        messages,
+        selRefs: { ...(t.selRefs ?? {}), ...refs },
+        turns: [...t.turns, { at: now(), session: get().sessionStart, msgIndex, model: run.model ?? t.model, effort: run.effort ?? t.effort, usage: { ...ZERO_USAGE } }],
+      };
+    });
+    noteFile(threadId);
+    await persist(docKey);
+    await startRun(docKey, threadId, run.label ? { label: run.label, startedAt: Date.now() } : {}, run);
   };
 
   return {
     booted: false,
+    sessionStart: Date.now(),
+    overlayCount: 0,
+
+    clearOverlay() {
+      set({ overlayCount: 0 });
+      rpc("overlay.clear").catch(() => {});
+    },
     bootError: null,
     host: null,
     settings: DEFAULT_SETTINGS,
@@ -444,21 +942,73 @@ export const useStore = create<State>((set, get) => {
     update: null,
     updateDialog: false,
     toolOutcome: null,
+    crash: null,
+    ribbonStale: false,
     docs: {},
     activeDocKey: null,
-    viewKey: "scratch",
+    viewKey: WORKSPACE,
     chats: {},
     selection: {},
     includeSelection: true,
     excludedSel: [],
     agentSel: {},
-    markup: { active: false, tool: "pen", color: MARKUP_COLORS[0], strokes: 0 },
+    markup: { active: false, tool: "pen", color: MARKUP_COLORS[0], strokes: 0, frames: 0 },
+    voice: VOICE_IDLE,
+    voiceStatus: null,
+    voiceWant: null,
+    tourStep: null,
+
+    enableVoice(modelId) {
+      const s = get();
+      const id = modelId ?? s.settings.voiceModel ?? "base.en";
+      const models = s.voiceStatus?.models ?? [];
+      if (models.some((m) => m.id === id && m.installed)) {
+        get().saveSettings({ voiceEnabled: true, voiceModel: id, voiceAsked: true });
+        return;
+      }
+      // Voice can only be on with a model on disk: download it, and turn on when it arrives.
+      set({ voiceWant: id });
+      get().saveSettings({ voiceAsked: true });
+      rpc("voice.download", { id }).catch((err) => set({ voiceWant: null, notice: `Couldn't download the speech model: ${err.message}` }));
+    },
+
+    disableVoice() {
+      if (get().voiceWant) rpc("voice.cancelDownload").catch(() => {});
+      set({ voiceWant: null });
+      get().saveSettings({ voiceEnabled: false });
+    },
+
+    downloadVoiceModel(id) {
+      set({ voiceWant: id });
+      rpc("voice.download", { id }).catch((err) => set({ voiceWant: null, notice: `Couldn't download the speech model: ${err.message}` }));
+    },
+
+    startTour() {
+      set({ tourStep: 0, panel: "chat" });
+    },
+
+    setTourStep(step) {
+      set({ tourStep: step });
+    },
+
+    endTour() {
+      set({ tourStep: null });
+      get().saveSettings({ tourDone: true });
+      // Without a key nothing works yet: Options is where it goes.
+      if (get().apiKeySource === "none") set({ panel: "settings", notice: "Add your Anthropic API key to start chatting." });
+    },
+    cancelVoice() {
+      set({ voice: VOICE_IDLE });
+      rpc("voice.cancel").catch(() => {});
+    },
     runs: {},
+    queue: {},
     drafts: {},
     attachments: {},
     panel: "chat",
     focusTick: 0,
     notice: null,
+    watch: WATCH_IDLE,
 
     async boot() {
       try {
@@ -466,7 +1016,7 @@ export const useStore = create<State>((set, get) => {
         const docs: Record<string, DocInfo> = {};
         for (const d of host.docs) docs[d.key] = d;
         if (host.activeDoc) docs[host.activeDoc.key] = host.activeDoc;
-        const viewKey = host.activeDoc?.key ?? host.scratchKey;
+        const viewKey = WORKSPACE;
         let settings: Settings = { ...DEFAULT_SETTINGS, ...host.settings };
         if ((host.settings.settingsVersion ?? 1) < SETTINGS_VERSION) {
           // v2: the panel now follows the SolidWorks interface theme by default.
@@ -474,6 +1024,14 @@ export const useStore = create<State>((set, get) => {
           rpc("settings.save", settings);
         }
         if (host.update) set({ update: host.update });
+        if (host.sessionStart) set({ sessionStart: Date.parse(host.sessionStart) || Date.now() });
+        recordSession(get().sessionStart);
+        if (host.resume) {
+          // Back from "Save and restart": the documents reopen on their own (the add-in); bring back unsent drafts.
+          set((s) => ({ drafts: { ...s.drafts, ...(host.resume?.drafts ?? {}) }, notice: "SolidWorks restarted - reopening your documents where you left off." }));
+          setTimeout(() => set((s) => (s.notice?.startsWith("SolidWorks restarted") ? { notice: null } : {})), 8000);
+        }
+        set({ crash: host.crash ?? null, ribbonStale: !!host.ribbonStale });
         set({
           host,
           tools,
@@ -485,21 +1043,42 @@ export const useStore = create<State>((set, get) => {
           settings,
         });
         await loadChat(viewKey);
+        // A new SolidWorks session starts on a fresh chat (earlier ones are in the chat list); after Save and restart,
+        // where the user left off.
+        if (!host.resume) updateSlot(viewKey, (d) => ({ ...d, activeThreadId: null }));
+        for (const k of Object.keys(docs)) void importDocChats(k);
         if (host.activeDoc) {
           rpc<{ docKey: string; items: SelectionItem[] } | null>("selection.get", { docKey: host.activeDoc.key }).then((r) => {
             if (r) set((s) => ({ selection: { ...s.selection, [r.docKey]: r.items } }));
           });
         }
-        set({ booted: true, panel: host.apiKeySource === "none" ? "settings" : "chat" });
+        // First run: the tour (it ends in Options when there's no key yet).
+        const firstRun = !settings.tourDone;
+        set({ booted: true, panel: host.apiKeySource === "none" && !firstRun ? "settings" : "chat", tourStep: firstRun ? 0 : null });
       } catch (err: any) {
         set({ bootError: err?.message ?? String(err) });
       }
+
+      on("overlay.changed", (p: { count: number }) => set({ overlayCount: p?.count ?? 0 }));
 
       on("doc.activated", (doc: DocInfo) => {
         set((s) => ({ docs: { ...s.docs, [doc.key]: doc }, activeDocKey: doc.key }));
         get().showDoc(doc.key);
       });
+      on("doc.updated", (doc: DocInfo) =>
+        // Saved under a name (Save As): chats that worked in it show the new name.
+        updateSlot(WORKSPACE, (d) => ({
+          ...d,
+          threads: d.threads.map((t) =>
+            t.files?.some((f) => f.key === doc.key) ? { ...t, files: t.files.map((f) => (f.key === doc.key ? { ...f, title: doc.title, path: doc.path || null } : f)) } : t,
+          ),
+        })),
+      );
       on("theme.changed", (t: SwThemeInfo) => set({ swTheme: t }));
+      on("ribbon.stale", ({ stale }: { stale: boolean }) => set({ ribbonStale: !!stale }));
+      // SolidWorks read a document's chat from the file (it may have been asked for before that): reload it.
+      // SolidWorks read a file's stored chats (older versions kept chats inside files): add them to the list.
+      on("doc.chatChanged", ({ key }: { key: string }) => void importDocChats(key));
       on("update.changed", (u: UpdateInfo) => set({ update: u }));
       on("userTools.changed", (list: UserToolInfo[]) => {
         set({ userTools: list ?? [] });
@@ -516,17 +1095,12 @@ export const useStore = create<State>((set, get) => {
         set((s) => {
           const docs = { ...s.docs };
           delete docs[key];
-          const chats = { ...s.chats };
-          if (!Object.values(s.runs).some((r) => r.docKey === key)) delete chats[key];
-          const activeDocKey = s.activeDocKey === key ? null : s.activeDocKey;
-          const viewKey = s.viewKey === key ? activeDocKey ?? s.host?.scratchKey ?? "scratch" : s.viewKey;
-          return { docs, chats, activeDocKey, viewKey };
+          return { docs, activeDocKey: s.activeDocKey === key ? null : s.activeDocKey };
         });
-        loadChat(get().viewKey);
       });
       on("selection.changed", ({ docKey, items }: { docKey: string; items: SelectionItem[] }) =>
         set((s) => {
-          const agentWorking = Object.values(s.runs).some((r) => r.docKey === docKey);
+          const agentWorking = Object.keys(s.runs).length > 0;
           return {
             selection: { ...s.selection, [docKey]: items },
             excludedSel: [],
@@ -534,12 +1108,55 @@ export const useStore = create<State>((set, get) => {
           };
         }),
       );
-      on("markup.strokes", ({ count }: { count: number }) => set((s) => ({ markup: { ...s.markup, strokes: count } })));
+      on("markup.strokes", ({ count, frames }: { count: number; frames?: number }) =>
+        set((s) => ({ markup: { ...s.markup, strokes: count, frames: frames ?? s.markup.frames } })),
+      );
+
+      // Push-to-talk (the add-in's VoiceController).
+      on("voice.status", (st: VoiceStatus) => reconcileVoice(st));
+      rpc<VoiceStatus>("voice.status")
+        .then((st) => reconcileVoice(st))
+        .catch(() => {});
+      on("voice.state", (st: { phase: VoiceLive["phase"]; text: string; events: VoiceLive["events"]; docKey: string | null }) =>
+        set((s) => ({
+          voice:
+            st.phase === "idle"
+              ? VOICE_IDLE
+              : { ...s.voice, phase: st.phase, text: st.text ?? s.voice.text, events: st.events ?? s.voice.events, docKey: st.docKey },
+        })),
+      );
+      on("voice.partial", ({ text }: { text: string }) => set((s) => (s.voice.phase === "idle" ? {} : { voice: { ...s.voice, text } })));
+      on("voice.level", ({ v }: { v: number }) => set((s) => (s.voice.phase === "listening" ? { voice: { ...s.voice, level: v } } : {})));
+      on("voice.event", (e: { t: number; kind: string; summary: string }) =>
+        set((s) => (s.voice.phase === "idle" ? {} : { voice: { ...s.voice, events: [...s.voice.events, e] } })),
+      );
+      on("voice.final", (p: VoicePayload) => void receiveVoice(p));
+      on("voice.notice", ({ text }: { text: string }) => set({ notice: text }));
       on("markup.key", ({ command }: { command: string }) => {
         if (command === "finish") get().finishMarkup();
         else get().cancelMarkup();
       });
       rpc("markup.cancel").catch(() => {}); // a reloaded panel must not leave an orphaned overlay
+
+      on("files.dropped", async ({ paths }: { paths: string[] }) => {
+        const entries = await rpc<FileEntry[]>("files.entries", { paths }).catch((err) => {
+          set({ notice: `Couldn't attach the files: ${err.message}` });
+          return [] as FileEntry[];
+        });
+        set({ panel: "chat" });
+        get().addFileEntries(entries);
+      });
+      on("watch.log", (st: { entries?: WatchEntry[] }) => set((s) => (s.watch.active ? { watch: { ...s.watch, entries: st.entries ?? [] } } : {})));
+      on("watch.ended", ({ reason }: { reason?: string }) => set({ watch: WATCH_IDLE, notice: reason ?? "Watch me stopped." }));
+      // A reloaded panel picks up a recording that is still running.
+      rpc<{ active: boolean; docKey?: string; doc?: string; startedAt?: string; entries?: WatchEntry[] }>("watch.status")
+        .then((st) => {
+          if (st?.active)
+            set({
+              watch: { active: true, busy: false, docKey: st.docKey ?? null, doc: st.doc ?? null, startedAt: st.startedAt ? Date.parse(st.startedAt) : Date.now(), entries: st.entries ?? [] },
+            });
+        })
+        .catch(() => {});
 
       // SolidWorks doesn't raise an activation event for File > New, and events can be missed while the panel
       // loads, so also follow the active document by polling (cheap: one RPC every 1.5 s).
@@ -574,21 +1191,18 @@ export const useStore = create<State>((set, get) => {
             } else void s.runQuickTool(payload.failure ? { ...payload, context: { ...payload.context, failure: payload.failure } } : payload);
             break;
           }
-          case "newTool": {
-            const key = draftKey(s);
-            set({
-              panel: "chat",
-              drafts: { ...s.drafts, [key]: "Help me create a new tool (a quick ribbon command) that " },
-              focusTick: s.focusTick + 1,
-            });
+          case "newTool":
+            set({ panel: "newTool" });
             break;
-          }
+          case "smartRebuild":
+            set({ panel: "smartRebuild" });
+            break;
           case "attachView":
             set({ panel: "chat" });
             s.attachView();
             break;
           case "askAboutSelection": {
-            const sel = s.selection[s.viewKey] ?? [];
+            const sel = s.selection[s.activeDocKey ?? ""] ?? [];
             const what = sel.length === 0 ? "the selection" : sel.length === 1 ? `the selected ${sel[0].type.toLowerCase()}` : `the ${sel.length} selected items`;
             const key = draftKey(s);
             set({
@@ -604,9 +1218,12 @@ export const useStore = create<State>((set, get) => {
     },
 
     async showDoc(key) {
-      set({ viewKey: key });
-      await loadChat(key);
-      const r = await rpc<{ docKey: string; items: SelectionItem[] } | null>("selection.get", { docKey: key });
+      // The chat stays where it is; the running chats note that they now work in this file too.
+      await loadChat(WORKSPACE);
+      for (const id of Object.keys(get().runs)) noteFile(id);
+      if (Object.keys(get().runs).length) void persist(WORKSPACE);
+      void importDocChats(key);
+      const r = await rpc<{ docKey: string; items: SelectionItem[] } | null>("selection.get", { docKey: key }).catch(() => null);
       if (r) set((s) => ({ selection: { ...s.selection, [r.docKey]: r.items } }));
     },
 
@@ -615,6 +1232,49 @@ export const useStore = create<State>((set, get) => {
       await loadChat(key);
       updateSlot(key, (d) => ({ ...d, activeThreadId: null }));
       set((s) => ({ focusTick: s.focusTick + 1 }));
+    },
+
+    async startSmartRebuild(spec) {
+      const s = get();
+      const docKey = s.activeDocKey ?? WORKSPACE;
+      let workingFile = "this file (no copy)";
+      if (spec.copy) {
+        type Saved = { ok: boolean; reason?: string; path?: string; original?: string };
+        const r = await rpc<Saved>("doc.saveAsCopy", { docKey, name: spec.copyName }).catch((e): Saved => ({ ok: false, reason: String(e?.message ?? e) }));
+        if (!r.ok) return r.reason ?? "The copy couldn't be saved.";
+        workingFile = `a copy saved as ${r.path} - the original ${r.original} stays untouched`;
+      }
+      // In the chat the user is in (no separate chat), on Opus at high effort for this run.
+      set({ panel: "chat" });
+      // The new customer part and the references go along as attachments (3D models arrive as views + measurements).
+      const files = [...(spec.newPart ? [spec.newPart] : []), ...spec.files];
+      if (files.length) get().addFileEntries(files);
+      await get().send(smartRebuildPrompt(spec, workingFile), { model: "claude-opus-5-5", effort: "high" });
+      return null;
+    },
+
+    dismissRestart(threadId, offerId) {
+      const key = get().viewKey;
+      updateThread(key, threadId, (t) => ({ ...t, restartDismissed: [...(t.restartDismissed ?? []), offerId] }));
+      void persist(key);
+    },
+
+    async startNewTool(spec) {
+      const s = get();
+      set({ panel: "chat" });
+      const prompt = newToolPrompt(spec);
+      if (spec.from === "chat" && currentThread(s)) {
+        await get().send(prompt);
+        return;
+      }
+      // In the chat the user is in - no separate chat.
+      if (spec.from === "watch") {
+        // Record first; the log attaches to the next message (Stop & attach in the bar), which already says what to build.
+        set((st) => ({ drafts: { ...st.drafts, [draftKey(st)]: prompt } }));
+        await get().startWatch();
+        return;
+      }
+      await get().send(prompt);
     },
 
     async selectThread(threadId) {
@@ -685,33 +1345,53 @@ export const useStore = create<State>((set, get) => {
           set({ notice: `Couldn't capture the view: ${text && text.type === "text" ? text.text : "no image"}` });
           return;
         }
-        get().addAttachment({ id: uid(), kind: "image", name: "View", mediaType: img.source.media_type as Attachment["mediaType"], data: img.source.data });
+        get().addAttachment({ id: uid(), kind: "image", name: "View", mediaType: img.source.media_type as ImageMediaType, data: img.source.data });
         set((st) => ({ focusTick: st.focusTick + 1 }));
       } catch (err: any) {
         set({ notice: `Couldn't capture the view: ${err.message}` });
       }
     },
 
-    async send(text) {
+    async send(text, opts) {
       const s0 = get();
       const docKey = s0.viewKey;
       await loadChat(docKey);
       const dKey = draftKey(get());
+      // 3D models still being read: wait for them (the composer disables Send meanwhile; this is a safety net).
+      const pending = (get().attachments[dKey] ?? []).map((a) => describing.get(a.id)).filter(Boolean);
+      if (pending.length) await Promise.all(pending);
       const attachments = get().attachments[dKey] ?? [];
       const trimmed = text.trim();
       if (!trimmed && attachments.length === 0) return;
 
       let thread = currentThread(get());
-      if (thread && get().runs[thread.id]) return; // already running
+      const asked = thread ? get().runs[thread.id]?.question : null;
+      if (thread && asked && !asked.form && trimmed && !attachments.some((a) => a.kind !== "voice")) {
+        // The agent is waiting on a question: this is the answer (a queued message would wait behind it forever).
+        get().answerQuestion(thread.id, trimmed);
+        set((s) => ({ drafts: { ...s.drafts, [dKey]: "" }, attachments: { ...s.attachments, [dKey]: [] } }));
+        return;
+      }
+      if (thread && get().runs[thread.id]) {
+        // The agent is working: queue it (sent when the turn ends, or at the next step with "Send now").
+        const queued: QueuedMessage = { id: uid(), text: trimmed, attachments };
+        const id = thread.id;
+        set((s) => ({
+          queue: { ...s.queue, [id]: [...(s.queue[id] ?? []), queued] },
+          drafts: { ...s.drafts, [dKey]: "" },
+          attachments: { ...s.attachments, [dKey]: [] },
+        }));
+        return;
+      }
       const settings = get().settings;
       if (!thread) {
         thread = {
           id: uid(),
-          title: (trimmed || "Image").replace(/\s+/g, " ").slice(0, 70),
+          title: (trimmed || attachments[0]?.name || "Image").replace(/^\[New tool\]\s*/, "New tool: ").replace(/^\[Smart rebuild\]\s*/, "Smart Rebuild: ").replace(/\s+/g, " ").slice(0, 70),
           createdAt: now(),
           updatedAt: now(),
-          model: settings.defaultModel,
-          effort: settings.defaultEffort,
+          model: opts?.model ?? settings.defaultModel,
+          effort: opts?.effort ?? settings.defaultEffort,
           messages: [],
           turns: [],
         };
@@ -725,30 +1405,42 @@ export const useStore = create<State>((set, get) => {
         drafts: { ...s.drafts, [dKey]: "", [threadId]: "" },
         attachments: { ...s.attachments, [dKey]: [], [threadId]: [] },
       }));
-      const blocks: ContentBlockParam[] = [];
-      if (trimmed) blocks.push({ type: "text", text: trimmed });
-      for (const a of attachments) blocks.push({ type: "image", source: { type: "base64", media_type: a.mediaType, data: a.data } });
-      const ctx = await buildContext(docKey, threadId, attachments.some((a) => a.name === MARKUP_NAME));
-      blocks.push(...ctx.blocks);
+      await submitPrompt(docKey, threadId, trimmed, attachments, opts ?? {});
+    },
 
-      updateThread(docKey, threadId, (t) => {
-        const last = t.messages[t.messages.length - 1];
-        // After a stopped or failed turn the history can end on a user message; extend it rather than
-        // sending two user messages in a row (no assistant output follows it, so nothing is invalidated).
-        const messages: MessageParam[] =
-          last && last.role === "user"
-            ? [...t.messages.slice(0, -1), { role: "user", content: [...asBlocks(last.content), ...blocks] }]
-            : [...t.messages, { role: "user", content: blocks }];
-        const msgIndex = messages.length - 1;
-        return {
-          ...t,
-          messages,
-          selRefs: { ...(t.selRefs ?? {}), ...ctx.refs },
-          turns: [...t.turns, { at: now(), msgIndex, model: t.model, effort: t.effort, usage: { ...ZERO_USAGE } }],
-        };
-      });
-      await persist(docKey);
-      await startRun(docKey, threadId);
+    queueSendNow(threadId, id) {
+      const q = get().queue[threadId] ?? [];
+      const asked = get().runs[threadId]?.question;
+      const item = q.find((m) => m.id === id);
+      if (asked && !asked.form && item?.text && !item.staged) {
+        // The agent is waiting on a question, so it won't take a next step: answer it with this message.
+        set((s) => ({ queue: { ...s.queue, [threadId]: (s.queue[threadId] ?? []).filter((m) => m.id !== id) } }));
+        get().answerQuestion(threadId, item.text);
+        return;
+      }
+      if (!get().runs[threadId]) {
+        // Nothing running (e.g. the turn failed): send the queue now.
+        const docKey = get().viewKey;
+        set((s) => ({ queue: { ...s.queue, [threadId]: [] } }));
+        void submitPrompt(docKey, threadId, q.map((m) => m.text).filter(Boolean).join("\n\n"), q.flatMap((m) => m.attachments));
+        return;
+      }
+      set((s) => ({ queue: { ...s.queue, [threadId]: q.map((m) => (m.id === id ? { ...m, now: true } : m)) } }));
+    },
+
+    queueEdit(threadId, id) {
+      const m = (get().queue[threadId] ?? []).find((x) => x.id === id);
+      if (!m) return;
+      set((s) => ({
+        queue: { ...s.queue, [threadId]: (s.queue[threadId] ?? []).filter((x) => x.id !== id) },
+        drafts: { ...s.drafts, [threadId]: [s.drafts[threadId], m.text].filter(Boolean).join("\n") },
+        attachments: { ...s.attachments, [threadId]: [...(s.attachments[threadId] ?? []), ...m.attachments] },
+        focusTick: s.focusTick + 1,
+      }));
+    },
+
+    queueRemove(threadId, id) {
+      set((s) => ({ queue: { ...s.queue, [threadId]: (s.queue[threadId] ?? []).filter((x) => x.id !== id) } }));
     },
 
     async resendFrom(msgIndex, editedText) {
@@ -768,7 +1460,11 @@ export const useStore = create<State>((set, get) => {
         // keeping the user's own images (those before the context block) and taking a fresh snapshot of
         // the document, selection and view.
         const ctxAt = blocks.findIndex((b) => b.type === "text" && b.text.startsWith("<sw_context>"));
-        const ownImages = blocks.filter((b, i) => b.type === "image" && (ctxAt < 0 || i < ctxAt));
+        const ownImages = blocks.filter(
+          (b, i) =>
+            (ctxAt < 0 || i < ctxAt) &&
+            (b.type === "image" || (b.type as string) === "document" || (b.type === "text" && isAttachmentText(b.text))),
+        );
         const ctx = await buildContext(docKey, t.id, false);
         newRefs = ctx.refs;
         content = [
@@ -816,6 +1512,7 @@ export const useStore = create<State>((set, get) => {
       const run = s.runs[id];
       if (!run) return;
       run.controller.abort();
+      rpc("voice.stopSpeaking").catch(() => {});
       run.approval?.resolve({ decision: "reject", note: "The user pressed Stop." });
       run.question?.resolve("(The user pressed Stop instead of answering.)");
       rpc("tools.cancel", { threadId: id });
@@ -831,6 +1528,12 @@ export const useStore = create<State>((set, get) => {
       const run = get().runs[threadId];
       run?.question?.resolve(answer);
       updateRun(threadId, { question: null });
+      set((s) => ({ answerDrafts: { ...s.answerDrafts, [threadId]: "" } }));
+    },
+
+    answerDrafts: {},
+    setAnswerDraft(threadId, text) {
+      set((s) => ({ answerDrafts: { ...s.answerDrafts, [threadId]: text } }));
     },
 
     async saveSettings(patch) {
@@ -860,53 +1563,44 @@ export const useStore = create<State>((set, get) => {
 
     async runQuickTool(payload) {
       const name = payload.tool;
-      const s0 = get();
-      const docKey = s0.activeDocKey ?? s0.viewKey;
+      const docKey = WORKSPACE;
       await loadChat(docKey);
       const tool = get().userTools.find((t) => t.name === name);
       const label = payload.title ?? tool?.title ?? name;
-      let thread = get().chats[docKey]?.data.threads.find((t) => t.kind === "tools");
-      if (thread && get().runs[thread.id]) return; // one tool run at a time per document
+      // Tool runs happen in the chat the user is in (a new chat when none is open) - no separate "Tool runs" chat.
+      const activeId = get().chats[docKey]?.data.activeThreadId;
+      let thread = get().chats[docKey]?.data.threads.find((t) => t.id === activeId);
       if (!thread) {
-        // A separate chat, so tool runs never interrupt (or switch) the conversation the user is in.
         const created: Thread = {
           id: uid(),
-          title: "Tool runs",
-          kind: "tools",
+          title: `Tool: ${label}`,
           createdAt: now(),
           updatedAt: now(),
-          model: tierModel("balanced").model,
-          effort: "low",
-          autoApprove: true, // the user ran the tool: that is the approval
+          model: get().settings.defaultModel,
+          effort: get().settings.defaultEffort,
           messages: [],
           turns: [],
         };
-        updateSlot(docKey, (d) => ({ ...d, threads: [...d.threads, created] }));
+        updateSlot(docKey, (d) => ({ ...d, threads: [created, ...d.threads], activeThreadId: created.id }));
         thread = created;
       }
       const threadId = thread.id;
       const { model, effort } = tierModel(payload.intelligence ?? tool?.intelligence);
       const staged = stageToolPrompt(payload, label, Object.keys(thread.selRefs ?? {}).length);
-      updateThread(docKey, threadId, (t) => {
-        // A previous run that failed before the agent answered leaves its request last: replace it rather than
-        // stacking requests (nothing follows it, so no earlier reasoning is invalidated).
-        const last = t.messages[t.messages.length - 1];
-        const messages: MessageParam[] =
-          last && last.role === "user"
-            ? [...t.messages.slice(0, -1), { role: "user", content: staged.blocks }]
-            : [...t.messages, { role: "user", content: staged.blocks }];
-        return {
-          ...t,
-          model,
-          effort,
-          messages,
-          selRefs: { ...(t.selRefs ?? {}), ...staged.refs },
-          turns: [...t.turns, { at: now(), msgIndex: messages.length - 1, model, effort, usage: { ...ZERO_USAGE } }],
-        };
-      });
-      await persist(docKey);
+      // The tool's intelligence level and auto-approval (the user ran it: that is the approval) apply to this run
+      // only; the chat keeps its own model and settings.
+      const run: RunOverride = { model, effort, autoApprove: true, label };
+      if (get().runs[threadId]) {
+        // The agent is busy in this chat: the tool run waits in the queue like a follow-up.
+        const queued: QueuedMessage = { id: uid(), text: `Run ${label}`, attachments: [], staged: { blocks: staged.blocks, refs: staged.refs, run } };
+        set((s) => ({
+          queue: { ...s.queue, [threadId]: [...(s.queue[threadId] ?? []), queued] },
+          notice: `The agent is busy in this chat - ${label} runs when it finishes.`,
+        }));
+        return;
+      }
       set({ toolOutcome: null });
-      await startRun(docKey, threadId, { label, startedAt: Date.now() });
+      await submitBlocks(docKey, threadId, staged.blocks, staged.refs, run);
 
       // A one-line outcome for the banner: the agent's last words, or the error.
       const th = get().chats[docKey]?.data.threads.find((t) => t.id === threadId);
@@ -922,6 +1616,41 @@ export const useStore = create<State>((set, get) => {
       set({ toolOutcome: { label, text: text.replace(/[*_`#>]/g, "").trim().slice(0, 160), ok: !turn?.error && turn?.stop !== "aborted", threadId, docKey, at: Date.now() } });
     },
 
+    dismissCrash() {
+      set({ crash: null });
+      rpc("crash.dismiss").catch(() => {});
+    },
+
+    async askAboutCrash() {
+      const c = get().crash;
+      if (!c) return;
+      get().dismissCrash();
+      const what =
+        c.kind === "preview" ? `the live preview of the tool "${c.tool}"`
+        : c.kind === "addin" ? `an unhandled error inside the Unify3D add-in (${c.title})`
+        : c.kind === "page" ? `the tool "${c.tool}" while its PropertyManager page was open`
+        : c.kind === "macro" ? `the macro of the tool "${c.tool}"`
+        : `your code "${c.title ?? "a C# cell"}"`;
+      const lines = [
+        `SolidWorks closed unexpectedly (crashed) while running ${what}.${c.paused ? ` I paused the tool's ${c.paused} so it can't happen again until it's fixed.` : ""}`,
+        "Find the cause and fix it so this can't happen again. If you need more, ask me for SolidWorks' crash log (it lists the last API calls).",
+        "",
+        "<crash_report>",
+        `what: ${c.kind}${c.tool ? ` of tool ${c.tool}` : ""}${c.title ? ` (${c.title})` : ""}`,
+        c.at ? `started: ${c.at}` : "",
+        c.code ? `code that was running:\n${c.code}` : "",
+        c.logTail ? `last lines of the add-in log:\n${c.logTail}` : "",
+        "</crash_report>",
+      ].filter(Boolean);
+      await get().newChat();
+      await get().send(lines.join("\n"));
+    },
+
+    async saveAndRestart() {
+      const r = await rpc<{ ok: boolean; reason?: string }>("app.saveAndRestart", { saveDocuments: true, panel: resumePanel() }).catch((e) => ({ ok: false, reason: String(e?.message ?? e) }));
+      return r.ok ? null : r.reason ?? "SolidWorks couldn't be restarted.";
+    },
+
     async deleteUserTool(name) {
       await rpc("userTools.delete", { name });
     },
@@ -935,8 +1664,8 @@ export const useStore = create<State>((set, get) => {
     async startMarkup() {
       const s = get();
       try {
-        await rpc("markup.start", { docKey: s.viewKey, tool: s.markup.tool, color: s.markup.color });
-        set((st) => ({ markup: { ...st.markup, active: true, strokes: 0 } }));
+        await rpc("markup.start", { docKey: s.activeDocKey, tool: s.markup.tool, color: s.markup.color });
+        set((st) => ({ markup: { ...st.markup, active: true, strokes: 0, frames: 0 } }));
       } catch (err: any) {
         set({ notice: `Can't draw on the view: ${err.message}` });
       }
@@ -959,14 +1688,20 @@ export const useStore = create<State>((set, get) => {
       if (!get().markup.active) return;
       set((s) => ({ markup: { ...s.markup, active: false } }));
       try {
-        const res = await rpc<{ mediaType: Attachment["mediaType"]; data: string; strokes: number } | null>("markup.finish");
-        if (res?.data) {
-          // One markup per message: replace an earlier one that wasn't sent yet.
+        const res = await rpc<{ frames: { mediaType: ImageMediaType; data: string; strokes: number }[]; inVoice: number } | null>("markup.finish");
+        const frames = res?.frames ?? [];
+        if (frames.length > 0) {
+          // One markup per message (a frame per view): replace an earlier one that wasn't sent yet.
           const key = draftKey(get());
           set((s) => ({
-            attachments: { ...s.attachments, [key]: (s.attachments[key] ?? []).filter((a) => a.name !== MARKUP_NAME) },
+            attachments: {
+              ...s.attachments,
+              [key]: (s.attachments[key] ?? []).filter((a) => !(a.kind === "image" && a.name.startsWith(MARKUP_NAME))),
+            },
           }));
-          get().addAttachment({ id: uid(), kind: "image", name: MARKUP_NAME, mediaType: res.mediaType, data: res.data });
+          frames.forEach((f, i) =>
+            get().addAttachment({ id: uid(), kind: "image", name: frames.length === 1 ? MARKUP_NAME : `${MARKUP_NAME} ${i + 1}`, mediaType: f.mediaType, data: f.data }),
+          );
           set((s) => ({ focusTick: s.focusTick + 1 }));
         }
       } catch (err: any) {
@@ -975,12 +1710,91 @@ export const useStore = create<State>((set, get) => {
     },
 
     cancelMarkup() {
-      set((s) => ({ markup: { ...s.markup, active: false, strokes: 0 } }));
+      set((s) => ({ markup: { ...s.markup, active: false, strokes: 0, frames: 0 } }));
       rpc("markup.cancel");
     },
 
     dismissNotice() {
       set({ notice: null });
+    },
+
+    async pickFiles() {
+      try {
+        const entries = await rpc<FileEntry[]>("files.pick");
+        get().addFileEntries(entries ?? []);
+      } catch (err: any) {
+        set({ notice: `Couldn't attach the files: ${err.message}` });
+      }
+    },
+
+    addFileEntries(entries) {
+      const skipped: string[] = [];
+      for (const f of entries) {
+        if (f.kind === "image" && f.data && IMAGE_TYPES.includes(f.mediaType ?? "")) {
+          get().addAttachment({ id: uid(), kind: "image", name: f.name, mediaType: f.mediaType as ImageMediaType, data: f.data });
+        } else if (f.kind === "pdf" && f.data) {
+          get().addAttachment({ id: uid(), kind: "pdf", name: f.name, mediaType: "application/pdf", data: f.data, path: f.path });
+        } else if (f.kind === "model") {
+          const id = uid();
+          if (f.summary) {
+            get().addAttachment({ id, kind: "model", name: f.name, path: f.path, status: f.views ? "ready" : "error", entry: f });
+            continue;
+          }
+          get().addAttachment({ id, kind: "model", name: f.name, path: f.path, status: "reading" });
+          // Read it in the background (hidden in SolidWorks for CAD formats); the chip fills in when done.
+          const patch = (entry: FileEntry, status: "ready" | "error") =>
+            set((s) => {
+              const attachments: Record<string, Attachment[]> = {};
+              for (const [k, list] of Object.entries(s.attachments)) {
+                attachments[k] = list.map((a) => (a.id === id && a.kind === "model" ? { ...a, status, entry } : a));
+              }
+              return { attachments };
+            });
+          const job = rpc<FileEntry>("files.describe", { path: f.path })
+            .then((entry) => patch(entry, entry.views ? "ready" : "error"))
+            .catch((err) => patch({ ...f, error: err.message }, "error"))
+            .finally(() => describing.delete(id));
+          describing.set(id, job);
+        } else {
+          skipped.push(`${f.name}${f.kind === "too_large" ? " (too large)" : f.error ? ` (${f.error})` : ""}`);
+        }
+      }
+      if (skipped.length) set({ notice: `Not attached: ${skipped.join(", ")}. Attach images, PDFs or 3D models (STL, STEP, 3MF, IGES, SLDPRT, SLDASM, X_T).` });
+      set((s) => ({ focusTick: s.focusTick + 1 }));
+    },
+
+    async startWatch() {
+      const s = get();
+      if (s.watch.active || s.watch.busy) return;
+      const docKey = s.activeDocKey ?? WORKSPACE;
+      try {
+        const st = await rpc<{ doc?: string }>("watch.start", { docKey });
+        set({ watch: { active: true, busy: false, docKey, doc: st?.doc ?? s.docs[docKey]?.title ?? null, startedAt: Date.now(), entries: [] } });
+      } catch (err: any) {
+        set({ notice: `Can't watch: ${err.message}` });
+      }
+    },
+
+    async stopWatch() {
+      if (!get().watch.active || get().watch.busy) return;
+      set((s) => ({ watch: { ...s.watch, busy: true } }));
+      try {
+        const res = await rpc<WatchResult>("watch.stop");
+        set({ watch: WATCH_IDLE, panel: "chat" });
+        // One recording per message: replace an earlier one that wasn't sent yet.
+        const key = draftKey(get());
+        set((s) => ({ attachments: { ...s.attachments, [key]: (s.attachments[key] ?? []).filter((a) => a.kind !== "watch") } }));
+        get().addAttachment({ id: uid(), kind: "watch", name: `Watch log · ${res.steps} step${res.steps === 1 ? "" : "s"}`, watch: res });
+        if (!(get().drafts[key] ?? "").trim()) set((s) => ({ drafts: { ...s.drafts, [key]: "Turn what I just did into a tool" } }));
+        set((s) => ({ focusTick: s.focusTick + 1 }));
+      } catch (err: any) {
+        set({ watch: WATCH_IDLE, notice: `Couldn't finish the recording: ${err.message}` });
+      }
+    },
+
+    cancelWatch() {
+      set({ watch: WATCH_IDLE });
+      rpc("watch.cancel").catch(() => {});
     },
   };
 });
@@ -995,11 +1809,90 @@ export function writesAfter(thread: Thread, msgIndex: number): number {
   return n;
 }
 
+/** What the Smart Rebuild screen collects. */
+export interface SmartRebuildSpec {
+  change: "replace" | "describe" | "manual" | "done" | "continue";
+  newPart: FileEntry | null;
+  notes: string;
+  files: FileEntry[];
+  copy: boolean;
+  copyName: string;
+  decisions: "balanced" | "ask" | "auto";
+}
+
+export function smartRebuildPrompt(r: SmartRebuildSpec, workingFile: string): string {
+  const change = {
+    replace: `Replace the inserted customer part with the revised file ${r.newPart?.path ?? "(attached)"} (attached).`,
+    describe: `Make this change: ${r.notes.trim()}`,
+    manual: "I'll make the change myself: record the design first, then ask me to make it and wait until I say it's done.",
+    done: "I've already made the change but haven't saved: record the design from the last saved version (snapshot_design from_saved_file).",
+    continue:
+      "Continue the previous Smart Rebuild of this design. Read the journal first and learn from it; if the working file is damaged, restore the last good checkpoint (checkpoint list / restore); then carry on from the last completed stage of the plan - revise the plan where the journal's lessons say so.",
+  }[r.change];
+  const decisions = {
+    balanced: "decide routine repairs yourself; ask (ask_form, with the options drawn on the model) before anything that changes function, cost, other parts or customer-facing geometry",
+    ask: "ask me before every judgement call",
+    auto: "make the engineering calls yourself and report each one",
+  }[r.decisions];
+  const lines = [`[Smart rebuild] ${change}`, "", `- Working file: ${workingFile}`, `- Big decisions: ${decisions}`];
+  if (r.change !== "describe" && r.notes.trim()) lines.push(`- Notes: ${r.notes.trim()}`);
+  if (r.files.length) lines.push(`- References attached: ${r.files.map((f) => f.name).join(", ")}`);
+  return lines.join("\n");
+}
+
+/** What the New tool screen collects. Anything left open is the agent's to propose (in one ask_form). */
+export interface NewToolSpec {
+  what: string;
+  from: "describe" | "chat" | "watch";
+  usage: string[];
+  style: "auto" | "hardcoded" | "agent" | "hybrid";
+  name: string;
+}
+
+export function newToolPrompt(t: NewToolSpec): string {
+  const from = {
+    describe: "my description above",
+    chat: "what you just did in this chat - generalize the steps and the code you ran",
+    watch: "the recording of what I do (the watch log attached to this message)",
+  }[t.from];
+  const style = {
+    auto: "recommend one of hard coded / agent in the loop / hybrid, with roughly how long each would take to build",
+    hardcoded: "hard coded - the macro is the whole tool",
+    agent: "agent in the loop - the tool holds the skill; the agent writes the code each run from my context",
+    hybrid: "hybrid - the macro runs first and hands what it can't handle to the agent, which adapts the code and improves the macro",
+  }[t.style];
+  const lines = [
+    `[New tool] ${t.what.trim() || "(see below)"}`,
+    "",
+    `- Start from: ${from}`,
+    `- When I run it: ${t.usage.length ? t.usage.join("; ") : "your call"}`,
+    `- Run style: ${style}`,
+  ];
+  if (t.name.trim()) lines.push(`- Name: ${t.name.trim()}`);
+  return lines.join("\n");
+}
+
+/** What the panel hands over across a restart (see ResumeSession in the add-in). */
+export function resumePanel(): ResumePanel {
+  const drafts = Object.fromEntries(Object.entries(useStore.getState().drafts).filter(([, v]) => v?.trim()));
+  return { drafts };
+}
+
+/** The tool_use ids of the agent's code cells after a message (the add-in's undo ledger knows them). */
+export function cellIdsAfter(thread: Thread, msgIndex: number): string[] {
+  const ids: string[] = [];
+  for (const m of thread.messages.slice(msgIndex + 1)) {
+    if (m.role !== "assistant" || typeof m.content === "string") continue;
+    for (const b of m.content) if (b.type === "tool_use" && b.name === "execute_csharp") ids.push(b.id);
+  }
+  return ids;
+}
+
 /** Plain text of a prompt, without the add-in's context block. */
 export function promptText(m: MessageParam): string {
   if (typeof m.content === "string") return m.content;
   return m.content
-    .filter((b): b is Extract<ContentBlockParam, { type: "text" }> => b.type === "text" && !b.text.startsWith("<sw_context>"))
+    .filter((b): b is Extract<ContentBlockParam, { type: "text" }> => b.type === "text" && !b.text.startsWith("<sw_context>") && !isAttachmentText(b.text))
     .map((b) => b.text)
     .join("\n\n");
 }

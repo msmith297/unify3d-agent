@@ -1,12 +1,21 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { Dropdown, IconButton } from "./Menu";
 import { ToolsPalette } from "./ToolsPalette";
 import {
   IconAgent,
+  IconAttach,
   IconCamera,
+  IconDocs,
+  IconEye,
+  IconModelFile,
+  IconWarning,
+  IconWatch,
+  Spinner,
   IconCancel,
+  IconEdit,
   IconMarkup,
+  IconMic,
   IconOk,
   IconSelect,
   IconSend,
@@ -17,9 +26,10 @@ import {
   IconToolPen,
   IconUndo,
 } from "./SwIcons";
-import { EMPTY, MARKUP_COLORS, MARKUP_NAME, currentThread, draftKey, isAgentSelection, useStore, type MarkupTool } from "../store";
+import { EMPTY, MARKUP_COLORS, MARKUP_NAME, currentThread, draftKey, isAgentSelection, talkKeyName, useStore, type MarkupTool, type QueuedMessage } from "../store";
 import { EFFORTS, MODELS } from "../lib/models";
-import type { Attachment, Effort } from "../lib/types";
+import { isHosted, rpc } from "../lib/bridge";
+import type { Attachment, Effort, FileEntry, ImageMediaType } from "../lib/types";
 
 export function Composer() {
   const thread = useStore(currentThread);
@@ -27,16 +37,48 @@ export function Composer() {
   const draft = useStore((s) => s.drafts[key] ?? "");
   const attachments = useStore((s) => s.attachments[key] ?? EMPTY);
   const running = useStore((s) => (thread ? !!s.runs[thread.id] : false));
+  // The agent is waiting on a question: what's sent here answers it.
+  const asking = useStore((s) => {
+    const q = thread ? s.runs[thread.id]?.question : null;
+    return !!q && !q.form;
+  });
   const settings = useStore((s) => s.settings);
-  const hasDoc = useStore((s) => !!s.docs[s.viewKey]);
+  const hasDoc = useStore((s) => !!s.docs[s.activeDocKey ?? ""]);
   const markupActive = useStore((s) => s.markup.active);
+  const watch = useStore((s) => s.watch);
+  const canWatch = useStore((s) => s.docs[s.activeDocKey ?? ""]?.type === "part" || s.docs[s.activeDocKey ?? ""]?.type === "assembly");
   const focusTick = useStore((s) => s.focusTick);
-  const { setDraft, send, stop, attachView, addAttachment, removeAttachment, setThreadModel, setThreadEffort, startMarkup } = useStore.getState();
+  const overlayCount = useStore((s) => s.overlayCount);
+  const voicePhase = useStore((s) => s.voice.phase);
+  // Push-to-talk is ready when it's on and its speech model is downloaded.
+  const talkKey = useStore((s) =>
+    s.settings.voiceEnabled !== false && s.voiceStatus?.available && s.voiceStatus.models.some((m) => m.id === s.voiceStatus?.model && m.installed)
+      ? talkKeyName(s.settings.voiceKey)
+      : null,
+  );
+  const { setDraft, send, stop, attachView, addAttachment, removeAttachment, setThreadModel, setThreadEffort, startMarkup, pickFiles, startWatch } =
+    useStore.getState();
   const ref = useRef<HTMLTextAreaElement>(null);
+  const [dragging, setDragging] = useState(false);
 
   const model = thread?.model ?? settings.defaultModel;
   const effort = thread?.effort ?? settings.defaultEffort;
-  const canSend = !running && !markupActive && (draft.trim().length > 0 || attachments.length > 0);
+  const reading = attachments.some((a) => a.kind === "model" && a.status === "reading");
+  // While the agent works, Enter queues the message (see QueuedList).
+  const canSend = !markupActive && !reading && (draft.trim().length > 0 || attachments.length > 0);
+
+  // Files dropped anywhere on the panel must not make the WebView navigate to them.
+  useEffect(() => {
+    const block = (e: DragEvent) => {
+      if (e.dataTransfer?.types.includes("Files")) e.preventDefault();
+    };
+    window.addEventListener("dragover", block);
+    window.addEventListener("drop", block);
+    return () => {
+      window.removeEventListener("dragover", block);
+      window.removeEventListener("drop", block);
+    };
+  }, []);
 
   useEffect(() => {
     ref.current?.focus();
@@ -66,27 +108,52 @@ export function Composer() {
     }
   };
 
-  return (
-    <div className="sw-etch relative shrink-0 bg-panel px-1.5 pb-1.5 pt-1.5">
-      {markupActive ? <MarkupBar /> : hasDoc && <SelectionChips />}
+  const onDrop = (e: React.DragEvent) => {
+    setDragging(false);
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length === 0) return;
+    e.preventDefault();
+    const webview = (window as any).chrome?.webview;
+    if (isHosted && webview?.postMessageWithAdditionalObjects) {
+      // The page can't see file paths; WebView2 passes the File objects to the add-in, which reads them.
+      webview.postMessageWithAdditionalObjects({ kind: "files" }, e.dataTransfer.files);
+      return;
+    }
+    // Outside SolidWorks (UI development): read images here, let the mock host stand in for the rest.
+    for (const f of files) {
+      if (f.type.startsWith("image/")) readImage(f).then((a) => a && addAttachment(a));
+    }
+    const others = files.filter((f) => !f.type.startsWith("image/")).map((f) => f.name);
+    if (others.length) rpc<FileEntry[]>("files.entries", { paths: others }).then((entries) => useStore.getState().addFileEntries(entries));
+  };
 
-      <div className="sw-input">
+  return (
+    <div
+      className="sw-etch relative shrink-0 bg-panel px-1.5 pb-1.5 pt-1.5"
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes("Files")) return;
+        e.preventDefault();
+        setDragging(true);
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragging(false);
+      }}
+      onDrop={onDrop}
+    >
+      {dragging && (
+        <div className="pointer-events-none absolute inset-1 z-10 flex items-center justify-center rounded-[3px] border-2 border-dashed border-accent bg-panel/85 text-[11.5px] font-semibold text-text">
+          Drop images, PDFs or 3D models (STL, STEP, 3MF, IGES, SLDPRT...)
+        </div>
+      )}
+      {thread && <QueuedList threadId={thread.id} running={running} />}
+      {voicePhase !== "idle" && <VoiceBar />}
+      {watch.active || watch.busy ? <WatchBar /> : markupActive ? <MarkupBar /> : hasDoc && voicePhase === "idle" && <SelectionChips />}
+
+      <div className="sw-input" data-tour="composer">
         {attachments.length > 0 && (
           <div className="flex flex-wrap gap-1.5 px-1.5 pt-1.5">
             {attachments.map((a) => (
-              <div key={a.id} className="group relative overflow-hidden rounded-[2px] border border-line shadow-[var(--shadow)]" title={a.name}>
-                <img src={`data:${a.mediaType};base64,${a.data}`} alt={a.name} className="h-12 w-auto" />
-                {a.name === MARKUP_NAME && (
-                  <span className="absolute bottom-0 left-0 right-0 bg-black/55 px-1 text-[9.5px] text-white">Markup</span>
-                )}
-                <button
-                  onClick={() => removeAttachment(a.id)}
-                  title="Remove"
-                  className="absolute right-0.5 top-0.5 hidden h-4 w-4 items-center justify-center rounded-full bg-black/60 text-white group-hover:flex"
-                >
-                  <X size={10} />
-                </button>
-              </div>
+              <AttachmentChip key={a.id} a={a} onRemove={() => removeAttachment(a.id)} />
             ))}
           </div>
         )}
@@ -102,19 +169,53 @@ export function Composer() {
               submit();
             }
           }}
-          placeholder={hasDoc ? "Ask a question or describe a change…" : "Ask anything, or open a document first…"}
+          placeholder={
+            asking
+              ? talkKey
+                ? `Answer the agent's question above… or hold ${talkKey} and say it`
+                : "Answer the agent's question above…"
+              : running
+              ? "Add a follow-up - it's queued until the agent finishes…"
+              : hasDoc
+                ? talkKey
+                  ? `Ask a question or describe a change… or hold ${talkKey} and talk`
+                  : "Ask a question or describe a change…"
+                : "Ask anything, or open a document first…"
+          }
           className="block max-h-[160px] min-h-[36px] w-full resize-none bg-transparent px-2 pb-1 pt-1.5 text-[12px] leading-[1.42] text-text outline-none placeholder:text-text-3"
         />
       </div>
 
       <div className="mt-1 flex items-center gap-0.5">
-        <Dropdown title="Model" icon={<IconAgent size={14} />} value={model} items={MODELS.map((m) => ({ id: m.id, label: m.label, note: m.note }))} onChange={setThreadModel} disabled={running} />
-        <Dropdown<Effort> title="Effort" value={effort} items={EFFORTS.map((e) => ({ id: e.id, label: e.label, note: e.note }))} onChange={setThreadEffort} disabled={running} />
-        <ToolsPalette disabled={running || markupActive} />
+        <span className="inline-flex items-center gap-0.5" data-tour="model">
+          <Dropdown title="Model" icon={<IconAgent size={14} />} value={model} items={MODELS.map((m) => ({ id: m.id, label: m.label, note: m.note }))} onChange={setThreadModel} disabled={running} />
+          <Dropdown<Effort> title="Effort" value={effort} items={EFFORTS.map((e) => ({ id: e.id, label: e.label, note: e.note }))} onChange={setThreadEffort} disabled={running} />
+        </span>
+        <span className="inline-flex" data-tour="tools">
+          <ToolsPalette disabled={running || markupActive} />
+        </span>
         <div className="flex-1" />
+        {overlayCount > 0 && (
+          <button type="button" className="sw-btn mr-1 !h-[22px] !px-1.5 text-[11px]" onClick={() => useStore.getState().clearOverlay()} title="Remove what the agent drew on your view">
+            <IconEye size={12} /> Clear overlay
+          </button>
+        )}
+        <IconButton title="Attach images, PDFs or 3D models (or drop them here)" onClick={pickFiles} disabled={markupActive}>
+          <IconAttach />
+        </IconButton>
         {hasDoc && (
           <>
-            <IconButton title="Draw on the view (markup)" active={markupActive} onClick={() => (markupActive ? undefined : startMarkup())}>
+            {canWatch && (
+              <IconButton
+                title={watch.active ? "Watching what you do - stop from the bar above" : "Watch me: record what you do in this document, then turn it into a tool or workflow"}
+                active={watch.active}
+                onClick={() => (watch.active ? undefined : startWatch())}
+                disabled={markupActive || watch.busy}
+              >
+                <IconWatch recording={watch.active} />
+              </IconButton>
+            )}
+            <IconButton tour="markup" title="Draw on the view (markup)" active={markupActive} onClick={() => (markupActive ? undefined : startMarkup())}>
               <IconMarkup />
             </IconButton>
             <IconButton title="Attach a screenshot of the current view" onClick={attachView} disabled={markupActive}>
@@ -123,31 +224,74 @@ export function Composer() {
           </>
         )}
         {running ? (
-          <button type="button" onClick={() => stop()} title="Stop" className="sw-btn !h-6 !px-2">
-            <IconStop size={13} /> Stop
-          </button>
+          <>
+            {canSend && (
+              <button
+                type="button"
+                onClick={submit}
+                title={asking ? "Answer the agent's question with this (Enter)" : "Queue this message (Enter): it's sent when the agent finishes"}
+                className="sw-btn sw-btn-primary mr-1 !h-6 !px-2.5"
+              >
+                <IconSend size={13} /> {asking ? "Answer" : "Queue"}
+              </button>
+            )}
+            <button type="button" onClick={() => stop()} title="Stop" className="sw-btn !h-6 !px-2">
+              <IconStop size={13} /> Stop
+            </button>
+          </>
         ) : (
-          <button type="button" onClick={submit} disabled={!canSend} title="Send (Enter)" className="sw-btn sw-btn-primary !h-6 !px-2.5">
+          <button type="button" onClick={submit} disabled={!canSend} title={reading ? "Waiting for the 3D model to be read" : "Send (Enter)"} className="sw-btn sw-btn-primary !h-6 !px-2.5">
             <IconSend size={13} /> Send
           </button>
         )}
       </div>
-      {settings.approval !== "ask" && (
-        <div className="mt-0.5 px-1 text-[10.5px] text-text-3">
-          {settings.approval === "auto" ? "Code runs without asking. Each change is one undo step." : "Read-only: the agent can't change the model."}
+    </div>
+  );
+}
+
+/**
+ * Follow-ups typed while the agent works. They go out together when the turn ends; "Send now" hands one to the
+ * agent at its next step without stopping it. Edit puts it back in the composer.
+ */
+function QueuedList({ threadId, running }: { threadId: string; running: boolean }) {
+  const queue = useStore((s) => s.queue[threadId] ?? (EMPTY as unknown as QueuedMessage[]));
+  const { queueSendNow, queueEdit, queueRemove } = useStore.getState();
+  if (queue.length === 0) return null;
+  return (
+    <div className="mb-1.5 flex flex-col gap-1">
+      {queue.map((m) => (
+        <div key={m.id} className="sw-rollout flex items-start gap-1.5 px-2 py-1 text-[11.5px]">
+          <div className="min-w-0 flex-1">
+            <div className="line-clamp-2 whitespace-pre-wrap break-words text-text">{m.text || `${m.attachments.length} attachment${m.attachments.length === 1 ? "" : "s"}`}</div>
+            <div className="text-[10.5px] text-text-3">
+              {m.now ? "Sending at the agent's next step…" : running ? "Queued - sent when the agent finishes" : "Waiting to be sent"}
+              {m.text && m.attachments.length > 0 && ` · ${m.attachments.length} attachment${m.attachments.length === 1 ? "" : "s"}`}
+            </div>
+          </div>
+          {!m.now && (
+            <button className="sw-btn !h-5 shrink-0 !px-1.5 text-[11px]" onClick={() => queueSendNow(threadId, m.id)} title="Give this to the agent at its next step, without stopping it">
+              Send now
+            </button>
+          )}
+          <button className="sw-tool !h-5 !min-w-5 shrink-0" onClick={() => queueEdit(threadId, m.id)} title="Edit (moves it back into the message box)">
+            <IconEdit size={11} />
+          </button>
+          <button className="sw-tool !h-5 !min-w-5 shrink-0" onClick={() => queueRemove(threadId, m.id)} title="Remove from the queue">
+            <IconCancel size={10} />
+          </button>
         </div>
-      )}
+      ))}
     </div>
   );
 }
 
 /** One chip per selected entity; click a chip to leave it out of the next message. */
 function SelectionChips() {
-  const selection = useStore((s) => s.selection[s.viewKey] ?? EMPTY);
+  const selection = useStore((s) => s.selection[s.activeDocKey ?? ""] ?? EMPTY);
   const includeSelection = useStore((s) => s.includeSelection);
   const excluded = useStore((s) => s.excludedSel);
-  const agentMade = useStore((s) => isAgentSelection(s, s.viewKey));
-  const agentWorking = useStore((s) => Object.values(s.runs).some((r) => r.docKey === s.viewKey));
+  const agentMade = useStore((s) => isAgentSelection(s, s.activeDocKey ?? ""));
+  const agentWorking = useStore((s) => Object.keys(s.runs).length > 0);
   const { setIncludeSelection, toggleSelItem } = useStore.getState();
   // Selections the agent makes while working (or leaves behind) aren't the user's - don't offer them.
   if (selection.length === 0 || agentMade || agentWorking) return null;
@@ -198,7 +342,60 @@ const TOOLS: { id: MarkupTool; label: string; icon: React.ReactNode }[] = [
   { id: "highlighter", label: "Highlighter", icon: <IconToolHighlighter size={14} /> },
 ];
 
-/** Shown while the markup overlay is active over the SolidWorks view. */
+const clock = (ms: number) => {
+  const s = Math.max(0, Math.round(ms / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+};
+
+/** While the user holds the talk key: the words as they're recognised and what they did meanwhile. */
+function VoiceBar() {
+  const voice = useStore((s) => s.voice);
+  const key = useStore((s) => talkKeyName(s.settings.voiceKey));
+  const answering = useStore((s) => {
+    const t = currentThread(s);
+    const q = t ? s.runs[t.id]?.question : null;
+    return !!q && !q.form;
+  });
+  const { cancelVoice } = useStore.getState();
+  const label =
+    voice.phase === "listening" ? `Listening - let go of ${key} to ${answering ? "answer the question" : "send"}` : voice.phase === "transcribing" ? "Finishing the transcript…" : "Pen is on - press Esc in SolidWorks to send";
+  const bars = [0.55, 0.85, 1, 0.8, 0.5];
+  return (
+    <div className="sw-rollout mb-1.5">
+      <div className="sw-rollout-head !font-normal">
+        <IconMic size={14} live={voice.phase === "listening"} />
+        {voice.phase === "listening" ? (
+          <span className="flex h-3 items-end gap-[2px]" aria-hidden>
+            {bars.map((b, i) => (
+              <span key={i} className="w-[3px] rounded-[1px] bg-[#E5302A] transition-[height] duration-100" style={{ height: `${Math.max(2, Math.min(12, 2 + voice.level * 12 * b))}px` }} />
+            ))}
+          </span>
+        ) : voice.phase === "transcribing" ? (
+          <Spinner size={12} />
+        ) : null}
+        <span className="flex-1 truncate text-[11.5px] font-semibold">{label}</span>
+        <button type="button" className="sw-btn !h-5 !px-1.5 text-[11px]" onClick={cancelVoice} title="Discard this voice message (or press Esc while holding the key)">
+          <IconCancel size={9} /> Discard
+        </button>
+      </div>
+      <div className="selectable max-h-[90px] min-h-[22px] overflow-y-auto px-2 py-1 text-[12px] leading-[1.4] text-text">
+        {voice.text || <span className="text-text-3">Speak - your words appear here. Select, sketch, turn the model or draw with the pen while you talk.</span>}
+      </div>
+      {voice.events.length > 0 && (
+        <div className="flex flex-wrap gap-1 px-2 pb-1.5">
+          {voice.events.slice(-8).map((e, i) => (
+            <span key={i} className="flex h-[18px] max-w-[190px] items-center gap-1 rounded-[2px] border border-line bg-card-2 px-1 text-[10px] text-text-2" title={e.summary}>
+              <span className="tabular-nums text-text-3">{clock(e.t)}</span>
+              <span className="truncate">{e.summary}</span>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Shown while the markup pen is on over the SolidWorks view. */
 function MarkupBar() {
   const markup = useStore((s) => s.markup);
   const { setMarkup, markupUndo, markupClear, cancelMarkup, finishMarkup } = useStore.getState();
@@ -206,8 +403,13 @@ function MarkupBar() {
     <div className="sw-rollout mb-1.5">
       <div className="sw-rollout-head !font-normal">
         <IconMarkup size={14} />
-        <span className="flex-1 text-[11.5px] font-semibold">Drawing on the view</span>
-        <span className="text-[10.5px] text-text-3">{markup.strokes} mark{markup.strokes === 1 ? "" : "s"}</span>
+        <span className="flex-1 text-[11.5px] font-semibold" title="Draw with the left button. Turn, pan and zoom the model as usual - each view you mark is kept. Esc in SolidWorks when you're done.">
+          Pen - turn the model to mark more views
+        </span>
+        <span className="text-[10.5px] text-text-3">
+          {markup.frames > 0 && `${markup.frames} view${markup.frames === 1 ? "" : "s"} kept · `}
+          {markup.strokes} mark{markup.strokes === 1 ? "" : "s"}
+        </span>
       </div>
       <div className="flex items-center gap-0.5 px-1 pt-1">
         {TOOLS.map((t) => (
@@ -237,11 +439,164 @@ function MarkupBar() {
           Clear
         </button>
         <div className="flex-1" />
-        <button type="button" onClick={cancelMarkup} className="sw-btn" title="Discard (Esc)">
-          <IconCancel size={10} /> Cancel
+        <button type="button" onClick={cancelMarkup} className="sw-btn" title="Discard the markup">
+          <IconCancel size={10} /> Discard
         </button>
-        <button type="button" onClick={finishMarkup} className="sw-btn" title="Attach the marked-up view to your message (Enter)">
-          <IconOk size={11} /> Attach
+        <button type="button" onClick={finishMarkup} className="sw-btn" title="Done: attach the marked-up views to your message (Esc or Enter in SolidWorks)">
+          <IconOk size={11} /> Done
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** One attached item above the text box: an image, a PDF, a 3D model (its six views once read) or a Watch me log. */
+function AttachmentChip({ a, onRemove }: { a: Attachment; onRemove: () => void }) {
+  let body: React.ReactNode;
+  let title = a.name;
+  switch (a.kind) {
+    case "image":
+      body = (
+        <>
+          <img src={`data:${a.mediaType};base64,${a.data}`} alt={a.name} className="h-12 w-auto" />
+          {a.name.startsWith(MARKUP_NAME) && <span className="absolute bottom-0 left-0 right-0 bg-black/55 px-1 text-[9.5px] text-white">{a.name}</span>}
+        </>
+      );
+      break;
+    case "pdf":
+      body = <ChipLabel icon={<IconDocs size={18} />} name={a.name} note="PDF" />;
+      break;
+    case "model":
+      title = a.entry?.summary ?? (a.status === "reading" ? `Reading ${a.name}: rendering six views and measuring it...` : a.entry?.error ?? a.name);
+      body =
+        a.status === "ready" && a.entry?.views ? (
+          <>
+            <img src={`data:${a.entry.viewsMediaType ?? "image/jpeg"};base64,${a.entry.views}`} alt={a.name} className="h-12 w-auto" />
+            <span className="absolute bottom-0 left-0 right-0 truncate bg-black/55 px-1 text-[9.5px] text-white">{a.name}</span>
+          </>
+        ) : (
+          <ChipLabel
+            icon={a.status === "reading" ? <Spinner size={16} /> : a.status === "error" ? <IconWarning size={16} /> : <IconModelFile size={18} />}
+            name={a.name}
+            note={a.status === "reading" ? "Reading model..." : a.status === "error" ? "Couldn't read - path only" : (a.entry?.format ?? "3D model")}
+          />
+        );
+      break;
+    case "voice": {
+      const first = a.voice.events.find((e) => e.image);
+      const images = a.voice.events.filter((e) => e.image).length;
+      title = `Voice message (${a.name.replace("Voice ", "")}): what you did while talking goes along with your words - ${a.voice.events.length} event${a.voice.events.length === 1 ? "" : "s"}, ${images} image${images === 1 ? "" : "s"}`;
+      body = (
+        <>
+          {first ? <img src={`data:${first.mediaType ?? "image/jpeg"};base64,${first.image}`} alt="" className="h-12 w-auto opacity-90" /> : <div className="h-12 w-[72px] bg-card-2" />}
+          <span className="absolute bottom-0 left-0 right-0 flex items-center gap-1 bg-black/60 px-1 text-[9.5px] text-white">
+            <IconMic size={11} /> {a.name.replace("Voice ", "")}
+            {images > 0 && ` · ${images}`}
+          </span>
+        </>
+      );
+      break;
+    }
+    case "watch":
+      title = a.watch.text;
+      body = (
+        <>
+          {a.watch.after || a.watch.before ? (
+            <img src={`data:image/jpeg;base64,${a.watch.after ?? a.watch.before}`} alt="" className="h-12 w-auto opacity-90" />
+          ) : (
+            <div className="h-12 w-[72px] bg-card-2" />
+          )}
+          <span className="absolute bottom-0 left-0 right-0 flex items-center gap-1 bg-black/60 px-1 text-[9.5px] text-white">
+            <IconWatch size={11} /> {a.watch.steps} step{a.watch.steps === 1 ? "" : "s"}
+          </span>
+        </>
+      );
+      break;
+  }
+  return (
+    <div className="group relative overflow-hidden rounded-[2px] border border-line bg-card shadow-[var(--shadow)]" title={title}>
+      {body}
+      <button
+        onClick={onRemove}
+        title="Remove"
+        className="absolute right-0.5 top-0.5 hidden h-4 w-4 items-center justify-center rounded-full bg-black/60 text-white group-hover:flex"
+      >
+        <X size={10} />
+      </button>
+    </div>
+  );
+}
+
+function ChipLabel({ icon, name, note }: { icon: React.ReactNode; name: string; note: string }) {
+  return (
+    <div className="flex h-12 max-w-[190px] items-center gap-1.5 px-2">
+      <span className="shrink-0">{icon}</span>
+      <span className="min-w-0">
+        <span className="block truncate text-[11px] text-text">{name}</span>
+        <span className="block truncate text-[10px] text-text-3">{note}</span>
+      </span>
+    </div>
+  );
+}
+
+/** Shown while "Watch me" records: the steps so far, live, and Stop / Discard. */
+function WatchBar() {
+  const watch = useStore((s) => s.watch);
+  const { stopWatch, cancelWatch } = useStore.getState();
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => tick((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const list = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    list.current?.scrollTo({ top: list.current.scrollHeight });
+  }, [watch.entries.length]);
+  const seconds = Math.max(0, Math.round((Date.now() - watch.startedAt) / 1000));
+  const clock = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+  return (
+    <div className="sw-rollout mb-1.5">
+      <div className="sw-rollout-head !font-normal">
+        <span className="relative flex h-2.5 w-2.5 shrink-0">
+          {!watch.busy && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#E5302A] opacity-60" />}
+          <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-[#E5302A]" />
+        </span>
+        <span className="min-w-0 flex-1 truncate text-[11.5px] font-semibold">
+          {watch.busy ? "Finishing the recording..." : `Watching what you do${watch.doc ? ` in ${watch.doc}` : ""}`}
+        </span>
+        <span className="text-[10.5px] tabular-nums text-text-3">{clock}</span>
+      </div>
+      <div ref={list} className="max-h-[92px] overflow-y-auto px-2 py-1 text-[10.5px] leading-[1.45] text-text-2">
+        {watch.entries.length === 0 ? (
+          <div className="text-text-3">Model as usual - features you add, edit, rename or delete, and what you select, are recorded here.</div>
+        ) : (
+          watch.entries.map((e, i) => (
+            <div key={e.id} className="flex gap-1.5">
+              <span className="w-4 shrink-0 text-right text-text-3">{i + 1}.</span>
+              <span className={`min-w-0 ${e.kind === "select" ? "text-text-3" : ""}`}>
+                {e.text}
+                {e.byAgent ? <span className="text-text-3"> (agent)</span> : null}
+              </span>
+            </div>
+          ))
+        )}
+      </div>
+      <div className="flex items-center gap-0.5 px-1 pb-1 pt-0.5">
+        <span className="px-1 text-[10.5px] text-text-3">
+          {watch.entries.length} step{watch.entries.length === 1 ? "" : "s"}
+        </span>
+        <div className="flex-1" />
+        <button type="button" onClick={cancelWatch} disabled={watch.busy} className="sw-btn" title="Stop and throw the recording away">
+          <IconCancel size={10} /> Discard
+        </button>
+        <button
+          type="button"
+          onClick={stopWatch}
+          disabled={watch.busy}
+          className="sw-btn sw-btn-primary"
+          title="Stop and attach the log, with the view before and after, to your next message"
+        >
+          <IconOk size={11} /> Stop &amp; attach
         </button>
       </div>
     </div>
@@ -254,7 +609,7 @@ function pretty(type: string) {
 }
 
 async function readImage(file: File): Promise<Attachment | null> {
-  const mediaType = file.type as Attachment["mediaType"];
+  const mediaType = file.type as ImageMediaType;
   if (!["image/jpeg", "image/png", "image/webp", "image/gif"].includes(mediaType)) return null;
   const data = await new Promise<string>((resolve, reject) => {
     const r = new FileReader();

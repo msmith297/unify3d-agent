@@ -1,5 +1,7 @@
 # Builds the add-in and its Windows installer and publishes a GitHub Release for every version tag.
 #   git tag v0.2.0 && git push origin v0.2.0
+# Nightly / pre-release builds: a tag with a suffix, e.g. v0.2.0-nightly.20261015, is published as a pre-release.
+# The updater only follows releases/latest, which never points at a pre-release, so nobody is offered a nightly.
 # The add-in's updater (src/SwAgent/Infrastructure/Updater.cs) reads the latest release: it downloads the
 # *-Setup-*.exe asset and checks it against the matching .sha256 asset. The release text becomes the
 # "What's new" shown in the update dialog - write it in RELEASE_NOTES.md before tagging.
@@ -28,8 +30,10 @@ jobs:
         shell: pwsh
         run: |
           $v = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}".TrimStart("v") } else { "${{ inputs.version }}" }
-          if ($v -notmatch '^\d+\.\d+\.\d+$') { throw "Version must look like 1.2.3 (got '$v')" }
+          if ($v -notmatch '^(\d+\.\d+\.\d+)(-[0-9A-Za-z.-]+)?$') { throw "Version must look like 1.2.3 or 1.2.3-nightly.20261015 (got '$v')" }
           "version=$v" >> $env:GITHUB_OUTPUT
+          "numeric=$($Matches[1])" >> $env:GITHUB_OUTPUT
+          "prerelease=$(if ($Matches[2]) { 'true' } else { 'false' })" >> $env:GITHUB_OUTPUT
 
       - uses: actions/setup-node@v5
         with:
@@ -55,7 +59,7 @@ jobs:
           Invoke-WebRequest "https://go.microsoft.com/fwlink/p/?LinkId=2124703" -OutFile installer/redist/MicrosoftEdgeWebview2Setup.exe
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; }
-          & $iscc /DAppVersion=${{ steps.v.outputs.version }} installer/Unify3DAgent.iss
+          & $iscc /DAppVersion=${{ steps.v.outputs.version }} /DFileVersion=${{ steps.v.outputs.numeric }} installer/Unify3DAgent.iss
           if ($LASTEXITCODE) { throw "Inno Setup failed" }
           Get-ChildItem dist/*.exe | ForEach-Object {
             "$((Get-FileHash $_ -Algorithm SHA256).Hash.ToLower())  $($_.Name)" | Set-Content -NoNewline -Encoding ascii "$($_.FullName).sha256"
@@ -72,5 +76,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $notes = if (Test-Path RELEASE_NOTES.md) { @("--notes-file", "RELEASE_NOTES.md") } else { @("--generate-notes") }
-          gh release create "${{ github.ref_name }}" (Get-ChildItem dist/*).FullName --title "${{ github.ref_name }}" @notes
+          if ("${{ steps.v.outputs.prerelease }}" -eq "true") {
+            # Nightly: its own notes file if present, otherwise the commits since the last release; never "latest".
+            $notes = if (Test-Path NIGHTLY_NOTES.md) { @("--notes-file", "NIGHTLY_NOTES.md") } else { @("--generate-notes") }
+            gh release create "${{ github.ref_name }}" (Get-ChildItem dist/*).FullName --title "${{ github.ref_name }}" --prerelease --latest=false @notes
+          } else {
+            $notes = if (Test-Path RELEASE_NOTES.md) { @("--notes-file", "RELEASE_NOTES.md") } else { @("--generate-notes") }
+            gh release create "${{ github.ref_name }}" (Get-ChildItem dist/*).FullName --title "${{ github.ref_name }}" @notes
+          }
