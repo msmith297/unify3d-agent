@@ -1941,7 +1941,42 @@ export const useStore = create<State>((set, get) => {
         if (f.kind === "image" && f.data && IMAGE_TYPES.includes(f.mediaType ?? "")) {
           get().addAttachment({ id: uid(), kind: "image", name: f.name, mediaType: f.mediaType as ImageMediaType, data: f.data });
         } else if (f.kind === "pdf" && f.data) {
-          get().addAttachment({ id: uid(), kind: "pdf", name: f.name, mediaType: "application/pdf", data: f.data, path: f.path });
+          get().addAttachment({ id: uid(), kind: "pdf", name: f.name, mediaType: "application/pdf", data: f.data, path: f.pdfPath ?? f.path });
+        } else if (f.kind === "drawing") {
+          // A SolidWorks drawing: converted to PDF in the background (opening it and its models takes a while). It shows
+          // as a chip "reading" like a model meanwhile (sending waits for it), then becomes the PDF attachment.
+          const id = uid();
+          get().addAttachment({ id, kind: "model", name: f.name, path: f.path, status: "reading" });
+          const fail = (entry: FileEntry) =>
+            set((s) => {
+              const attachments: Record<string, Attachment[]> = {};
+              for (const [k, list] of Object.entries(s.attachments)) {
+                attachments[k] = list.map((a) => (a.id === id && a.kind === "model" ? { ...a, status: "error" as const, entry } : a));
+              }
+              return { attachments };
+            });
+          const job = rpc<FileEntry>("files.describe", { path: f.path })
+            .then((entry) => {
+              if (entry?.kind === "pdf" && entry.data) {
+                // the chip becomes the PDF, in the same place (whichever draft it is in)
+                set((s) => {
+                  const attachments: Record<string, Attachment[]> = {};
+                  for (const [k, list] of Object.entries(s.attachments)) {
+                    attachments[k] = list.map((a) =>
+                      a.id === id
+                        ? { id, kind: "pdf" as const, name: entry.name || `${f.name} (as PDF)`, mediaType: "application/pdf" as const, data: entry.data!, path: entry.pdfPath ?? f.path }
+                        : a,
+                    );
+                  }
+                  return { attachments };
+                });
+              } else {
+                fail({ ...f, error: entry?.kind === "too_large" ? "too large as a PDF" : entry?.error ?? "couldn't convert the drawing" });
+              }
+            })
+            .catch((err) => fail({ ...f, error: err.message }))
+            .finally(() => describing.delete(id));
+          describing.set(id, job);
         } else if (f.kind === "model") {
           const id = uid();
           if (f.summary) {
@@ -1967,7 +2002,7 @@ export const useStore = create<State>((set, get) => {
           skipped.push(`${f.name}${f.kind === "too_large" ? " (too large)" : f.error ? ` (${f.error})` : ""}`);
         }
       }
-      if (skipped.length) set({ notice: `Not attached: ${skipped.join(", ")}. Attach images, PDFs or 3D models (STL, STEP, 3MF, IGES, SLDPRT, SLDASM, X_T).` });
+      if (skipped.length) set({ notice: `Not attached: ${skipped.join(", ")}. Attach images, PDFs, SolidWorks drawings or 3D models (STL, STEP, 3MF, IGES, SLDPRT, SLDASM, X_T).` });
       set((s) => ({ focusTick: s.focusTick + 1 }));
     },
 

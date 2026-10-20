@@ -60,7 +60,7 @@ export function stickyState(tr: ToolRunSticky, now: number, active: DocInfo | nu
 }
 
 /**
- * The status a write of the record reports. Agreed with Track D (INTEGRATION-NOTES-C.md): every mold_record action
+ * The status a write of the record reports (src/SwAgent/Tools/MoldTools.cs, StatusLine): every mold_record action
  * that writes (init, merge, ...) prints the record's status on its own line, at the start of the line:
  * `record_status: building`. A line in a result, not a key in JSON, so nested statuses (stages, checks, simulations)
  * can never be mistaken for it, and reads are ignored altogether: a re-run that reads a finished record isn't "done".

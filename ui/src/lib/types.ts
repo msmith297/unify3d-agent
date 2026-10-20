@@ -368,12 +368,15 @@ export interface SelectionItem {
 
 /**
  * A file as the add-in hands it over (src/SwAgent/ModelFiles/FileAttachments.cs): images and PDFs with their data,
- * 3D models with six rendered views (one JPEG) and a measurement summary once described.
+ * 3D models with six rendered views (one JPEG) and a measurement summary once described. A SolidWorks drawing (.slddrw)
+ * comes path-only as kind "drawing"; files.describe converts it and returns kind "pdf" with pdfPath (every sheet).
  */
 export interface FileEntry {
   name: string;
   path: string;
-  kind?: "image" | "pdf" | "model" | "file" | "too_large";
+  kind?: "image" | "pdf" | "model" | "drawing" | "file" | "too_large";
+  /** For a drawing converted to PDF: where the PDF was written. */
+  pdfPath?: string;
   mediaType?: string;
   data?: string;
   format?: string;

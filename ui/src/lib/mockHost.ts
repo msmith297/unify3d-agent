@@ -172,6 +172,10 @@ export async function mockRpc(method: string, params: any): Promise<unknown> {
     case "files.entries":
       return mockEntries(params?.paths ?? []);
     case "files.describe":
+      if (/\.slddrw$/i.test(params.path)) {
+        const name = (params.path as string).split(/[\\/]/).pop() ?? params.path;
+        return { name: `${name} (as PDF)`, path: params.path, kind: "pdf", mediaType: "application/pdf", data: "JVBERi0xLjQK", pdfPath: params.path.replace(/\.slddrw$/i, ".pdf") };
+      }
       return describeModel(params.path);
     case "watch.start":
       return startWatch(params?.docKey);
@@ -243,6 +247,7 @@ function mockEntries(paths: string[]): FileEntry[] {
   return paths.map((path) => {
     const name = path.split(/[\\/]/).pop() ?? path;
     if (MODEL_EXT.test(name)) return { name, path, kind: "model", format: name.split(".").pop()!.toUpperCase() };
+    if (/\.slddrw$/i.test(name)) return { name, path, kind: "drawing", format: "SolidWorks drawing" };
     if (/\.pdf$/i.test(name)) return { name, path, kind: "pdf", mediaType: "application/pdf", data: "JVBERi0xLjQK" };
     if (/\.(png|jpe?g)$/i.test(name)) return { name, path, kind: "image", mediaType: "image/jpeg", data: mockImage().source.data };
     return { name, path, kind: "file" };
@@ -393,7 +398,7 @@ async function runTool(name: string, input: any): Promise<ToolRunResult> {
     case "get_feature_tree":
       return { isError: false, content: [{ type: "text", text: "Origin [OriginProfileFeature]\nFront Plane [RefPlane]\nTop Plane [RefPlane]\nRight Plane [RefPlane]\nBoss-Extrude1 [Extrusion]\n  Sketch1 [ProfileFeature]\nCut-Extrude1 [Cut]\n  Sketch2 [ProfileFeature]\nFillet1 [Fillet]" }] };
     case "mold_record": {
-      // The agreed output (INTEGRATION-NOTES-C.md): every write ends with a `record_status:` line; reads don't count.
+      // The agreed output (MoldTools.StatusLine): every write ends with a `record_status:` line; reads don't count.
       if (input.action === "read") return { isError: false, content: [{ type: "text", text: `Mold record 5b0c - status ${mockRecordStatus}\nStages: 4.3 done` }] };
       if (typeof input.data?.status === "string") mockRecordStatus = input.data.status;
       return { isError: false, content: [{ type: "text", text: `merged; status ${mockRecordStatus}; valid\nrecord_status: ${mockRecordStatus}` }] };

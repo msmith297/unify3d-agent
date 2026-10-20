@@ -464,7 +464,8 @@ namespace SwAgent
             {
                 Title = "Attach files for the agent",
                 Multiselect = true,
-                Filter = "Images, PDFs and 3D models|*.png;*.jpg;*.jpeg;*.gif;*.webp;*.pdf;*.stl;*.3mf;*.obj;*.step;*.stp;*.iges;*.igs;*.x_t;*.x_b;*.sldprt;*.sldasm|" +
+                Filter = "Images, PDFs, drawings and 3D models|*.png;*.jpg;*.jpeg;*.gif;*.webp;*.pdf;*.slddrw;*.stl;*.3mf;*.obj;*.step;*.stp;*.iges;*.igs;*.x_t;*.x_b;*.sldprt;*.sldasm|" +
+                         "SolidWorks drawings, attached as PDF (*.slddrw)|*.slddrw|" +
                          "3D models (*.stl;*.3mf;*.obj;*.step;*.stp;*.iges;*.igs;*.x_t;*.x_b;*.sldprt;*.sldasm)|*.stl;*.3mf;*.obj;*.step;*.stp;*.iges;*.igs;*.x_t;*.x_b;*.sldprt;*.sldasm|" +
                          "Images (*.png;*.jpg;*.jpeg;*.gif;*.webp)|*.png;*.jpg;*.jpeg;*.gif;*.webp|PDF documents (*.pdf)|*.pdf|All files (*.*)|*.*",
             })
