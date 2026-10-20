@@ -1,0 +1,466 @@
+{
+  "schema": "unify3d.mold-montecarlo/2",
+  "generator": "MoldSweep montecarlo, SwAgent.Mold.Structural.Fe.Sweep.MonteCarloHarness a2-2",
+  "date": "2026-10-20",
+  "sizing": "StubSizing, recommended (walls: table + fixed point, root factor 1 + c w/h, +1% interpolation allowance; plates B, C, E: table first guess, finished by the layout plate FE at 24 and 48 elements, extrapolated)",
+  "samples": 2000,
+  "seed": 1,
+  "checks": 19628,
+  "live": 12846,
+  "skipped": 6782,
+  "errors": 0,
+  "truth": "MITC4 plate of the exact layout (64 elements on the short side, pillar heads 8 elements wide; cavities plus land as pressure patches; rails as line supports; pillars as rigid heads 0.2 x the short spacing, holding w for the deflection (times the 3D pillar-head factor 1.20) and clamped for the hogging on the head faces; an opening as SS4; platen as a stiff tensionless foundation); walls as Wall-C plates (64 elements) times the 3D root factor 1 + c w/h; r_w at the land nodes. The truth never uses a mesh the sizing used.",
+  "max_r_w": 0.9972,
+  "max_r_s": 0.998,
+  "median_r_w_deflection_governed": 0.9915,
+  "acceptance": "max r_w <= 1.00 and max r_s <= 1.00; no sizing or truth errors; per group (plates on A, B, C, E; walls) at least 10 live checks and coverage (live / drawn) at least 50 %; per group with at least 10 deflection-governed checks, median r_w at least 0.75",
+  "accepted": true,
+  "acceptance_failures": [],
+  "failures": [],
+  "by_group": {
+    "plate, support A": {
+      "checks": 497,
+      "live": 497,
+      "skipped_out_of_range": 0,
+      "errors": 0,
+      "coverage": 1.0,
+      "max_r_w": 0.236,
+      "max_r_s": 0.0824,
+      "deflection_governed": 0,
+      "median_r_w_deflection_governed": null,
+      "governs": {
+        "minimum": 497
+      },
+      "histogram_r_w_deflection_governed": {
+        "0-0.25": 0,
+        "0.25-0.5": 0,
+        "0.5-0.6": 0,
+        "0.6-0.7": 0,
+        "0.7-0.8": 0,
+        "0.8-0.9": 0,
+        "0.9-0.95": 0,
+        "0.95-1": 0,
+        "1-1.05": 0,
+        ">1.05": 0
+      }
+    },
+    "plate, support B": {
+      "checks": 491,
+      "live": 441,
+      "skipped_out_of_range": 50,
+      "errors": 0,
+      "coverage": 0.898,
+      "max_r_w": 0.9965,
+      "max_r_s": 0.9928,
+      "deflection_governed": 406,
+      "median_r_w_deflection_governed": 0.9935,
+      "governs": {
+        "deflection": 406,
+        "minimum": 33,
+        "stress": 2
+      },
+      "histogram_r_w_deflection_governed": {
+        "0-0.25": 0,
+        "0.25-0.5": 0,
+        "0.5-0.6": 0,
+        "0.6-0.7": 0,
+        "0.7-0.8": 0,
+        "0.8-0.9": 0,
+        "0.9-0.95": 0,
+        "0.95-1": 406,
+        "1-1.05": 0,
+        ">1.05": 0
+      }
+    },
+    "plate, support C": {
+      "checks": 518,
+      "live": 485,
+      "skipped_out_of_range": 33,
+      "errors": 0,
+      "coverage": 0.936,
+      "max_r_w": 0.9952,
+      "max_r_s": 0.9927,
+      "deflection_governed": 453,
+      "median_r_w_deflection_governed": 0.994,
+      "governs": {
+        "deflection": 453,
+        "minimum": 30,
+        "stress": 2
+      },
+      "histogram_r_w_deflection_governed": {
+        "0-0.25": 0,
+        "0.25-0.5": 0,
+        "0.5-0.6": 0,
+        "0.6-0.7": 0,
+        "0.7-0.8": 0,
+        "0.8-0.9": 0,
+        "0.9-0.95": 0,
+        "0.95-1": 453,
+        "1-1.05": 0,
+        ">1.05": 0
+      }
+    },
+    "plate, support E": {
+      "checks": 494,
+      "live": 390,
+      "skipped_out_of_range": 104,
+      "errors": 0,
+      "coverage": 0.789,
+      "max_r_w": 0.9952,
+      "max_r_s": 0.9832,
+      "deflection_governed": 286,
+      "median_r_w_deflection_governed": 0.9931,
+      "governs": {
+        "deflection": 286,
+        "minimum": 95,
+        "stress": 9
+      },
+      "histogram_r_w_deflection_governed": {
+        "0-0.25": 0,
+        "0.25-0.5": 0,
+        "0.5-0.6": 0,
+        "0.6-0.7": 0,
+        "0.7-0.8": 0,
+        "0.8-0.9": 0,
+        "0.9-0.95": 0,
+        "0.95-1": 286,
+        "1-1.05": 0,
+        ">1.05": 0
+      }
+    },
+    "walls": {
+      "checks": 17628,
+      "live": 11033,
+      "skipped_out_of_range": 6595,
+      "errors": 0,
+      "coverage": 0.626,
+      "max_r_w": 0.9972,
+      "max_r_s": 0.998,
+      "deflection_governed": 5154,
+      "median_r_w_deflection_governed": 0.9912,
+      "governs": {
+        "deflection": 5154,
+        "minimum": 5833,
+        "stress": 46
+      },
+      "histogram_r_w_deflection_governed": {
+        "0-0.25": 0,
+        "0.25-0.5": 0,
+        "0.5-0.6": 1,
+        "0.6-0.7": 1,
+        "0.7-0.8": 0,
+        "0.8-0.9": 0,
+        "0.9-0.95": 0,
+        "0.95-1": 5152,
+        "1-1.05": 0,
+        ">1.05": 0
+      }
+    }
+  },
+  "elapsed_s": 872.0,
+  "compare_table_only": {
+    "sizing": "StubSizing, table only (root factor 1 + c w/h; +1% interpolation allowance; centred-patch loaded fraction; case E by the Pillar rows x the 3D pillar-head factor)",
+    "max_r_w": 1.3066,
+    "max_r_s": 0.998,
+    "median_r_w_deflection_governed": 0.9908,
+    "accepted": false,
+    "acceptance_failures": [
+      "max r_w 1.3066 > 1",
+      "plate, support B: median r_w 0.592 where deflection governs (at least 0.75): wasteful",
+      "plate, support C: median r_w 0.646 where deflection governs (at least 0.75): wasteful"
+    ],
+    "failures_count": 43,
+    "by_group": {
+      "plate, support A": {
+        "checks": 497,
+        "live": 497,
+        "skipped_out_of_range": 0,
+        "errors": 0,
+        "coverage": 1.0,
+        "max_r_w": 0.236,
+        "max_r_s": 0.0824,
+        "deflection_governed": 0,
+        "median_r_w_deflection_governed": null,
+        "governs": {
+          "minimum": 497
+        },
+        "histogram_r_w_deflection_governed": {
+          "0-0.25": 0,
+          "0.25-0.5": 0,
+          "0.5-0.6": 0,
+          "0.6-0.7": 0,
+          "0.7-0.8": 0,
+          "0.8-0.9": 0,
+          "0.9-0.95": 0,
+          "0.95-1": 0,
+          "1-1.05": 0,
+          ">1.05": 0
+        }
+      },
+      "plate, support B": {
+        "checks": 491,
+        "live": 441,
+        "skipped_out_of_range": 50,
+        "errors": 0,
+        "coverage": 0.898,
+        "max_r_w": 0.8788,
+        "max_r_s": 0.8753,
+        "deflection_governed": 421,
+        "median_r_w_deflection_governed": 0.5919,
+        "governs": {
+          "deflection": 421,
+          "minimum": 19,
+          "stress": 1
+        },
+        "histogram_r_w_deflection_governed": {
+          "0-0.25": 0,
+          "0.25-0.5": 69,
+          "0.5-0.6": 154,
+          "0.6-0.7": 116,
+          "0.7-0.8": 58,
+          "0.8-0.9": 24,
+          "0.9-0.95": 0,
+          "0.95-1": 0,
+          "1-1.05": 0,
+          ">1.05": 0
+        }
+      },
+      "plate, support C": {
+        "checks": 518,
+        "live": 485,
+        "skipped_out_of_range": 33,
+        "errors": 0,
+        "coverage": 0.936,
+        "max_r_w": 0.8542,
+        "max_r_s": 0.7183,
+        "deflection_governed": 468,
+        "median_r_w_deflection_governed": 0.6459,
+        "governs": {
+          "deflection": 468,
+          "minimum": 17
+        },
+        "histogram_r_w_deflection_governed": {
+          "0-0.25": 14,
+          "0.25-0.5": 46,
+          "0.5-0.6": 97,
+          "0.6-0.7": 204,
+          "0.7-0.8": 100,
+          "0.8-0.9": 7,
+          "0.9-0.95": 0,
+          "0.95-1": 0,
+          "1-1.05": 0,
+          ">1.05": 0
+        }
+      },
+      "plate, support E": {
+        "checks": 494,
+        "live": 390,
+        "skipped_out_of_range": 104,
+        "errors": 0,
+        "coverage": 0.789,
+        "max_r_w": 1.3066,
+        "max_r_s": 0.9634,
+        "deflection_governed": 314,
+        "median_r_w_deflection_governed": 0.8035,
+        "governs": {
+          "deflection": 314,
+          "minimum": 70,
+          "stress": 6
+        },
+        "histogram_r_w_deflection_governed": {
+          "0-0.25": 0,
+          "0.25-0.5": 20,
+          "0.5-0.6": 22,
+          "0.6-0.7": 47,
+          "0.7-0.8": 66,
+          "0.8-0.9": 62,
+          "0.9-0.95": 32,
+          "0.95-1": 23,
+          "1-1.05": 17,
+          ">1.05": 25
+        }
+      },
+      "walls": {
+        "checks": 17628,
+        "live": 11033,
+        "skipped_out_of_range": 6595,
+        "errors": 0,
+        "coverage": 0.626,
+        "max_r_w": 0.9972,
+        "max_r_s": 0.998,
+        "deflection_governed": 5154,
+        "median_r_w_deflection_governed": 0.9912,
+        "governs": {
+          "deflection": 5154,
+          "minimum": 5833,
+          "stress": 46
+        },
+        "histogram_r_w_deflection_governed": {
+          "0-0.25": 0,
+          "0.25-0.5": 0,
+          "0.5-0.6": 1,
+          "0.6-0.7": 1,
+          "0.7-0.8": 0,
+          "0.8-0.9": 0,
+          "0.9-0.95": 0,
+          "0.95-1": 5152,
+          "1-1.05": 0,
+          ">1.05": 0
+        }
+      }
+    }
+  },
+  "compare_design_as_written": {
+    "sizing": "StubSizing, design.md as written (root factor 1.2; no interpolation allowance; case E as C4 panels between pillars)",
+    "max_r_w": 23.3647,
+    "max_r_s": 4.5525,
+    "median_r_w_deflection_governed": 1.563,
+    "accepted": false,
+    "acceptance_failures": [
+      "max r_w 23.3647 > 1",
+      "max r_s 4.5525 > 1",
+      "plate, support B: median r_w 0.598 where deflection governs (at least 0.75): wasteful",
+      "plate, support C: median r_w 0.652 where deflection governs (at least 0.75): wasteful"
+    ],
+    "failures_count": 6994,
+    "by_group": {
+      "plate, support A": {
+        "checks": 497,
+        "live": 497,
+        "skipped_out_of_range": 0,
+        "errors": 0,
+        "coverage": 1.0,
+        "max_r_w": 0.236,
+        "max_r_s": 0.0824,
+        "deflection_governed": 0,
+        "median_r_w_deflection_governed": null,
+        "governs": {
+          "minimum": 497
+        },
+        "histogram_r_w_deflection_governed": {
+          "0-0.25": 0,
+          "0.25-0.5": 0,
+          "0.5-0.6": 0,
+          "0.6-0.7": 0,
+          "0.7-0.8": 0,
+          "0.8-0.9": 0,
+          "0.9-0.95": 0,
+          "0.95-1": 0,
+          "1-1.05": 0,
+          ">1.05": 0
+        }
+      },
+      "plate, support B": {
+        "checks": 491,
+        "live": 441,
+        "skipped_out_of_range": 50,
+        "errors": 0,
+        "coverage": 0.898,
+        "max_r_w": 0.8877,
+        "max_r_s": 0.8816,
+        "deflection_governed": 420,
+        "median_r_w_deflection_governed": 0.5977,
+        "governs": {
+          "deflection": 420,
+          "minimum": 20,
+          "stress": 1
+        },
+        "histogram_r_w_deflection_governed": {
+          "0-0.25": 0,
+          "0.25-0.5": 66,
+          "0.5-0.6": 146,
+          "0.6-0.7": 114,
+          "0.7-0.8": 66,
+          "0.8-0.9": 28,
+          "0.9-0.95": 0,
+          "0.95-1": 0,
+          "1-1.05": 0,
+          ">1.05": 0
+        }
+      },
+      "plate, support C": {
+        "checks": 518,
+        "live": 486,
+        "skipped_out_of_range": 32,
+        "errors": 0,
+        "coverage": 0.938,
+        "max_r_w": 0.8628,
+        "max_r_s": 0.7238,
+        "deflection_governed": 469,
+        "median_r_w_deflection_governed": 0.6517,
+        "governs": {
+          "deflection": 469,
+          "minimum": 17
+        },
+        "histogram_r_w_deflection_governed": {
+          "0-0.25": 14,
+          "0.25-0.5": 44,
+          "0.5-0.6": 89,
+          "0.6-0.7": 201,
+          "0.7-0.8": 114,
+          "0.8-0.9": 7,
+          "0.9-0.95": 0,
+          "0.95-1": 0,
+          "1-1.05": 0,
+          ">1.05": 0
+        }
+      },
+      "plate, support E": {
+        "checks": 494,
+        "live": 494,
+        "skipped_out_of_range": 0,
+        "errors": 0,
+        "coverage": 1.0,
+        "max_r_w": 23.3647,
+        "max_r_s": 4.5525,
+        "deflection_governed": 128,
+        "median_r_w_deflection_governed": 4.0775,
+        "governs": {
+          "deflection": 128,
+          "minimum": 365,
+          "stress": 1
+        },
+        "histogram_r_w_deflection_governed": {
+          "0-0.25": 0,
+          "0.25-0.5": 0,
+          "0.5-0.6": 0,
+          "0.6-0.7": 0,
+          "0.7-0.8": 0,
+          "0.8-0.9": 0,
+          "0.9-0.95": 0,
+          "0.95-1": 0,
+          "1-1.05": 0,
+          ">1.05": 128
+        }
+      },
+      "walls": {
+        "checks": 17628,
+        "live": 12525,
+        "skipped_out_of_range": 5103,
+        "errors": 0,
+        "coverage": 0.711,
+        "max_r_w": 2.0108,
+        "max_r_s": 1.0039,
+        "deflection_governed": 3533,
+        "median_r_w_deflection_governed": 1.617,
+        "governs": {
+          "deflection": 3533,
+          "minimum": 8864,
+          "stress": 128
+        },
+        "histogram_r_w_deflection_governed": {
+          "0-0.25": 0,
+          "0.25-0.5": 0,
+          "0.5-0.6": 0,
+          "0.6-0.7": 1,
+          "0.7-0.8": 0,
+          "0.8-0.9": 0,
+          "0.9-0.95": 0,
+          "0.95-1": 0,
+          "1-1.05": 0,
+          ">1.05": 3532
+        }
+      }
+    }
+  }
+}
