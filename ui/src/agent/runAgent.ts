@@ -107,7 +107,7 @@ export const ASK_SELECTION_TOOL: ToolDef = {
         description: "Entity kinds that count (default: any). Others the user selects are reported but not numbered.",
       },
       min: { type: "integer", description: "Fewest entities needed before Done (default 0)." },
-      max: { type: "integer", description: "Most entities wanted (more are still reported)." },
+      max: { type: "integer", description: "Most entities wanted (more are still reported; at most 500 are read)." },
     },
     required: ["prompt"],
   },

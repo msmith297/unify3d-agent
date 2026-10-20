@@ -20,6 +20,8 @@ function Icon({ t }: { t: UserToolInfo }) {
 async function chooseCategory(t: UserToolInfo, existing: string[]) {
   let value = t.category ?? "";
   const listId = `categories-${t.name}`;
+  const shipped = t.categoryDefault ?? null;
+  const changedBuiltIn = !!t.builtIn && t.categoryDefault !== undefined && (t.category ?? null) !== shipped;
   const choice = await ask({
     title: `Category of "${t.title}"`,
     message: (
@@ -47,12 +49,16 @@ async function chooseCategory(t: UserToolInfo, existing: string[]) {
         </datalist>
       </div>
     ),
-    actions: [{ value: "save", label: "Save", primary: true }],
+    // A built-in whose category the user changed can go back to the one it ships with (and follow it in updates).
+    actions: [
+      ...(changedBuiltIn ? [{ value: "reset" as const, label: `Reset to ${shipped ? `"${shipped}"` : "none"}` }] : []),
+      { value: "save" as const, label: "Save", primary: true },
+    ],
     icon: <IconTree size={15} />,
   });
-  if (choice !== "save") return;
-  const next = value.replace(/\s+/g, " ").trim();
-  if (next === (t.category ?? "")) return;
+  if (choice !== "save" && choice !== "reset") return;
+  const next = choice === "reset" ? null : value.replace(/\s+/g, " ").trim();
+  if (next !== null && next === (t.category ?? "")) return;
   await rpc("userTools.setValue", { name: t.name, key: "category", value: next }).catch((err) =>
     useStore.setState({ notice: `Couldn't change the category: ${err.message}` }),
   );
@@ -227,6 +233,7 @@ export function ToolsPalette({ disabled }: { disabled?: boolean }) {
                   send(
                     "Turn this model into a reusable workflow. Study its complete feature history (every sketch, dimension and feature), " +
                       "then ask me which dimensions and choices should become inputs before saving it.",
+                    { fresh: true }, // a new request, not a follow-up of a long tool run in this chat
                   );
                 }}
               >

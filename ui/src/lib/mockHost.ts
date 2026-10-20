@@ -14,7 +14,12 @@ const TOOLS: ToolDef[] = [
   tool("get_model_context", "Summary of the document.", {}),
   tool("get_selection", "Current selection.", {}),
   tool("search_sw_api", "Search the SolidWorks API.", { query: { type: "string" } }, ["query"]),
+  // The mold tool's record (Track D): writes print `record_status: <status>`, which ends a long run's follow-ups at done.
+  tool("mold_record", "For the design-compression-mold tool: the mold's design record.", { action: { type: "string" }, data: { type: "object" } }, ["action"]),
 ];
+
+/** The mock mold record's status (mold_record). */
+let mockRecordStatus = "planning";
 
 function tool(name: string, description: string, properties: Record<string, any>, required?: string[]): ToolDef {
   return { name, description, input_schema: { type: "object", properties, ...(required ? { required } : {}) } };
@@ -137,7 +142,10 @@ export async function mockRpc(method: string, params: any): Promise<unknown> {
     case "userTools.setValue": {
       // The Workflows menu's category button (and the tool page's intelligence): kept for this browser session.
       const all = store.get<Record<string, Record<string, string>>>("toolSettings", {});
-      all[params.name] = { ...(all[params.name] ?? {}), [params.key]: params.value };
+      // null resets a built-in's value to what it ships with (UserTools.SetValue).
+      const mine: Record<string, string> = { ...(all[params.name] ?? {}), [params.key]: params.value };
+      if (params.value === null) delete mine[params.key];
+      all[params.name] = mine;
       store.set("toolSettings", all);
       setTimeout(() => emitLocal("userTools.changed", mockUserTools()), 50);
       return null;
@@ -202,6 +210,7 @@ function mockUserTools(): UserToolInfo[] {
       title: "Design compression mold for plastics and resins",
       ribbonTitle: "Compression Mold",
       category: "Molding & Toolmaking",
+      categoryDefault: "Molding & Toolmaking",
       description: "Designs a heat-press compression mold for a PU, resin, rubber or thermoset part, with every plate, insert and pad as a body in this part.",
       icon: "part",
       updated,
@@ -212,7 +221,7 @@ function mockUserTools(): UserToolInfo[] {
       requires: ["mold_calc", "mold_part", "mold_bodies", "mold_record"],
       hasInputs: true,
     },
-    { name: "smart-rebuild", builtIn: true, title: "Smart Rebuild", description: "Rebuild the whole design around a change far back in its history.", icon: "rebuild", updated, kind: "tool", intelligence: "max", hasInputs: true },
+    { name: "smart-rebuild", builtIn: true, categoryDefault: null, title: "Smart Rebuild", description: "Rebuild the whole design around a change far back in its history.", icon: "rebuild", updated, kind: "tool", intelligence: "max", hasInputs: true },
     { name: "add-mounting-holes", title: "Add mounting holes", description: "Select a planar face; adds a 4-hole M6 clearance pattern 10 mm in from the face edges.", icon: "select", updated, kind: "tool", hasMacro: true },
     { name: "flash-grooves", title: "Flash grooves", description: "Cuts the shop's flash-groove pattern around the selected cavity face.", icon: "macro", updated, kind: "tool", hasMacro: true, category: "molding & toolmaking" },
     { name: "compression-mold", title: "Create compression mold", description: "From the active part: split-line, cavity/core plates with 1.5 deg draft, flash land, alignment pins and vents.", icon: "assembly", updated, kind: "workflow", iconSvg: MOLD_SVG, hasPng: false, category: "Molding & Toolmaking" },
@@ -383,6 +392,12 @@ async function runTool(name: string, input: any): Promise<ToolRunResult> {
       return { isError: false, content: [{ type: "text", text: "OK (compile 412 ms, run 38 ms)\n--- output ---\nFillet created: Fillet3 (2 edges, R2 mm)" }] };
     case "get_feature_tree":
       return { isError: false, content: [{ type: "text", text: "Origin [OriginProfileFeature]\nFront Plane [RefPlane]\nTop Plane [RefPlane]\nRight Plane [RefPlane]\nBoss-Extrude1 [Extrusion]\n  Sketch1 [ProfileFeature]\nCut-Extrude1 [Cut]\n  Sketch2 [ProfileFeature]\nFillet1 [Fillet]" }] };
+    case "mold_record": {
+      // The agreed output (INTEGRATION-NOTES-C.md): every write ends with a `record_status:` line; reads don't count.
+      if (input.action === "read") return { isError: false, content: [{ type: "text", text: `Mold record 5b0c - status ${mockRecordStatus}\nStages: 4.3 done` }] };
+      if (typeof input.data?.status === "string") mockRecordStatus = input.data.status;
+      return { isError: false, content: [{ type: "text", text: `merged; status ${mockRecordStatus}; valid\nrecord_status: ${mockRecordStatus}` }] };
+    }
     default:
       return { isError: false, content: [{ type: "text", text: `(mock) ${name} ${JSON.stringify(input)}` }] };
   }

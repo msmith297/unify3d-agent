@@ -7,18 +7,28 @@ import { EFFORTS, modelOption } from "../lib/models";
 
 /**
  * A long tool run that is still open in this chat (lib/toolRun.ts): follow-ups typed here keep the tool's model,
- * effort, step limit and auto-approval. Shows that - or that it is paused while another document is active - with an
- * X to end it, so auto-approval never carries on unseen.
+ * effort, step limit and (ribbon tools) auto-approval. Shows that - or that it is paused while another document is
+ * active - with an X to end it, so auto-approval never carries on unseen. It re-checks every 30 s, so it disappears
+ * once the run has been idle for 2 hours even when nothing else re-renders the panel.
  */
 function LongRunChip() {
   const thread = useStore(currentThread);
   const tr = thread?.toolRun ?? null;
   const active = useStore((s) => s.docs[s.activeDocKey ?? ""]);
+  const readOnly = useStore((s) => s.settings.approval === "read_only");
   const endToolRun = useStore((s) => s.endToolRun);
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (!tr) return;
+    const t = setInterval(() => tick((n) => n + 1), 30_000);
+    return () => clearInterval(t);
+  }, [tr]);
   if (!thread || !tr) return null;
   const state = stickyState(tr, Date.now(), active);
   if (state === "expired") return null;
   const effort = EFFORTS.find((e) => e.id === tr.effort)?.label.toLowerCase() ?? tr.effort;
+  const auto = tr.autoApprove !== false && !readOnly;
+  const approval = auto ? "auto-approve" : readOnly ? "read-only" : "asks before code";
   return (
     <div className="flex shrink-0 items-center gap-2 border-b border-line bg-card px-2 py-1 text-[11.5px] shadow-[inset_0_1px_0_var(--bevel-hi)]">
       <IconToolbox size={13} />
@@ -26,14 +36,15 @@ function LongRunChip() {
         className="min-w-0 flex-1 truncate text-text-2"
         title={
           state === "active"
-            ? "Messages you send in this chat continue the tool run with its own settings and without asking before running code. " +
-              "This ends when the tool reports it is done, after 2 hours without activity, when another tool runs here, or when you close it."
+            ? `Messages you send in this chat continue the tool run with its own settings${auto ? " and without asking before running code" : ""}. ` +
+              "This ends when the tool reports it is done, after 2 hours without activity, when another tool or workflow runs here, " +
+              "when you change this chat's model or effort, or when you close it."
             : "Follow-ups use this chat's own model and approval while another document is active. Switch back to continue the tool run."
         }
       >
         <span className="font-semibold text-text">{tr.label}</span>
         {state === "active" ? (
-          <> - follow-ups continue it: {modelOption(tr.model).label} · {effort} effort · auto-approve · {tr.maxSteps} steps</>
+          <> - follow-ups continue it: {modelOption(tr.model).label} · {effort} effort · {approval} · {tr.maxSteps} steps</>
         ) : (
           <> - paused: {tr.doc?.title ?? "its document"} isn't the active document</>
         )}

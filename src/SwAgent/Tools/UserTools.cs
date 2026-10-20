@@ -26,8 +26,11 @@ namespace SwAgent.Tools
             "Optional category: tools that share one get their own box on the Unify3D ribbon tab and their own section in the Workflows menu, " +
             "e.g. \"Molding & Toolmaking\". Reuse an existing category name (see list_user_tools) rather than inventing a near-duplicate.";
 
-        /// <summary>API steps per turn: the default, a long tool's default (front matter long_run without max_steps), and the cap.</summary>
-        public const int DefaultMaxSteps = 200, LongRunMaxSteps = 600, MaxStepsCap = 1000;
+        /// <summary>
+        /// API steps per turn: the default, a long tool's default (front matter long_run without max_steps), and the range
+        /// a tool's max_steps is clamped to (design 2.1.1; the panel's lib/toolRun.ts has the same numbers).
+        /// </summary>
+        public const int DefaultMaxSteps = 200, LongRunMaxSteps = 600, MaxStepsMin = 50, MaxStepsCap = 1000;
 
         /// <summary>A category as stored: one line, at most 48 characters; "" for none.</summary>
         public static string CleanCategory(string category)
@@ -45,12 +48,12 @@ namespace SwAgent.Tools
             fm.TryGetValue("long_run", out var v) && new[] { "true", "yes", "1" }.Contains((v ?? "").Trim().ToLowerInvariant());
 
         /// <summary>
-        /// API steps per turn for a tool run: <c>max_steps</c> (clamped to 1..1000), else 600 for a long tool, else null
-        /// (the panel's default, 200).
+        /// API steps per turn for a tool run: <c>max_steps</c> (clamped to 50..1000), else 600 for a long tool, else null
+        /// (the panel's default, 200). The one parser for this: ToolSpec should call it too.
         /// </summary>
         internal static int? MaxStepsOf(IDictionary<string, string> fm)
         {
-            if (fm.TryGetValue("max_steps", out var v) && int.TryParse((v ?? "").Trim(), out var n)) return Math.Max(1, Math.Min(MaxStepsCap, n));
+            if (fm.TryGetValue("max_steps", out var v) && int.TryParse((v ?? "").Trim(), out var n)) return Math.Max(MaxStepsMin, Math.Min(MaxStepsCap, n));
             return LongRunOf(fm) ? LongRunMaxSteps : (int?)null;
         }
 
@@ -512,21 +515,32 @@ namespace SwAgent.Tools
         /// <summary>Front matter of a TOOL.md (public for ToolSpec).</summary>
         public static Dictionary<string, string> FrontMatter(string text) => ReadFrontMatter(text);
 
-        /// <summary>Change one front-matter value of a saved tool (e.g. its intelligence, from the tool's page).</summary>
+        /// <summary>
+        /// Change one front-matter value of a saved tool (e.g. its intelligence, from the tool's page). For a built-in tool
+        /// the value is the user's override in builtin-settings.json: null (reset), or the value the tool ships with,
+        /// removes the override, so the shipped value - and any later change to it - applies again.
+        /// </summary>
         public static void SetValue(string name, string key, string value)
         {
-            // Front matter is one "key: value" line each; a category from the panel is free text.
-            value = string.Equals(key, "category", StringComparison.OrdinalIgnoreCase) ? CleanCategory(value) : OneLine(value);
+            var isCategory = string.Equals(key, "category", StringComparison.OrdinalIgnoreCase);
             if (IsBuiltIn(name))
             {
+                var shipped = ReadFrontMatter(File.ReadAllText(Path.Combine(BuiltInRoot, name, "TOOL.md")));
+                shipped.TryGetValue(key, out var original);
+                var clean = value == null ? null : isCategory ? CleanCategory(value) : OneLine(value);
+                var same = clean != null && (isCategory ? CleanCategory(original) == clean : original != null && OneLine(original) == clean);
                 var all = File.Exists(BuiltInSettingsPath) ? JObject.Parse(File.ReadAllText(BuiltInSettingsPath)) : new JObject();
                 var mine = all[name] as JObject ?? new JObject();
-                mine[key] = value;
-                all[name] = mine;
+                if (clean == null || same) mine.Remove(key);
+                else mine[key] = clean; // "" for a category: the user chose none
+                if (mine.HasValues) all[name] = mine;
+                else all.Remove(name);
                 File.WriteAllText(BuiltInSettingsPath, all.ToString(Newtonsoft.Json.Formatting.Indented));
                 Changed?.Invoke();
                 return;
             }
+            // Front matter is one "key: value" line each; a category from the panel is free text.
+            value = isCategory ? CleanCategory(value) : OneLine(value);
             var md = Path.Combine(ToolDir(name, mustExist: true), "TOOL.md");
             var lines = File.ReadAllText(md).Replace("\r\n", "\n").Split('\n').ToList();
             var end = lines.Count > 0 && lines[0].Trim() == "---" ? lines.FindIndex(1, l => l.Trim() == "---") : -1;
@@ -562,6 +576,11 @@ namespace SwAgent.Tools
         private static void SetHeader(List<string> header, string key, string value)
         {
             var i = header.FindIndex(1, l => l.StartsWith(key + ":", StringComparison.OrdinalIgnoreCase));
+            if (string.IsNullOrEmpty(value) && string.Equals(key, "category", StringComparison.OrdinalIgnoreCase))
+            {
+                if (i > 0) header.RemoveAt(i); // no category: no empty line left behind
+                return;
+            }
             if (i > 0) header[i] = $"{key}: {value}";
             else header.Insert(header.Count - 1, $"{key}: {value}");
         }
@@ -605,6 +624,10 @@ namespace SwAgent.Tools
                         ["hasPng"] = File.Exists(Path.Combine(dir, "icon.png")),
                         // Grouping on the ribbon and in the Workflows menu, the ribbon's shorter button title, and long runs.
                         ["category"] = CategoryOf(fm),
+                        // A built-in's shipped category, so the panel can offer "Reset to default" after the user changed it.
+                        ["categoryDefault"] = dir.StartsWith(BuiltInRoot, StringComparison.OrdinalIgnoreCase)
+                            ? CategoryOf(ReadFrontMatter(File.ReadAllText(md)))
+                            : null,
                         ["ribbonTitle"] = fm.TryGetValue("ribbon_title", out var rt) && !string.IsNullOrWhiteSpace(rt) ? OneLine(rt) : null,
                         ["longRun"] = LongRunOf(fm),
                         ["maxSteps"] = MaxStepsOf(fm),

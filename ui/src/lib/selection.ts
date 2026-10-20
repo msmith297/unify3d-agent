@@ -66,11 +66,16 @@ export function kindsText(types: SelectionKind[] | undefined, plural = true): st
 }
 
 /** What the card says about the count so far ("3 faces selected", "select at least 2"), and whether Done is allowed. */
-export function selectionStatus(count: number, ask: Pick<SelectionAsk, "types" | "min" | "max">): { text: string; ok: boolean } {
+export function selectionStatus(
+  count: number,
+  ask: Pick<SelectionAsk, "types" | "min" | "max">,
+  opts: { more?: boolean } = {},
+): { text: string; ok: boolean } {
   const min = Math.max(0, ask.min ?? 0);
-  const what = count === 1 ? kindsText(ask.types, false) : kindsText(ask.types);
-  const text = `${count} ${what} selected`;
-  if (count < min) return { text: `${text} - select at least ${min}`, ok: false };
+  const what = count === 1 && !opts.more ? kindsText(ask.types, false) : kindsText(ask.types);
+  const text = `${count}${opts.more ? "+" : ""} ${what} selected`;
+  // More are selected than the panel's chips show (they stop at 30): Done can't be judged from the chips, so allow it.
+  if (count < min && !opts.more) return { text: `${text} - select at least ${min}`, ok: false };
   if (ask.max !== undefined && ask.max >= 0 && count > ask.max) return { text: `${text} - at most ${ask.max} were asked for`, ok: true };
   return { text, ok: true };
 }
@@ -85,14 +90,18 @@ export function selectionAnswer(
   items: SnapshotItem[] | null,
   ask: SelectionAsk,
   base: number,
-  opts: { skipped?: boolean; note?: string } = {},
+  opts: { skipped?: boolean; note?: string; total?: number } = {},
 ): { text: string; refs: Record<string, string>; count: number } {
   const note = opts.note?.trim() ? `\nTheir note: "${opts.note.trim()}"` : "";
+  // The agent asked for kinds the panel doesn't know: say so instead of silently widening the request.
+  const unknown = ask.unknownTypes?.length
+    ? `\n(Unknown types ignored: ${ask.unknownTypes.join(", ")} - valid are face, edge, vertex, body, feature, component.${ask.types?.length ? "" : " Any entity counted."})`
+    : "";
   if (opts.skipped) {
-    return { text: `The user skipped this (pressed Skip) without picking anything. Carry on with your own choice and say which you used.${note}`, refs: {}, count: 0 };
+    return { text: `The user skipped this (pressed Skip) without picking anything. Carry on with your own choice and say which you used.${note}${unknown}`, refs: {}, count: 0 };
   }
   if (items === null) {
-    return { text: `The user pressed Done, but the selection couldn't be read (no active document?). Ask again or carry on without it.${note}`, refs: {}, count: 0 };
+    return { text: `The user pressed Done, but the selection couldn't be read (no active document?). Ask again or carry on without it.${note}${unknown}`, refs: {}, count: 0 };
   }
   const refs: Record<string, string> = {};
   const kept = items.filter((it) => isAllowed(it.type, ask));
@@ -125,5 +134,8 @@ export function selectionAnswer(
     for (const it of other) counts.set(it.type, (counts.get(it.type) ?? 0) + 1);
     out.push(`Not counted (not ${kindsText(ask.types)}): ${[...counts].map(([t, c]) => `${c} ${t}`).join(", ")}.`);
   }
-  return { text: out.join("\n") + note, refs, count: addressable };
+  if (opts.total !== undefined && opts.total > items.length) {
+    out.push(`The list is cut: only the first ${items.length} of ${opts.total} selected entities were read. Ask for fewer at a time if you need the rest.`);
+  }
+  return { text: out.join("\n") + note + unknown, refs, count: addressable };
 }

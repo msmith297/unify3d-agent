@@ -74,7 +74,8 @@ namespace SwAgent.Tests
             Assert.Equal(600, UserTools.MaxStepsOf(Fm("long_run", "true", "max_steps", "600")));
             Assert.Equal(350, UserTools.MaxStepsOf(Fm("max_steps", "350")));
             Assert.Equal(UserTools.MaxStepsCap, UserTools.MaxStepsOf(Fm("max_steps", "50000"))); // capped
-            Assert.Equal(1, UserTools.MaxStepsOf(Fm("max_steps", "-3")));
+            Assert.Equal(UserTools.MaxStepsMin, UserTools.MaxStepsOf(Fm("max_steps", "-3")));  // the design's range: 50..1000
+            Assert.Equal(50, UserTools.MaxStepsOf(Fm("max_steps", "10")));
             Assert.Null(UserTools.MaxStepsOf(Fm("max_steps", "lots")));
             Assert.Equal(new[] { "mold_calc", "mold_part", "mold_bodies", "mold_record" },
                 UserTools.RequiresOf(Fm("requires", "mold_calc, mold_part,mold_bodies  mold_record, mold_calc")));
@@ -125,6 +126,8 @@ namespace SwAgent.Tests
                 Assert.Equal("Molding & Toolmaking", (string)UserTools.ListTools().Single(t => (string)t["name"] == name)["category"]);
                 tools.Edit(null, new UserTools.EditInput { Name = name, Category = "" });
                 Assert.Null((string)UserTools.ListTools().Single(t => (string)t["name"] == name)["category"]);
+                Assert.DoesNotContain("category:", File.ReadAllText(Path.Combine(UserTools.Root, name, "TOOL.md")));
+                Assert.Null(UserTools.ListTools().Single(t => (string)t["name"] == name)["categoryDefault"]?.Value<string>());
 
                 Assert.Throws<ToolException>(() => tools.Edit(null, new UserTools.EditInput { Name = name }));
             }
@@ -147,14 +150,41 @@ namespace SwAgent.Tests
                 Assert.Equal(before, File.ReadAllText(md));
                 UserTools.SetValue("smart-rebuild", "category", ""); // the user removed it: no category, even if the tool ships one
                 Assert.Null((string)UserTools.ListTools().Single(t => (string)t["name"] == "smart-rebuild")["category"]);
+                // It ships none, so "none" is the shipped value: no override is kept.
+                Assert.Null(Override("smart-rebuild", "category"));
+
+                // Reset (null) drops the override, so the shipped value applies again.
+                UserTools.SetValue("smart-rebuild", "category", "Rebuilding");
+                Assert.Equal("Rebuilding", Override("smart-rebuild", "category"));
+                UserTools.SetValue("smart-rebuild", "category", null);
+                Assert.Null(Override("smart-rebuild", "category"));
+                var listed = UserTools.ListTools().Single(t => (string)t["name"] == "smart-rebuild");
+                Assert.Null((string)listed["category"]);
+                Assert.True(listed.ContainsKey("categoryDefault"), "built-ins list their shipped category (none here)");
+                Assert.Null(listed["categoryDefault"].Value<string>());
+
+                // Retyping the shipped value stores no override either (a later change to the shipped value then applies).
+                UserTools.SetValue("smart-rebuild", "intelligence", "high");
+                Assert.Equal("high", Override("smart-rebuild", "intelligence"));
+                UserTools.SetValue("smart-rebuild", "intelligence", "max"); // what TOOL.md ships
+                Assert.Null(Override("smart-rebuild", "intelligence"));
+                Assert.Equal("max", (string)UserTools.ListTools().Single(t => (string)t["name"] == "smart-rebuild")["intelligence"]);
             }
             finally
             {
-                // Back to the shipped value: drop the override.
+                // Back to the shipped values: drop the overrides.
                 var all = JObject.Parse(File.ReadAllText(settings));
                 (all["smart-rebuild"] as JObject)?.Remove("category");
+                (all["smart-rebuild"] as JObject)?.Remove("intelligence");
                 File.WriteAllText(settings, all.ToString());
             }
+        }
+
+        /// <summary>The user's override of a built-in's front-matter value in builtin-settings.json, or null.</summary>
+        private static string Override(string tool, string key)
+        {
+            var path = Path.Combine(UserTools.Root, "builtin-settings.json");
+            return File.Exists(path) ? (string)JObject.Parse(File.ReadAllText(path))[tool]?[key] : null;
         }
 
         [Fact]
@@ -165,7 +195,7 @@ namespace SwAgent.Tests
             foreach (var t in builtIns)
             {
                 var steps = (int?)t["maxSteps"];
-                Assert.True(steps == null || (steps >= 1 && steps <= UserTools.MaxStepsCap), $"{t["name"]}: max_steps {steps}");
+                Assert.True(steps == null || (steps >= UserTools.MaxStepsMin && steps <= UserTools.MaxStepsCap), $"{t["name"]}: max_steps {steps}");
                 if ((bool)t["longRun"]) Assert.True(steps >= UserTools.DefaultMaxSteps, $"{t["name"]}: a long tool gets at least the default steps");
                 var category = (string)t["category"];
                 Assert.True(category == null || (category.Length <= 48 && category == category.Trim()), $"{t["name"]}: category '{category}'");

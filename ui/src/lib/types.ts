@@ -66,10 +66,18 @@ export interface Thread {
   toolRun?: ToolRunSticky | null;
 }
 
+/** A document as a long tool run remembers it (the add-in key, plus title and path: a reopened file gets a new key). */
+export interface ToolRunDoc {
+  key: string;
+  title: string;
+  path?: string | null;
+}
+
 /**
  * The settings of a long tool run (front matter long_run) kept for typed follow-ups: the tool's model, effort, step
- * limit and auto-approval - only while its document is active, until the tool reports it is done, the user closes the
- * banner chip, another tool runs in the chat, or after 2 h without activity.
+ * limit and (for ribbon tools) auto-approval - only while one of its documents is active, until the tool reports it is
+ * done, the user closes the banner chip or changes the chat's model, another tool or workflow runs in the chat, or
+ * after 2 h without activity.
  */
 export interface ToolRunSticky {
   tool: string;
@@ -77,10 +85,16 @@ export interface ToolRunSticky {
   model: string;
   effort: Effort;
   maxSteps: number;
+  /** Follow-ups skip the approval prompt (a ribbon tool run; workflows keep the chat's approval). Missing: true. */
+  autoApprove?: boolean;
   /** Agent tools whose results can report the run done (the tool's `requires`). */
   requires?: string[];
-  /** The document the tool ran on (the add-in key, plus title and path: a restored checkpoint reopens it under a new key). */
-  doc?: { key: string; title: string; path?: string | null } | null;
+  /** The document the tool ran on. */
+  doc?: ToolRunDoc | null;
+  /** Other documents the run has worked in since (e.g. a part it built from a drawing and activated). */
+  docs?: ToolRunDoc[];
+  /** Index of the message that started the run: a resend from before it ends the run. */
+  msgIndex?: number;
   startedAt: number;
   /** Last time a run in this chat started or ended (the idle clock). */
   lastActive: number;
@@ -279,6 +293,8 @@ export interface SelectionAsk {
   types?: SelectionKind[];
   min?: number;
   max?: number;
+  /** Set by the panel: requested types it doesn't know (any entity then counts, and the answer says so). */
+  unknownTypes?: string[];
 }
 
 /** What the add-in hands the panel when a ribbon tool needs the agent (Tools/ToolRunner.cs). */
@@ -333,6 +349,8 @@ export interface UserToolInfo {
   paused?: string;
   /** Front matter category: its own section in the Workflows menu and box on the ribbon tab. */
   category?: string | null;
+  /** Built-ins: the category the tool ships with (the user may have changed it). */
+  categoryDefault?: string | null;
   /** Shorter title for the ribbon button. */
   ribbonTitle?: string | null;
   /** Front matter long_run: a long, phased tool. */

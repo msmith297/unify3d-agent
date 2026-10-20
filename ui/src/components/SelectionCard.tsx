@@ -41,10 +41,12 @@ function Pending({ ask, threadId }: { ask: SelectionAsk; threadId: string }) {
   const setNote = (v: string) => useStore.getState().setAnswerDraft(threadId, v);
   // The live selection of the active document (the panel's chips): what Done will hand back, roughly.
   const live = useStore((s) => s.selection[s.activeDocKey ?? ""] ?? EMPTY);
+  // The chips stop at 30; the add-in also reports how many are selected in all.
+  const total = useStore((s) => s.selectionTotal[s.activeDocKey ?? ""] ?? 0);
   const hasDoc = useStore((s) => !!s.docs[s.activeDocKey ?? ""]);
   const [busy, setBusy] = useState(false);
   const matching = live.filter((it) => isAllowed(it.type, ask));
-  const status = selectionStatus(matching.length, ask);
+  const status = selectionStatus(matching.length, ask, { more: total > live.length });
 
   const finish = async (done: boolean) => {
     setBusy(true);
@@ -70,6 +72,9 @@ function Pending({ ask, threadId }: { ask: SelectionAsk; threadId: string }) {
         <div className={`text-[11.5px] ${status.ok ? "text-text-3" : "text-warn"}`} aria-live="polite">
           {status.text}
         </div>
+        {ask.unknownTypes?.length ? (
+          <div className="text-[11px] text-text-3">The agent asked for {ask.unknownTypes.join(", ")}, which isn't a selection type here - {ask.types?.length ? "ignored" : "any entity counts"}.</div>
+        ) : null}
         {matching.length > 0 && (
           <div className="flex flex-wrap gap-1">
             {matching.slice(0, 8).map((it, i) => (
