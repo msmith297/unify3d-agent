@@ -27,7 +27,7 @@ namespace SwAgent.Tests.Mold
             return r;
         }
 
-        private static JObject Rubber() => new JObject
+        internal static JObject Rubber() => new JObject
         {
             ["units"] = new JObject { ["display"] = "imperial" },
             ["inputs"] = new JObject

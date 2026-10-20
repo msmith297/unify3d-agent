@@ -125,8 +125,8 @@
 <h2>4. Press</h2>
 <table class="kv">
   <tr><th>Platen set point</th><td><strong>{{sheet.press.setPointC|degC}}</strong></td></tr>
-  <tr><th>Gauge setting (recommended)</th><td><strong>{{sheet.press.gaugeRecommended_MPa|MPa}}</strong></td></tr>
-  <tr><th>Maximum gauge</th><td class="warn">{{sheet.press.gaugeMax_MPa|MPa}} - {{sheet.press.gaugeMaxBasis}}</td></tr>
+  <tr><th>Gauge setting (recommended)</th><td><strong>{{sheet.press.gaugeRecommended_MPa|gauge}}</strong></td></tr>
+  <tr><th>Maximum gauge</th><td class="warn">{{sheet.press.gaugeMax_MPa|gauge}} - {{sheet.press.gaugeMaxBasis}}</td></tr>
   <tr><th>Force at the setting / needed</th><td>{{process.press.force_kN|kN}} / {{process.press.fReq_kN|kN}}</td></tr>
   <tr><th>How the gauge converts</th><td>{{sheet.press.conversion}} (ram area {{process.press.ramArea_mm2|mm2}})</td></tr>
   <tr><th>Closed mold height</th><td>{{sheet.press.closedHeight_mm|mm}}</td></tr>
@@ -137,7 +137,7 @@
 <table>
   <tr><th>Active cavities</th><th>Gauge</th><th>Force</th><th>Centred patterns</th><th>For example</th><th>Note</th></tr>
   {{#each sheet.partialLoading}}
-  <tr><td class="num">{{this.active}}</td><td class="num">{{this.gauge_MPa|MPa}}</td><td class="num">{{this.force_kN|kN}}</td>
+  <tr><td class="num">{{this.active}}</td><td class="num">{{this.gauge_MPa|gauge}}</td><td class="num">{{this.force_kN|kN}}</td>
       <td class="num">{{this.patterns}} of {{this.of}}</td><td>{{this.example}}</td><td>{{this.note}}</td></tr>
   {{/each}}
 </table>

@@ -156,7 +156,25 @@
       "recommended_MPa": 3.1678,
       "basis": "S7: F_req / A_ram",
       "max_MPa": 20.684,
-      "maxBasis": "press rating"
+      "maxBasis": "press rating",
+      "unitShown": null,
+      "caps": [
+        {
+          "basis": "press rating",
+          "gauge_MPa": 20.684,
+          "pCavity_MPa": null
+        },
+        {
+          "basis": "bearing S35",
+          "gauge_MPa": 182.17,
+          "pCavity_MPa": null
+        },
+        {
+          "basis": "wall abuse LC1x (S24)",
+          "gauge_MPa": 125.97,
+          "pCavity_MPa": 77.111
+        }
+      ]
     },
     "press": {
       "ramArea_mm2": 21505.3,
@@ -173,7 +191,8 @@
         "recommended_MPa": 3.1678,
         "basis": "S7: F_req / A_ram",
         "max_MPa": 20.684,
-        "maxBasis": "press rating (bearing not sized yet)"
+        "maxBasis": "press rating (from the last size/check)",
+        "unitShown": null
       },
       "loadCentre_mm": [
         0.0,
@@ -221,8 +240,8 @@
     "pct": 1.5,
     "basis": "cold_mold_cold_part_steel_ref",
     "basisLabel": "datasheet basis",
-    "alphaRef": 1.2e-05,
-    "alphaCavity": 2.36e-05,
+    "alphaRef": 1.2E-05,
+    "alphaCavity": 2.36E-05,
     "deltaT_K": 80.0,
     "scale": [
       1.014288,
@@ -307,6 +326,16 @@
       431.8,
       190.5
     ],
+    "moats": "separate",
+    "gap_mm": [
+      38.1,
+      38.1
+    ],
+    "edge_mm": [
+      42.272,
+      43.724
+    ],
+    "gapRequest_mm": null,
     "cavities": [
       {
         "id": "C1",
@@ -326,17 +355,7 @@
         ],
         "rotationDeg": 0
       }
-    ],
-    "moats": "separate",
-    "gap_mm": [
-      38.1,
-      38.1
-    ],
-    "edge_mm": [
-      42.272,
-      43.724
-    ],
-    "gapRequest_mm": null
+    ]
   },
   "bodies": [
     {
@@ -473,6 +492,26 @@
     }
   ],
   "hardware": {
+    "dowelScheme": {
+      "scheme": "one round dowel at the datum + 3 slotted along radial lines from it",
+      "mismatch_mm": 0.3047,
+      "lidBaseDeltaT_K": 30.0,
+      "clearance_mm": 0.02,
+      "note": "S58/D1: 0.305 mm lid-to-base mismatch over 430 mm at a 30 K difference is more than the 0.02 mm running clearance. Ask how the shop's existing 4 dowels are fitted before overriding the shop standard.",
+      "askShop": true
+    },
+    "handlesRule": "outside the platen outline or wholly below the lid's platen face (D2, acceptance A16); on steel thread inserts",
+    "washers": "hardened (ASTM F436 / ISO 7089 300HV) on every aluminium clamped face; counterbore = washer OD + 0.5 mm",
+    "bom": [
+      {
+        "id": "BOM-BUSH",
+        "item": "Steel dowel bushing, press fit",
+        "size": "0.5 in ID x 0.75 in OD x 0.75 in",
+        "qty": 4,
+        "partNumber": null,
+        "note": "lid dowel holes; pressed with the lid at 120 C"
+      }
+    ],
     "bolts": [],
     "dowels": [
       {
@@ -516,14 +555,6 @@
         ]
       }
     ],
-    "dowelScheme": {
-      "scheme": "one round dowel at the datum + 3 slotted along radial lines from it",
-      "mismatch_mm": 0.3047,
-      "lidBaseDeltaT_K": 30.0,
-      "clearance_mm": 0.02,
-      "note": "S58/D1: 0.305 mm lid-to-base mismatch over 430 mm at a 30 K difference is more than the 0.02 mm running clearance. Ask how the shop's existing 4 dowels are fitted before overriding the shop standard.",
-      "askShop": true
-    },
     "fits": [],
     "stops": [],
     "tcWells": [
@@ -545,33 +576,34 @@
     "lift": [
       {
         "body": "BASE-1",
-        "kind": "pull handles (slide-in, E4)"
+        "kind": "pull handles (slide-in, E4)",
+        "threads": [
+          {
+            "what": "handle screws",
+            "count": 4,
+            "size": "1/4-20",
+            "loadEach_N": 37.54,
+            "engagement_mm": 13.522,
+            "tapDepth_mm": 16.697,
+            "insert": null,
+            "insertReason": null,
+            "rating": ""
+          }
+        ]
       },
       {
         "body": "LID-1",
         "kind": "by hand",
         "liftingIndex": 0.423,
         "rwl_kg": 11.67,
-        "basis": "NIOSH RWL, lid lifted at the slide-out table"
+        "basis": "NIOSH RWL, lid lifted at the slide-out table, reach 40 cm"
       }
     ],
-    "handlesRule": "outside the platen outline or wholly below the lid's platen face (D2, acceptance A16); on steel thread inserts",
     "slideIn": {
       "locatingStop": true,
       "basePullHandles": true,
       "nothingProudBelowBase": true
-    },
-    "washers": "hardened (ASTM F436 / ISO 7089 300HV) on every aluminium clamped face; counterbore = washer OD + 0.5 mm",
-    "bom": [
-      {
-        "id": "BOM-BUSH",
-        "item": "Steel dowel bushing, press fit",
-        "size": "0.5 in ID x 0.75 in OD x 0.75 in",
-        "qty": 4,
-        "partNumber": null,
-        "note": "lid dowel holes; pressed with the lid at 120 C"
-      }
-    ]
+    }
   },
   "structural": {
     "loadCases": {
@@ -593,16 +625,16 @@
     "inputs": {
       "support": "A",
       "deltaGap_mm": 0.01,
-      "deltaWall_mm": 0.03125,
+      "deltaWall_mm": 0.1,
       "gapBasis": "A11: 0.02 flash gap - 0.01 land flatness - 0 platen parallelism",
-      "wallBasis": "A11: 0.25 x width tolerance +-0.125 mm (default, drawing silent)",
+      "wallBasis": "A11: 0.25 x width tolerance +-0.4 mm",
       "flowClass": "liquid1000to10000cP",
       "deltaFlash_mm": 0.02,
       "landFlatness_mm": 0.01,
       "cycles": 5000.0,
       "tempC": 100.0,
       "tier": "T2",
-      "rootFactor": 1.2
+      "rootFactor": "1 + 2.8 w/h"
     },
     "materials": {
       "plates": {
@@ -624,6 +656,12 @@
         "note": null
       }
     },
+    "coefficients": {
+      "file": "coefficients.csv",
+      "version": "a2-2",
+      "sha256": "ab3adcdb59dd98f40cf0318a030e7a9cb73a2b4140b149c745f1f78eedb0850e",
+      "provisional": false
+    },
     "results": {
       "walls": [
         {
@@ -633,18 +671,18 @@
           "L_mm": 154.578,
           "h_mm": 25.7629,
           "LoverH": 6.0,
-          "w_defl_mm": 8.4066,
-          "w_stress_mm": 8.4066,
-          "w_struct_mm": 8.4066,
+          "w_defl_mm": 6.2587,
+          "w_stress_mm": 7.3237,
+          "w_struct_mm": 7.3237,
           "w_drawn_mm": 43.7242,
-          "alpha": 5.8584,
-          "beta": 2.9939,
-          "sigma_MPa": 3.4406,
+          "alpha": 6.2127,
+          "beta": 3.032,
+          "sigma_MPa": 3.4611,
           "allow_MPa": 68.9,
           "Kf": 2.2,
           "Sa_MPa": 186.41,
           "sigmaMaxR0_MPa": 227.37,
-          "deflection_mm": 0.00085998,
+          "deflection_mm": 0.0043715,
           "governs": "flash system and dowels",
           "stocky": false,
           "sigmaAbuse_MPa": 18.739
@@ -656,18 +694,18 @@
           "L_mm": 103.052,
           "h_mm": 25.7629,
           "LoverH": 4.0,
-          "w_defl_mm": 8.0065,
-          "w_stress_mm": 8.0065,
-          "w_struct_mm": 8.0065,
+          "w_defl_mm": 5.913,
+          "w_stress_mm": 7.3297,
+          "w_struct_mm": 7.3297,
           "w_drawn_mm": 38.1,
-          "alpha": 4.7768,
-          "beta": 2.6849,
-          "sigma_MPa": 5.0514,
+          "alpha": 4.8224,
+          "beta": 2.7285,
+          "sigma_MPa": 5.0823,
           "allow_MPa": 68.9,
           "Kf": 2.2,
           "Sa_MPa": 186.41,
           "sigmaMaxR0_MPa": 227.37,
-          "deflection_mm": 0.0010598,
+          "deflection_mm": 0.0045836,
           "governs": "flash system and dowels",
           "stocky": false,
           "sigmaAbuse_MPa": 28.703
@@ -785,7 +823,7 @@
       "lid": {
         "mass_kg": 4.9361,
         "limit_kg": 11.67,
-        "limitBasis": "NIOSH RWL, lid lifted at the slide-out table",
+        "limitBasis": "NIOSH RWL, lid lifted at the slide-out table, reach 40 cm",
         "liftingIndex": 0.423
       },
       "partialLoading": {
@@ -813,19 +851,53 @@
         "rule": "same pressure per cavity: gauge x active/total; patterns keep the load centre within 5% (S8); same-gauge with fewer cavities raises the cavity pressure"
       }
     },
-    "coefficients": {
-      "file": "coefficients.csv",
-      "version": "0.1.0-provisional",
-      "sha256": "612702d9ae6d4e8aec9574c7fb8c22755ce3bbd979e7ceaa3f52c962cb86d114",
-      "provisional": true
-    },
     "gauge": {
       "recommended_MPa": 3.1678,
       "max_MPa": 20.684,
-      "maxBasis": "press rating"
+      "maxBasis": "press rating",
+      "unitShown": null,
+      "caps": [
+        {
+          "basis": "press rating",
+          "gauge_MPa": 20.684,
+          "pCavity_MPa": null
+        },
+        {
+          "basis": "bearing S35",
+          "gauge_MPa": 182.17,
+          "pCavity_MPa": null
+        },
+        {
+          "basis": "wall abuse LC1x (S24)",
+          "gauge_MPa": 125.97,
+          "pCavity_MPa": 77.111
+        }
+      ]
     }
   },
   "checks": [
+    {
+      "id": "A7",
+      "source": "agent",
+      "type": "criticalSurface",
+      "status": "pass",
+      "method": "A7: ClosestDistance from every flash-system face to CF1 > 0",
+      "margin": null,
+      "location": {
+        "bodyId": "BASE-1",
+        "point": [
+          -96.34,
+          0,
+          0
+        ],
+        "normal": [
+          0,
+          0,
+          1
+        ],
+        "stepFaceId": null
+      }
+    },
     {
       "id": "CHG-POUR",
       "source": "mold_calc@1.0.0",
@@ -843,38 +915,6 @@
       "waivedBy": null
     },
     {
-      "id": "PRESS-FORCE",
-      "source": "mold_calc@1.0.0",
-      "type": "press",
-      "body": null,
-      "loadCase": null,
-      "demand": 296.5,
-      "capacity": 68.12,
-      "unit": "kN",
-      "margin": 3.3531,
-      "status": "pass",
-      "method": "S6: the press force at this setting must reach the force needed",
-      "stage": "3",
-      "note": "",
-      "waivedBy": null
-    },
-    {
-      "id": "PRESS-CAPACITY",
-      "source": "mold_calc@1.0.0",
-      "type": "press",
-      "body": null,
-      "loadCase": null,
-      "demand": 85.15,
-      "capacity": 444.8,
-      "unit": "kN",
-      "margin": 4.2237,
-      "status": "pass",
-      "method": "S7: F_req x 1.25 <= rated force",
-      "stage": "3",
-      "note": "",
-      "waivedBy": null
-    },
-    {
       "id": "WEIGHT-LID",
       "source": "mold_calc@1.0.0",
       "type": "lifting",
@@ -885,7 +925,7 @@
       "unit": "kg",
       "margin": 1.364,
       "status": "pass",
-      "method": "S73 + A2: lid <= NIOSH RWL, lid lifted at the slide-out table",
+      "method": "S73 + A2: lid <= NIOSH RWL, lid lifted at the slide-out table, reach 40 cm",
       "stage": "3",
       "note": "",
       "waivedBy": null
@@ -907,6 +947,22 @@
       "waivedBy": null
     },
     {
+      "id": "PRESS-FORCE",
+      "source": "mold_calc@1.0.0",
+      "type": "press",
+      "body": null,
+      "loadCase": null,
+      "demand": 296.5,
+      "capacity": 68.12,
+      "unit": "kN",
+      "margin": 3.3531,
+      "status": "pass",
+      "method": "S6: the press force at this setting must reach the force needed",
+      "stage": "3",
+      "note": "",
+      "waivedBy": null
+    },
+    {
       "id": "WEIGHT-LID-1",
       "source": "mold_calc@1.0.0",
       "type": "weight",
@@ -923,6 +979,22 @@
       "waivedBy": null
     },
     {
+      "id": "PRESS-CAPACITY",
+      "source": "mold_calc@1.0.0",
+      "type": "press",
+      "body": null,
+      "loadCase": null,
+      "demand": 85.15,
+      "capacity": 444.8,
+      "unit": "kN",
+      "margin": 4.2237,
+      "status": "pass",
+      "method": "S7: F_req x 1.25 <= rated force",
+      "stage": "3",
+      "note": "",
+      "waivedBy": null
+    },
+    {
       "id": "PRESS-GAUGE-MAX",
       "source": "mold_calc@1.0.0",
       "type": "press",
@@ -933,7 +1005,7 @@
       "unit": "MPa",
       "margin": 5.5296,
       "status": "pass",
-      "method": "S35/S24/A3: recommended gauge <= the lowest maximum (press rating)",
+      "method": "S35/S24/S62/A3: recommended gauge <= the lowest maximum (press rating)",
       "stage": "3",
       "note": "",
       "waivedBy": null
@@ -976,10 +1048,10 @@
       "type": "fatigue",
       "body": null,
       "loadCase": "LC1",
-      "demand": 5.051,
+      "demand": 5.082,
       "capacity": 68.9,
       "unit": "MPa",
-      "margin": 12.6397,
+      "margin": 12.5567,
       "status": "pass",
       "method": "S22-S23: beta p h^2/w^2 + p b/(2w) <= min(Sy/2, fatigue), K_f 2.2",
       "stage": "3",
@@ -1008,10 +1080,10 @@
       "type": "fatigue",
       "body": null,
       "loadCase": "LC1",
-      "demand": 3.441,
+      "demand": 3.461,
       "capacity": 68.9,
       "unit": "MPa",
-      "margin": 19.0257,
+      "margin": 18.9068,
       "status": "pass",
       "method": "S22-S23: beta p h^2/w^2 + p b/(2w) <= min(Sy/2, fatigue), K_f 2.2",
       "stage": "3",
@@ -1024,12 +1096,12 @@
       "type": "deflection",
       "body": null,
       "loadCase": "LC1",
-      "demand": 0.00106,
-      "capacity": 0.03125,
+      "demand": 0.004584,
+      "capacity": 0.1,
       "unit": "mm",
-      "margin": 28.486,
+      "margin": 20.8167,
       "status": "pass",
-      "method": "S21 + A11: 1.2 alpha p h^4/(E w^3) <= 0.25 x width tolerance",
+      "method": "S21 + A11: (1 + 2.8 w/h) alpha p h^4/(E w^3) <= 0.25 x width tolerance",
       "stage": "3",
       "note": "",
       "waivedBy": null
@@ -1040,12 +1112,28 @@
       "type": "deflection",
       "body": null,
       "loadCase": "LC1",
-      "demand": 0.00086,
-      "capacity": 0.03125,
+      "demand": 0.004372,
+      "capacity": 0.1,
       "unit": "mm",
-      "margin": 35.3381,
+      "margin": 21.8753,
       "status": "pass",
-      "method": "S21 + A11: 1.2 alpha p h^4/(E w^3) <= 0.25 x width tolerance",
+      "method": "S21 + A11: (1 + 2.8 w/h) alpha p h^4/(E w^3) <= 0.25 x width tolerance",
+      "stage": "3",
+      "note": "",
+      "waivedBy": null
+    },
+    {
+      "id": "THREAD-LIFT-BASE-1-HANDLE",
+      "source": "mold_calc@1.0.0",
+      "type": "stripping",
+      "body": "BASE-1",
+      "loadCase": "LC4",
+      "demand": 0.2458,
+      "capacity": 76.04,
+      "unit": "MPa",
+      "margin": 308.2975,
+      "status": "pass",
+      "method": "LC4 + S54-S56: 4 x 1/4-20 at 2 x the piece weight",
       "stage": "3",
       "note": "",
       "waivedBy": null
@@ -1081,28 +1169,6 @@
       "stage": "3",
       "note": "",
       "waivedBy": null
-    },
-    {
-      "id": "A7",
-      "source": "agent",
-      "type": "criticalSurface",
-      "status": "pass",
-      "method": "A7: ClosestDistance from every flash-system face to CF1 > 0",
-      "margin": null,
-      "location": {
-        "bodyId": "BASE-1",
-        "point": [
-          -96.34,
-          0,
-          0
-        ],
-        "normal": [
-          0,
-          0,
-          1
-        ],
-        "stepFaceId": null
-      }
     }
   ],
   "simulations": [

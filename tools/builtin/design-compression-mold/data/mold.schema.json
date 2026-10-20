@@ -83,8 +83,8 @@
         "builtByV1": { "type": "boolean" },
         "moldType": { "type": "string", "description": "flash_full_land | flash_stop_pads | semi_positive | landed_positive | positive" },
         "pour": {
-          "type": "object",
-          "description": "side, tiltDeg and points are the agent's plan (Phase 2); the timing keys are mold_calc's (class A, D3).",
+          "type": [ "object", "null" ],
+          "description": "side, tiltDeg and points are the agent's plan (Phase 2); the timing keys are mold_calc's (class A, D3); null for class B and C (no pour).",
           "properties": {
             "side": { "enum": [ "base", "lid", "both", "charge in base", "charge in lid" ] }, "tiltDeg": { "type": "number" },
             "points": { "type": "array", "items": { "type": "object", "properties": { "cavity": { "type": "string" }, "at": { "$ref": "#/$defs/vec3" } } } },
@@ -121,7 +121,7 @@
           "type": "object",
           "properties": {
             "recommended_MPa": { "type": "number" }, "max_MPa": { "type": [ "number", "null" ] }, "maxBasis": { "type": [ "string", "null" ] },
-            "basis": { "type": "string" }, "unitShown": { "type": "string", "description": "Reserved: the unit the user's gauge reads in (psi, bar, MPa, kgf/cm2)." }
+            "basis": { "type": "string" }, "unitShown": { "type": [ "string", "null" ], "description": "The unit the user's gauge reads in (psi, bar, MPa, kgf/cm2): the page's picked unit; the setup sheet's gauge filter prints in it. Null when not known." }
           }
         }
       }
@@ -264,7 +264,7 @@
               "type": "object",
               "properties": { "p_MPa": { "type": "number" }, "pressureField": { "$ref": "#/$defs/pressureField" } }
             },
-            "LC1x": { "type": "object" }, "LC2": { "type": "object" }, "LC3": { "type": "object" }, "LC4": { "type": "object" }, "LC5": { "type": "object" }
+            "LC1x": { "type": [ "object", "null" ], "description": "class A abuse case F/A_proj; null for class B and C" }, "LC2": { "type": "object" }, "LC3": { "type": "object" }, "LC4": { "type": "object" }, "LC5": { "type": "object" }
           }
         },
         "results": {
@@ -287,7 +287,7 @@
                     "type": "object",
                     "properties": {
                       "active": { "type": "integer" }, "gauge_MPa": { "type": "number" }, "force_kN": { "type": "number" },
-                      "patterns": { "type": "integer" }, "of": { "type": "integer" }, "example": { "type": [ "string", "null" ] }, "note": { "type": "string" }
+                      "patterns": { "type": "integer" }, "of": { "type": [ "integer", "string" ], "description": "how many patterns there are, or a note when there are too many to list" }, "example": { "type": [ "string", "null" ] }, "note": { "type": "string" }
                     }
                   }
                 },

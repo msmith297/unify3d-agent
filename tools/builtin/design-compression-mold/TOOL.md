@@ -82,7 +82,7 @@ Values arrive in `<tool_inputs>` in the units shown on the page (the document's,
 | `mold_material`, `mold_grade`, `insert_grade` | Plate grade and insert/stop grade (rows of `data/mold-materials.json`). |
 | `part_family`, `part_grade` | The part-material row (`data/materials.json`). Its `processClass` (A, B or C, from `processType`) sets the process class. The payload line shows the row id, confidence and sources. |
 | `shrink_pct`, `shrink_basis` | Shrinkage and what it was measured on (see "Shrink basis"); the grade fills both. A line marked "edited by the user" overrides the table. |
-| `sg`, `viscosity_cp`, `mooney`, `pot_life_min`, `cure_min`, `draft_min_deg`, `molding_pressure`, `charge_excess_pct` | Process data, filled from the grade and editable. "n/a for this material" means the row has no value. |
+| `sg`, `viscosity_cp`, `mooney`, `pot_life_min`, `cure_min`, `draft_min_deg`, `molding_pressure`, `charge_excess_pct` | Process data, filled from the grade and editable. "n/a for this grade" means the row has no value. |
 | `press_pressure_is` | "Gauge reading", "On the part", "Force reading (tons)" or "Not sure - ask me". |
 | `press_pressure` / `part_pressure` / `press_force_reading` | The value that matches `press_pressure_is`: a gauge reading, a pressure on the part, or a force. Only that one is in the payload. |
 | `press_rated_force`, `press_rated_gauge` | Nameplate force and the gauge reading at that force. They give the ram area: A_ram = F_rated / p_rated. Always present. With "Force reading (tons)" the gauge reads force: the rated gauge is not used for the setting, and the operator sets the force column of the setup sheet. |
@@ -215,7 +215,7 @@ Aim: 6 steps or fewer.
 2. Run `mold_record read` and `rebuild_journal read`.
    - An unfinished record (status not `done`): `ask_user` "Continue / Start over / Cancel".
    - **Continue:** go to "Resuming" in "Recovery".
-   - **Start over:** `checkpoint restore` the `intake` checkpoint if it exists. Then, in a cell, rename `<Mold.RecordFolder()>\mold.json` to `mold.json.bak-<yyyyMMdd-HHmmss>` (keep it; never delete it), and run `mold_record init`: with no `mold.json` there it starts a new record with a new id.
+   - **Start over:** `checkpoint restore` the `intake` checkpoint if it exists. Then run `mold_record init` with `start_over: true`: it keeps the old record as `mold.json.bak-<yyyyMMdd-HHmmss>` (never delete it) and starts a new record with a new id.
    - A `done` record: ask whether to make a new revision (`identity.revision` + 1, start over) or to change something (use Smart Rebuild for that, and stop).
 3. **The active document** must be a part (the macro stops otherwise).
    - Solid bodies and no record: `ask_user` "Are these bodies the molded part?". Options: "Yes - save this as a new mold file (the original stays as it is)" or "No - stop".
@@ -226,7 +226,7 @@ Aim: 6 steps or fewer.
    - Then `mold_record init`, then `checkpoint save` with the name `intake`.
 5. **Press and lifting answers.** `mold_calc` reads the page values from the record's `inputs`, so every answer you collect goes there with `mold_record merge` (`{"inputs": {...}}`), in the record's SI units (MPa, kN, mm).
    - If `press_pressure_is` is "Not sure - ask me", ask now with one `ask_form` of 4 fields or fewer: what the number on the page is (gauge reading / pressure on the part / force reading); the press's rated tonnage and the gauge reading at that tonnage, pre-filled from the page; what the gauge reads in (psi / bar / MPa / kgf/cm²). Merge `press_pressure_is` with the chosen meaning, the value under the matching id (`press_pressure` for a gauge reading, `part_pressure` on the part, `press_force_reading` for a force), `press_rated_force` and `press_rated_gauge`.
-   - Lid lifting (when `max_lid_mass` is not set): if `lid_lift_at` is "Inside the press" and `lid_reach` is under 550 mm, merge `lid_reach: 550` (a lift inside the press reaches at least 55 cm) and say so. If `lid_lift_at` is "Not sure", ask where the lid comes off in the G2 form; if the user still doesn't know, merge `max_lid_mass: 11` (the 11 kg / 25 lb fallback) and record it in `decisions[]` with `by: "default"`.
+   - Lid lifting (when `max_lid_mass` is not set): the calculator applies the NIOSH limit itself - inside the press the reach is at least 55 cm whatever the page says, and "Not sure" gives the 11 kg (25 lb) fallback. If `lid_lift_at` is "Not sure", ask where the lid comes off in the G2 form and merge the answer into `lid_lift_at`; if the user still doesn't know, leave it (11 kg) and record that in `decisions[]` with `by: "default"`.
 6. **Quick refusals.**
    - Press temperature above 250 degC: say so, set `scope: "advisory"`, and continue with Phase 1 and the plan (Phases 1-3 still run, for the advisory numbers).
    - An STL part file: ask for STEP or SLDPRT and stop.
@@ -581,9 +581,7 @@ The sheets are filled by code from the record: `mold_record setup_sheet` derives
    Also merge `views` with two images saved with `Model.SaveBMP(path, 1200, 900)` into `<record>\views\`: the assembled mold (isometric) and the cavity map (top view of the base, cavity numbers as labels).
 5. **Report data.** Merge `report`: `lowestMargins[]` (the three lowest passing margins: `{id, type, margin, status}` from `checks`), `openItems[]` (defaults that need confirming, low-confidence data, checks not run, simulators not run), `summary`. The setup sheet prints them, so they go in before the sheets.
 6. **Sheets.** Run `mold_record setup_sheet`, then `mold_record machining_sheet`.
-   - Unresolved placeholders print as "-". If the tool result doesn't list them, list them in a cell:
-     `var data = SwAgent.Mold.MoldData.LoadDefault(); var rec = SwAgent.Mold.MoldRecord.Open(Mold.RecordFolder()); SwAgent.Mold.SetupSheet.Fill(rec, System.IO.File.ReadAllText(System.IO.Path.Combine(SwAgent.Mold.MoldData.DefaultToolDir, "data", "setup-sheet.html")), data, out var unresolved); Print(string.Join(", ", unresolved));`
-     and the same with `MachiningSheet` and `machining-sheet.html`.
+   - Unresolved placeholders print as "-"; each sheet action lists them ("Unresolved placeholders: ...").
    - A missing key you own (identity, setup, views, report, part.drawing): merge it and run the sheet again. A value that is unknown or doesn't apply is `null` (it prints "-" and is not reported), never an invented string.
    - A missing key in the derived rows (`sheet.*`, `machining.*`, a hole or piece row) is the add-in's: don't try to fix it by merging; add it to `report.openItems` and run the sheets once more.
 7. **Custom properties** as in 4.9, with the final numbers.
@@ -748,14 +746,14 @@ Rows whose `shrinkBasisConfidence` is "estimate" (the hot-cast PU rows) have an 
 
 - Stiffness governs. The parting-line gap that would let material flash decides most sizes. The allowable deflection is δ_allow from the gap budget.
 - Plates backed by the platens (support case A, the default) are in compression and don't bend. Their thickness comes from minimum rules: floor ≥ max(12 mm aluminium / 10 mm steel, 0.25 × cavity depth, TC well + 2 × 6 mm, hardware depth); lid ≥ max(0.05 × the longest side, 12/10 mm, hardware).
-- Spanning plates (rails, pillars, overhangs) use thick-plate (Mindlin) coefficient tables made with a finite-element sweep, iterated because the coefficients depend on t/b.
-- Cavity walls are clamped-free plates under the cavity pressure, with a root factor for the floor's rotation. Long walls use the tabulated L/h rows up to 12, and the strip-with-shear closed form beyond.
+- Spanning plates use thick-plate (Mindlin) coefficient tables made with a finite-element sweep, iterated because the coefficients depend on t/b: rails (case B) the Rails rows, an opening (C) the SS4 rows (C4 with an integral frame), pillars (E) the periodic Pillar rows with alpha × 1.2 (the 3D pillar-head factor; never a C4 panel - a pillar cell deflects about 2.8 × as much), an overhang (D) the cantilever strip. For B, C and E that is only the first guess: `size` then solves the planned base plate itself (cavities plus land under pressure, the rails, opening or pillars where they are; two meshes extrapolated) and sizes it to 99.5% of the gap and stress limits. The table alone is about 17% thick on rails and over openings, and too thin on pillar plates next to the plate edges. Give the supports with `overrides` (from the plate corner, mm): `rails_v_mm` [v1, v2] (rails along U) or `rails_u_mm`, else `rail_span_mm` centred; `opening_mm` [u1, v1, u2, v2], else `span_mm` × `span_length_mm` centred; `pillars_mm` {u: [...], v: [...]}, else a grid at most `span_mm` apart. They are kept in `structural.inputs`. The plate result is in `structural.results.plates.span` (`tTable_mm`, `t_mm`, `fe`); a support that does not hold the plate gives a `SPAN-FE` warning and the table thickness.
+- Cavity walls are clamped-free plates under the cavity pressure, times the wall-root factor 1 + 2.8 w/h for the floor's rotation (3D solid models of milled pockets; a constant 1.2 holds only for very thin walls). Long walls use the tabulated L/h rows up to 12, and the strip-with-shear closed form beyond.
 - Aluminium uses long-term (10,000 h) strength at the press temperature. Fatigue uses Goodman at R = 0, with the notch factor from the cavity's corner radius. Static stress ≤ S_y,T / 2.
 - Bolts follow Shigley chapter 8, with the hot preload gain, torque scatter and hot proof strength. Keys carry separating forces; friction never does.
 - Everything is rounded to stock, then checked again as built.
 - Validation:
   - `data/validation/sizing-table.csv` is the design table: required thickness against pressure, span, material and gap.
-  - `data/validation/montecarlo-summary.json` holds the closed-loop check of the fast path against full plate models over random molds (r ≤ 1.00 means never unsafe).
+  - `data/validation/montecarlo-summary.json` holds the closed-loop check of this calculator's `size` against finer full plate models over 2,000 random molds (r ≤ 1.00 means never unsafe; median r_w near 1 means not wasteful).
   - `data/validation/solid3d-summary.json` holds the 3D solid check of the wall-root factor and thick plates.
 - Every judgement factor is in `data/sizing-defaults.json`; the report calls them defaults. A shop changes them with an override file (see `data/README.md`). One call changes them with `mold_calc overrides`.
 

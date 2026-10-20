@@ -20,9 +20,12 @@ namespace SwAgent.Mold
     {
         public const string OutputName = "machining-sheet.html";
 
-        public static string Write(MoldRecord r, string templatePath, MoldData data)
+        public static string Write(MoldRecord r, string templatePath, MoldData data) => Write(r, templatePath, data, out _);
+
+        /// <summary>Writes the sheet (and hardware-bom.csv) and lists the placeholders it could not fill.</summary>
+        public static string Write(MoldRecord r, string templatePath, MoldData data, out List<string> unresolved)
         {
-            var html = Fill(r, File.ReadAllText(templatePath), data, out _);
+            var html = Fill(r, File.ReadAllText(templatePath), data, out unresolved);
             var path = Path.Combine(r.Folder, OutputName);
             File.WriteAllText(path, html, new UTF8Encoding(false));
             HardwareBom.WriteCsv(r, data);
@@ -50,7 +53,8 @@ namespace SwAgent.Mold
             var allowLW = data.ShopMm("plates.blankAllowancePerSide", 3);
             var allowT = data.ShopMm("plates.blankAllowanceThicknessPerSide", 1.5);
             var planned = (j.SelectToken("structural.results.pieces") as JArray)?.OfType<JObject>().ToList() ?? new List<JObject>();
-            var built = (j["bodies"] as JArray)?.OfType<JObject>().ToList() ?? new List<JObject>();
+            // machined pieces only: not the part's reference copy, the Garbage folder or unfiled bodies
+            var built = (j["bodies"] as JArray)?.OfType<JObject>().Where(SetupSheet.Machined).ToList() ?? new List<JObject>();
             var source = built.Count > 0 ? built : planned;
             var dowels = (j.SelectToken("hardware.dowels") as JArray)?.OfType<JObject>().ToList() ?? new List<JObject>();
             var bolts = (j.SelectToken("hardware.bolts") as JArray)?.OfType<JObject>().ToList() ?? new List<JObject>();
@@ -75,9 +79,12 @@ namespace SwAgent.Mold
                 {
                     var round = ((string)d["kind"] ?? "round") == "round";
                     var pressHere = role == "base";   // pressed in the plate that stays put, slip in the one that comes apart
+                    var dd = Si.Num(d["d_mm"]) ?? 12.7;
                     holes.Add(new JObject
                     {
-                        ["id"] = d["id"], ["kind"] = round ? "dowel" : "dowel slot (radial)", ["qty"] = 1, ["dia_mm"] = d["d_mm"],
+                        // every pin is pressed into the base; the radial slot (critique D1) is cut in the lid
+                        ["id"] = d["id"], ["kind"] = pressHere ? "dowel (pressed)" : round ? "dowel" : "dowel slot (radial)", ["qty"] = 1, ["dia_mm"] = d["d_mm"],
+                        ["size"] = "dowel " + HardwareBom.LenText(dd, imperial),
                         ["fit"] = pressHere ? (string)dowelRow?["pressLabel"] ?? "press" : (round ? "slip" : "slot: slip across, free along the line to D1"),
                         ["limits"] = pressHere ? dowelRow?["press"] : dowelRow?["slip"],
                         ["depth_mm"] = Si.R(1.5 * (Si.Num(d["d_mm"]) ?? 12.7), 4), ["note"] = d["at"]?.ToString(Newtonsoft.Json.Formatting.None),
@@ -106,6 +113,7 @@ namespace SwAgent.Mold
                     holes.Add(new JObject
                     {
                         ["id"] = t["id"], ["kind"] = "thermocouple well (from a side face)", ["qty"] = 1, ["dia_mm"] = t["d_mm"], ["depth_mm"] = t["depth_mm"],
+                        ["size"] = Si.Num(t["d_mm"]) is double td ? "TC " + HardwareBom.LenText(td, imperial) : null,
                         ["fit"] = "", ["limits"] = "", ["note"] = "ends " + t["endFromCavity_mm"] + " mm from the cavity; engrave the label",
                     });
                 var flat = new JArray();
@@ -119,9 +127,13 @@ namespace SwAgent.Mold
                 var notes = new JArray();
                 foreach (var f in fits.Where(x => (x["bodies"] as JArray)?.Any(y => (string)y == id) == true))
                     notes.Add($"Insert pocket {f["id"]}: d {f["d_mm"]} mm, cold interference {f["coldInterference_mm"]} mm ({f["pocketHot_mm"]}); {f["retention"]}; {f["cornerRelief"]}");
+                // the agent's notes for this body (setups, corner reliefs with the cutter, shut-off heights, finish, engraving)
+                var agentNotes = (j["bodies"] as JArray)?.OfType<JObject>().FirstOrDefault(x => (string)x["id"] == id)?.SelectToken("machining.notes");
+                if (agentNotes is JArray an) foreach (var n in an.Where(x => x.Type == JTokenType.String)) notes.Add((string)n);
+                else if (agentNotes?.Type == JTokenType.String) notes.Add((string)agentNotes);
                 bodies.Add(new JObject
                 {
-                    ["id"] = id, ["role"] = role, ["material"] = b["material"] ?? j.SelectToken("structural.materials.plates.id"),
+                    ["id"] = id, ["role"] = role, ["material"] = MaterialOf(b, role, j),
                     ["finished_mm"] = new JArray(box.Select(x => Si.R(x, 6))), ["stock_mm"] = Si.R(stock, 6),
                     ["blank_mm"] = box.Length >= 3 ? new JArray(Si.R(box[0] + 2 * allowLW, 6), Si.R(box[1] + 2 * allowLW, 6), Si.R(stock + 2 * allowT, 6)) : new JArray(),
                     ["flatness"] = flat, ["holes"] = holes, ["notes"] = notes,
@@ -140,6 +152,21 @@ namespace SwAgent.Mold
                     "One fillet or chamfer per body; seam edges between base pieces are not filleted."),
                 ["bom"] = HardwareBom.Build(j, data),
             };
+        }
+
+        /// <summary>
+        /// The grade a body is cut from: the body's own (mold_bodies, the plan) else by role - inserts the insert grade, stop
+        /// pads the stops' grade (else the insert grade), everything else the plate grade.
+        /// </summary>
+        private static JToken MaterialOf(JObject b, string role, JObject j)
+        {
+            var own = b["material"] ?? b["grade"];
+            if (own != null && own.Type != JTokenType.Null && (string)own != "") return own;
+            var plates = j.SelectToken("structural.materials.plates.id") ?? j.SelectToken("materials.plates.id");
+            var inserts = j.SelectToken("structural.materials.inserts.id") ?? j.SelectToken("materials.inserts.id");
+            if (role == "insert") return inserts ?? plates;
+            if (role == "stop") return j.SelectToken("hardware.stops[0].grade") ?? inserts ?? plates;
+            return plates;
         }
 
         /// <summary>A piece's footprint {u0, u1, v0, v1} in the mold frame (null = the whole mold).</summary>
@@ -247,12 +274,20 @@ namespace SwAgent.Mold
             }
             foreach (var s in (j.SelectToken("hardware.stops") as JArray ?? new JArray()).OfType<JObject>())
                 bom.Add(Item("Stop pad, hardened " + s["hardness"], s["side_mm"] + " mm square", 1, (string)s["at"] + "; shim to set the closed height"));
+            // purchased items the calculator does not size (the agent's hardware.bom: bushings, jack screws, poppets, shims)
+            foreach (var x in (j.SelectToken("hardware.bom") as JArray ?? new JArray()).OfType<JObject>())
+            {
+                var note = (string)x["note"] ?? "";
+                var pn = (string)x["partNumber"];
+                if (!string.IsNullOrWhiteSpace(pn)) note = "part number " + pn + (note.Length > 0 ? "; " + note : "");
+                bom.Add(new JObject { ["item"] = (string)x["item"] ?? (string)x["id"] ?? "", ["size"] = (string)x["size"] ?? "", ["qty"] = (int?)Si.Num(x["qty"]) ?? 1, ["note"] = note, ["partNumber"] = x["partNumber"]?.DeepClone() });
+            }
             return bom;
         }
 
         private static JObject Item(string item, string size, int qty, string note) => new JObject { ["item"] = item, ["size"] = size, ["qty"] = qty, ["note"] = note };
 
-        private static string LenText(double mm, bool imperial) => imperial ? Si.F(mm / Si.InToMm, 4) + " in" : Si.F(mm, 4) + " mm";
+        internal static string LenText(double mm, bool imperial) => imperial ? Si.F(mm / Si.InToMm, 4) + " in" : Si.F(mm, 4) + " mm";
 
         private static string StiDrill(MoldData data, string size)
         {

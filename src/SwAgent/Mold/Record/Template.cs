@@ -11,16 +11,29 @@ namespace SwAgent.Mold
     /// <summary>
     /// The small template language of data/setup-sheet.html and data/machining-sheet.html (agreed with Track E), so the
     /// add-in needs no template library:
-    ///   {{path}}                 a value from the context (dotted path, array index allowed: bodies.0.id); HTML-escaped
+    ///   {{path}}                 a value from the context (dotted path; array items as bodies[0].id - bodies.0.id works too);
+    ///                            HTML-escaped
     ///   {{path|unit}}            a number in both unit systems, the document's first: "17.1 lb (7.75 kg)"; units:
-    ///                            mm, mm2, mm3, kg, g, MPa, kN, Nm, degC, min, pct, plus length/mass/pressure/force/torque/temperature
+    ///                            mm, mm2, mm3, kg, g, MPa, kN, Nm, degC, min, pct, plus length/area/volume/mass/pressure/force/
+    ///                            torque/temperature; gauge: a pressure in MPa in the unit the user's gauge reads
+    ///                            (process.gauge.unitShown: psi, bar, kgf/cm2 or MPa) with MPa in brackets, else as MPa
     ///   {{#each path}}...{{/each}}   repeats for each array item; inside, paths resolve on the item first, then the root;
-    ///                            {{this}} is the item, {{@index}} counts from 0 and {{@number}} from 1
-    ///   {{#if path}}...{{else}}...{{/if}}   false, null, "", 0 and [] are false
-    /// A path that does not exist renders as "-" and is reported in `unresolved` (tests require none on a full record).
+    ///                            {{this}} is the item, {{this.x}} a key of the item only (never the root), {{@index}} counts
+    ///                            from 0 and {{@number}} from 1
+    ///   {{#if path}}...{{else}}...{{/if}}   false, null, "", 0 and [] are false; a path that does not exist is false (and is
+    ///                            not reported - an optional block)
+    /// A value path that does not exist renders as "-" and is reported in `unresolved` (tests require none on a full record);
+    /// so is an unknown filter ("path|filter (unknown filter)"), which renders "-" instead of guessing a unit.
     /// </summary>
     public static class Template
     {
+        /// <summary>Every filter the language knows (case-insensitive).</summary>
+        public static readonly HashSet<string> Filters = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "mm", "length", "mm2", "area", "mm3", "volume", "kg", "mass", "g", "MPa", "pressure", "kN", "force", "Nm", "torque",
+            "degC", "temperature", "min", "pct", "%", "gauge",
+        };
+
         public static string Render(string template, JObject context, bool imperial, List<string> unresolved = null)
         {
             var fmt = new Fmt(imperial);
@@ -50,7 +63,8 @@ namespace SwAgent.Mold
                     var body = t.Substring(i, (elseAt >= 0 ? elseAt : end) - i);
                     var elseBody = elseAt >= 0 ? t.Substring(elseAt + "{{else}}".Length, end - elseAt - "{{else}}".Length) : "";
                     var value = Resolve(path, scope, root, index, out var found);
-                    if (!found) unresolved.Add(path);
+                    // a missing {{#if}} path is simply false (an optional block); a missing {{#each}} list is reported
+                    if (!found && kind == "each") unresolved.Add(path);
                     if (kind == "each")
                     {
                         if (value is JArray arr)
@@ -70,9 +84,13 @@ namespace SwAgent.Mold
                 var bar = tag.IndexOf('|');
                 var p = bar >= 0 ? tag.Substring(0, bar).Trim() : tag;
                 var unit = bar >= 0 ? tag.Substring(bar + 1).Trim() : null;
+                if (unit != null && !Filters.Contains(unit)) { unresolved.Add(p + "|" + unit + " (unknown filter)"); sb.Append("-"); continue; }
                 var v = Resolve(p, scope, root, index, out var ok);
                 if (!ok) { unresolved.Add(p); sb.Append("-"); continue; }
-                sb.Append(WebUtility.HtmlEncode(Format(v, unit, fmt)));
+                var text = unit != null && unit.Equals("gauge", StringComparison.OrdinalIgnoreCase)
+                    ? Gauge(v, (string)(root.SelectToken("process.gauge.unitShown") ?? root.SelectToken("sheet.press.gaugeUnit")), fmt)
+                    : Format(v, unit, fmt);
+                sb.Append(WebUtility.HtmlEncode(text));
             }
             return sb.ToString();
         }
@@ -109,6 +127,13 @@ namespace SwAgent.Mold
             if (path == "@index") return index;
             if (path == "@number") return index + 1;
             var p = path.StartsWith("this.") ? path.Substring(5) : path;
+            if (path.StartsWith("this."))
+            {
+                // this.x is a key of the current item only: never an outer item's or the root's
+                var t = scope[scope.Count - 1] is JContainer item ? Select(item, p) : null;
+                found = t != null;
+                return t;
+            }
             for (var s = scope.Count - 1; s >= 0; s--)
             {
                 if (scope[s] is JContainer c)
@@ -116,7 +141,6 @@ namespace SwAgent.Mold
                     var t = Select(c, p);
                     if (t != null) return t;
                 }
-                if (path.StartsWith("this.")) break;
             }
             var r = Select(root, p);
             if (r != null) return r;
@@ -164,6 +188,19 @@ namespace SwAgent.Mold
                 case JTokenType.Object: return ((JObject)v).HasValues;
                 default: return true;
             }
+        }
+
+        /// <summary>A gauge pressure (MPa) in the unit the user's gauge reads, MPa in brackets; MPa or unknown: as a pressure.</summary>
+        public static string Gauge(JToken v, string unitShown, Fmt fmt)
+        {
+            if (v == null || v.Type == JTokenType.Null) return "-";
+            if (v.Type != JTokenType.Float && v.Type != JTokenType.Integer) return Format(v, null, fmt);
+            var x = (double)v;
+            var u = (unitShown ?? "").Trim().ToLowerInvariant().Replace(" ", "");
+            double? shown = u == "psi" ? x / Si.PsiToMPa : u == "bar" ? x * 10 : u == "kgf/cm2" || u == "kgf/cm²" || u == "kg/cm2" ? x * 10.197162 : u == "kpa" ? x * 1000 : (double?)null;
+            if (u == "mpa") return Si.F(x, 4) + " MPa";
+            if (shown == null) return fmt.P(x);
+            return Si.F(shown.Value, 4) + " " + unitShown.Trim() + " (" + Si.F(x, 4) + " MPa)";
         }
 
         public static string Format(JToken v, string unit, Fmt fmt)

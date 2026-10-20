@@ -25,9 +25,12 @@ namespace SwAgent.Mold
         public const string OutputName = "setup-sheet.html";
 
         /// <summary>Writes the filled sheet; returns its path. Unresolved placeholders render as "-" (see Fill).</summary>
-        public static string Write(MoldRecord r, string templatePath, MoldData data)
+        public static string Write(MoldRecord r, string templatePath, MoldData data) => Write(r, templatePath, data, out _);
+
+        /// <summary>Writes the filled sheet and lists the placeholders it could not fill (mold_record reports them).</summary>
+        public static string Write(MoldRecord r, string templatePath, MoldData data, out List<string> unresolved)
         {
-            var html = Fill(r, File.ReadAllText(templatePath), data, out _);
+            var html = Fill(r, File.ReadAllText(templatePath), data, out unresolved);
             var path = Path.Combine(r.Folder, OutputName);
             File.WriteAllText(path, html, new UTF8Encoding(false));
             r.Json["setupSheet"] = OutputName;
@@ -44,6 +47,16 @@ namespace SwAgent.Mold
             return Template.Render(template, ctx, imperial, unresolved);
         }
 
+        /// <summary>
+        /// Bodies that are machined pieces of the mold: not the molded part's reference copy, the Garbage folder or bodies in no
+        /// mold folder (Track D's roles reference, garbage, unfiled).
+        /// </summary>
+        public static bool Machined(JObject body)
+        {
+            var role = ((string)body?["role"] ?? "").Trim().ToLowerInvariant();
+            return role != "reference" && role != "garbage" && role != "unfiled";
+        }
+
         /// <summary>The derived numbers the operator needs, from the record (no recalculation of the design).</summary>
         public static JObject Build(JObject j, MoldData data)
         {
@@ -53,7 +66,7 @@ namespace SwAgent.Mold
             var asBuilt = j["bodies"] as JArray;
             var planned = j.SelectToken("structural.results.pieces") as JArray;
             var lifts = (j.SelectToken("hardware.lift") as JArray)?.OfType<JObject>().ToList() ?? new List<JObject>();
-            foreach (var b in ((asBuilt != null && asBuilt.Count > 0) ? asBuilt : planned ?? new JArray()).OfType<JObject>())
+            foreach (var b in ((asBuilt != null && asBuilt.Count > 0) ? asBuilt : planned ?? new JArray()).OfType<JObject>().Where(Machined))
             {
                 var lift = lifts.FirstOrDefault(l => (string)l["body"] == (string)b["id"]);
                 pieces.Add(new JObject
@@ -101,7 +114,7 @@ namespace SwAgent.Mold
             return new JObject
             {
                 ["moldId"] = j["id"],
-                ["title"] = (string)j.SelectToken("inputs.mold_number") ?? Path.GetFileNameWithoutExtension((string)j.SelectToken("files.moldPart") ?? "mold"),
+                ["title"] = (string)j.SelectToken("identity.moldNumber") ?? (string)j.SelectToken("inputs.mold_number") ?? Path.GetFileNameWithoutExtension((string)j.SelectToken("files.moldPart") ?? "mold"),
                 ["display"] = (string)j.SelectToken("units.display") ?? "imperial",
                 ["materialName"] = (string)row?["name"] ?? (string)j.SelectToken("materials.part.id"),
                 ["materialId"] = j.SelectToken("materials.part.id"),
@@ -116,6 +129,7 @@ namespace SwAgent.Mold
                     ["gaugeRecommended_MPa"] = j.SelectToken("process.gauge.recommended_MPa"),
                     ["gaugeMax_MPa"] = j.SelectToken("process.gauge.max_MPa"),
                     ["gaugeMaxBasis"] = j.SelectToken("process.gauge.maxBasis") ?? "",
+                    ["gaugeUnit"] = j.SelectToken("process.gauge.unitShown") ?? "",
                     ["conversion"] = conversion,
                     ["closedHeight_mm"] = j.SelectToken("structural.results.stackHeight_mm"),
                     ["loadCentre"] = "Mark the press centre on the base; the locating stop puts the cavity centroid on it.",
