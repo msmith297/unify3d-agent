@@ -621,7 +621,9 @@ namespace SwAgent.Mold.Geometry
                     model.ClearSelection2(true);
                     continue;
                 }
-                var f = model.FeatureManager.PostSplitBody2(pieces, false, null, null, "") as IFeature;
+                var posted = model.FeatureManager.PostSplitBody2(pieces, false, null, null, "");
+                // The split feature (or, should this version hand back the bodies, the feature just added).
+                var f = posted as IFeature ?? (posted != null ? model.Extension.GetLastFeatureAdded() as IFeature : null);
                 model.ClearSelection2(true);
                 if (f == null) continue;
                 var made = SwGeo.NewBodies(model, others);

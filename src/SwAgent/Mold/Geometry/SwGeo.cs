@@ -348,7 +348,8 @@ namespace SwAgent.Mold.Geometry
         {
             var cpm = model?.Extension?.CustomPropertyManager[""] ?? throw new MoldApiException("The part has no custom property manager.");
             var r = cpm.Add3(name, (int)swCustomInfoType_e.swCustomInfoText, value, (int)swCustomPropertyAddOption_e.swCustomPropertyReplaceValue);
-            if (r < 0) throw new MoldApiException($"Couldn't set the custom property {name}.");
+            if (r != (int)swCustomInfoAddResult_e.swCustomInfoAddResult_AddedOrChanged)
+                throw new MoldApiException($"Couldn't set the custom property {name} ({(swCustomInfoAddResult_e)r}).");
         }
 
         /// <summary>
