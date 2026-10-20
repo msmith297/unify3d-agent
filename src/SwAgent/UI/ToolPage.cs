@@ -28,6 +28,9 @@ namespace SwAgent.UI
     public sealed class ToolPage : IPropertyManagerPage2Handler9
     {
         private const int PreviewBudgetMs = 350;
+
+        /// <summary>The S2 fallback's limits: parent combinations tried, and dropdowns made for one choice.</summary>
+        private const int MaxVariantCombinations = 2000, MaxVariants = 80;
         private static readonly string[] TierNames = { "Fast", "Balanced", "High", "Max" };
 
         private readonly ISldWorks _sw;
@@ -50,10 +53,24 @@ namespace SwAgent.UI
         private IDisposable _guard;
         private readonly Dictionary<int, Field> _fields = new Dictionary<int, Field>();
         private readonly List<Field> _ordered = new List<Field>();
+        private readonly Dictionary<string, Field> _byInputId = new Dictionary<string, Field>(StringComparer.OrdinalIgnoreCase);
         private int _nextId = 10;
         private IPropertyManagerPageCombobox _tierBox;
         private int _tierBoxId = -1;
         private ToolInputs _result;
+
+        /// <summary>The page's state without SolidWorks (cascades, fills, visibility, units); the controls mirror it.</summary>
+        private ToolForm _form;
+        private bool _imperial;
+        private PageQuirks _quirks = new PageQuirks();
+
+        /// <summary>
+        /// Re-entrancy guard: while the code sets values, entries or visibility, every handler returns at once. Whether
+        /// SolidWorks raises change events for values set from code is spike S1; the form ignores repeats of its own values
+        /// either way, so a late event is harmless too.
+        /// </summary>
+        private int _quiet;
+        private string _bubbleFor;
 
         private ScriptRunner<object> _previewRunner;
         private readonly Timer _previewTimer = new Timer { Interval = 120 };
@@ -76,6 +93,58 @@ namespace SwAgent.UI
             public List<string> Files = new List<string>();
             public int AddButtonId;
             public int ClearButtonId;
+
+            /// <summary>The field's state in the form.</summary>
+            public FormField Model;
+            public List<int> OptionIds = new List<int>();
+            public IPropertyManagerPageLabel Label;
+
+            /// <summary>Optional inputs: the checkbox (captioned with the label) that switches the value on.</summary>
+            public IPropertyManagerPageCheckbox Toggle;
+            public int ToggleId = -1;
+
+            /// <summary>size: the length boxes.</summary>
+            public IPropertyManagerPageNumberbox[] Boxes;
+            public int[] BoxIds;
+
+            /// <summary>UnitChoices: the unit dropdown under the box, and the unit the box shows now.</summary>
+            public IPropertyManagerPageCombobox UnitBox;
+            public int UnitBoxId = -1;
+            public UnitDef ShownUnit;
+
+            /// <summary>The entries the (active) dropdown holds - the combobox has no item count.</summary>
+            public List<string> Items = new List<string>();
+
+            /// <summary>Fallback when a shown dropdown can't be refilled (spike S2): one dropdown per entry list, one visible.</summary>
+            public List<Variant> Variants;
+            public Variant Active;
+
+            /// <summary>Every control of the field except variants, for visibility.</summary>
+            public List<object> Parts = new List<object>();
+
+            /// <summary>The number the code last wrote into the box, the form's value then, and when (see IsEcho).</summary>
+            public double? Written;
+            public double WrittenSi;
+            public int WrittenAt;
+
+            /// <summary>When the code last set this field's selection or check state (see IsLateEvent).</summary>
+            public int? SetAt;
+
+            /// <summary>
+            /// The dropdown didn't take its new entries (spike S2): what it shows no longer matches the form, so it is disabled,
+            /// its events are ignored and OK waits until the page is opened again.
+            /// </summary>
+            public bool Stale;
+
+            /// <summary>The tooltip last given to the dropdown (data choices name their selected row).</summary>
+            public string Tip;
+        }
+
+        private sealed class Variant
+        {
+            public int Id;
+            public IPropertyManagerPageCombobox Box;
+            public List<string> Items;
         }
 
         /// <summary>Something that was selected before the tool started.</summary>
@@ -109,6 +178,10 @@ namespace SwAgent.UI
                                 swPropertyManagerPageOptions_e.swPropertyManagerOptions_CanEscapeCancel);
             if (_spec.Preview != null && !_spec.Paused.Contains("preview")) options |= (int)swPropertyManagerPageOptions_e.swPropertyManagerOptions_PreviewButton;
 
+            // The page's state (defaults, remembered values, data choices) before any control exists.
+            _form = CreateForm(_spec, _model, out _imperial);
+            _quirks = PageQuirks.Load();
+
             var errors = 0;
             _page = (IPropertyManagerPage2)_sw.CreatePropertyManagerPage(_spec.Title, options, this, ref errors);
             if (_page == null) throw new InvalidOperationException($"SolidWorks couldn't create the tool's page (error {errors}).");
@@ -120,7 +193,7 @@ namespace SwAgent.UI
             _guard = CrashGuard.Enter("page", _spec.Name, _spec.Title, _spec.Preview ?? _spec.Macro);
             try
             {
-                Build();
+                Quiet(Build);
                 _page.Show2(0);
             }
             catch
@@ -154,29 +227,71 @@ namespace SwAgent.UI
 
         // ---- building ----
 
+        /// <summary>The form for a tool: its data, the document's unit system and the values remembered on this PC.</summary>
+        private static ToolForm CreateForm(ToolSpec spec, IModelDoc2 model, out bool imperial)
+        {
+            imperial = Units.IsImperial(model);
+            try
+            {
+                return new ToolForm(spec, ToolData.For(spec), imperial, RememberStore.Load(spec.Name));
+            }
+            catch (Exception ex)
+            {
+                // Bad data must never stop the page. A damaged remembered file is the likely cause (it is only rewritten on
+                // OK): try again without it, keeping the data choices; then fall back to the plain defaults.
+                Log.Error($"Tool '{spec.Name}': reading its page data failed", ex);
+            }
+            try
+            {
+                return new ToolForm(spec, ToolData.For(spec), imperial);
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Tool '{spec.Name}': reading its data files failed", ex);
+                return new ToolForm(spec, ToolData.None, imperial);
+            }
+        }
+
+        private void Quiet(Action a)
+        {
+            _quiet++;
+            try
+            {
+                a();
+            }
+            finally
+            {
+                _quiet--;
+            }
+        }
+
         private void Build()
         {
             var groups = new Dictionary<string, IPropertyManagerPageGroup>();
-            var groupId = 1;
             var nextMark = 2;
-            foreach (var input in _spec.Inputs)
+            foreach (var model in _form.Fields)
             {
-                var type = ToolSpec.Type(input);
+                var input = model.Spec;
+                var type = model.Type;
                 var caption = string.IsNullOrWhiteSpace(input.Group) ? (type == "selection" ? "Selections" : type == "text" || type == "files" ? "Context" : "Parameters") : input.Group;
                 if (!groups.TryGetValue(caption, out var group))
                 {
-                    group = (IPropertyManagerPageGroup)Group(groupId++, caption,
-                        (int)(swAddGroupBoxOptions_e.swGroupBoxOptions_Visible | swAddGroupBoxOptions_e.swGroupBoxOptions_Expanded));
+                    // Group ids come from the same counter as control ids (they used to count from 1 and met the controls at 10).
+                    // The first input of a group decides whether it starts expanded.
+                    var options = swAddGroupBoxOptions_e.swGroupBoxOptions_Visible;
+                    if (input.GroupExpanded != false) options |= swAddGroupBoxOptions_e.swGroupBoxOptions_Expanded;
+                    group = (IPropertyManagerPageGroup)Group(_nextId++, caption, (int)options);
                     groups[caption] = group;
                 }
-                var f = new Field { Spec = input, Type = type };
+                var f = new Field { Spec = input, Type = type, Model = model };
                 AddField(group, f, ref nextMark);
                 _ordered.Add(f);
+                if (!_byInputId.ContainsKey(input.Id)) _byInputId[input.Id] = f;
             }
 
             if (_spec.Agent)
             {
-                var group = (IPropertyManagerPageGroup)Group(groupId, "Unify3D Agent", (int)swAddGroupBoxOptions_e.swGroupBoxOptions_Visible);
+                var group = (IPropertyManagerPageGroup)Group(_nextId++, "Unify3D Agent", (int)swAddGroupBoxOptions_e.swGroupBoxOptions_Visible);
                 AddLabel(group, "Intelligence");
                 var id = _nextId++;
                 _tierBoxId = id;
@@ -186,6 +301,9 @@ namespace SwAgent.UI
                 _tierBox.AddItems(TierNames);
                 _tierBox.CurrentSelection = (short)Math.Max(0, Array.IndexOf(ToolSpec.Tiers, _spec.Intelligence));
             }
+
+            // Every control was made from the form's current state.
+            foreach (var model in _form.Fields) model.Changes = FieldChange.None;
         }
 
         private IPropertyManagerPageGroup Group(int id, string caption, int options)
@@ -204,15 +322,51 @@ namespace SwAgent.UI
 
         private static int ControlOptions => (int)(swAddControlOptions_e.swControlOptions_Visible | swAddControlOptions_e.swControlOptions_Enabled);
 
-        private void AddLabel(IPropertyManagerPageGroup group, string text)
+        /// <summary>
+        /// Options for a control of a field: created hidden when the field starts hidden (every control must exist before
+        /// Show2, so hidden ones are made now and shown later), disabled when an Optional is off. With the "disable" quirk
+        /// (spike S3) hidden fields stay visible but disabled.
+        /// </summary>
+        private int OptionsFor(Field f, bool followsToggle = false)
         {
-            Control(group, _nextId++, (short)swPropertyManagerPageControlType_e.swControlType_Label, text,
-                (short)swPropertyManagerPageControlLeftAlign_e.swControlAlign_LeftEdge, ControlOptions, "");
+            var m = f.Model;
+            if (m == null) return ControlOptions;
+            var hidden = m.Hidden;
+            var visible = !hidden || _quirks.HideByDisabling;
+            var enabled = !(hidden && _quirks.HideByDisabling) && !(followsToggle && m.Optional && !m.On);
+            return (visible ? (int)swAddControlOptions_e.swControlOptions_Visible : 0) | (enabled ? (int)swAddControlOptions_e.swControlOptions_Enabled : 0);
+        }
+
+        private IPropertyManagerPageLabel AddLabel(IPropertyManagerPageGroup group, string text, int options = -1)
+        {
+            return (IPropertyManagerPageLabel)Control(group, _nextId++, (short)swPropertyManagerPageControlType_e.swControlType_Label, text,
+                (short)swPropertyManagerPageControlLeftAlign_e.swControlAlign_LeftEdge, options < 0 ? ControlOptions : options, "");
+        }
+
+        /// <summary>The label above a number or size - or, for an Optional one, the checkbox that switches it on.</summary>
+        private void AddCaption(IPropertyManagerPageGroup group, Field f, string tip)
+        {
+            var m = f.Model;
+            if (m.Optional)
+            {
+                f.ToggleId = _nextId++;
+                f.Toggle = (IPropertyManagerPageCheckbox)Control(group, f.ToggleId, (short)swPropertyManagerPageControlType_e.swControlType_Checkbox,
+                    m.Caption, (short)swPropertyManagerPageControlLeftAlign_e.swControlAlign_LeftEdge, OptionsFor(f), tip);
+                f.Toggle.Checked = m.On;
+                _fields[f.ToggleId] = f;
+                f.Parts.Add(f.Toggle);
+            }
+            else
+            {
+                f.Label = AddLabel(group, m.Caption, OptionsFor(f));
+                f.Parts.Add(f.Label);
+            }
         }
 
         private void AddField(IPropertyManagerPageGroup group, Field f, ref int nextMark)
         {
             var s = f.Spec;
+            var m = f.Model;
             var tip = s.Tip ?? s.Label ?? "";
             var indent = (short)swPropertyManagerPageControlLeftAlign_e.swControlAlign_Indent;
             switch (f.Type)
@@ -221,7 +375,7 @@ namespace SwAgent.UI
                 {
                     f.Id = _nextId++;
                     var box = (IPropertyManagerPageSelectionbox)Control(group, f.Id, (short)swPropertyManagerPageControlType_e.swControlType_Selectionbox,
-                        s.Label, indent, ControlOptions, tip);
+                        s.Label, indent, OptionsFor(f), tip);
                     var filters = SelectFilters(s.Filter);
                     if (filters.Length > 0) box.SetSelectionFilters(filters);
                     f.Mark = nextMark;
@@ -231,54 +385,117 @@ namespace SwAgent.UI
                     box.Height = (short)(s.Multiple == false ? 15 : 50);
                     ((IPropertyManagerPageControl)box).SetStandardPictureLabel((int)PictureFor(s.Icon, s.Filter));
                     f.Control = box;
+                    f.Parts.Add(box);
                     break;
                 }
                 case "number":
                 case "integer":
                 {
-                    AddLabel(group, s.Label);
+                    AddCaption(group, f, tip);
                     f.Id = _nextId++;
                     var box = (IPropertyManagerPageNumberbox)Control(group, f.Id, (short)swPropertyManagerPageControlType_e.swControlType_Numberbox,
-                        s.Label, indent, ControlOptions, tip);
+                        s.Label, indent, OptionsFor(f, followsToggle: true), tip);
                     var unit = (s.Unit ?? "length").ToLowerInvariant();
                     if (f.Type == "integer")
                         box.SetRange2((int)swNumberboxUnitType_e.swNumberBox_UnitlessInteger, s.Min ?? 0, s.Max ?? 1000, true, 1, 5, 1);
+                    else if (m.Converted)
+                        SetConvertedRange(f, box, wide: _quirks.NoRangeAfterShow && m.UnitChoices.Count > 1);
                     else if (unit == "angle")
                         box.SetRange2((int)swNumberboxUnitType_e.swNumberBox_Angle, Rad(s.Min ?? 0), Rad(s.Max ?? 360), true, Rad(1), Rad(15), Rad(0.1));
                     else if (unit == "length")
                         box.SetRange2((int)swNumberboxUnitType_e.swNumberBox_Length, Mm(s.Min ?? 0), Mm(s.Max ?? 10000), true, Mm(1), Mm(10), Mm(0.1));
                     else
                         box.SetRange2((int)swNumberboxUnitType_e.swNumberBox_UnitlessDouble, s.Min ?? -1e9, s.Max ?? 1e9, true, 1, 10, 0.1);
-                    box.Value = DefaultNumber(s, f.Type);
+                    box.Value = BoxValue(f);
+                    Wrote(f);
+                    f.ShownUnit = m.Unit;
                     if (s.Icon != null || unit == "length" || unit == "angle")
                         ((IPropertyManagerPageControl)box).SetStandardPictureLabel((int)PictureFor(s.Icon ?? (unit == "angle" ? "angle" : "distance"), null));
                     f.Control = box;
+                    f.Parts.Add(box);
+                    if (m.Converted && m.UnitChoices.Count > 1)
+                    {
+                        // The unit the user reads on their press, gauge or nameplate - remembered on this PC.
+                        f.UnitBoxId = _nextId++;
+                        f.UnitBox = (IPropertyManagerPageCombobox)Control(group, f.UnitBoxId, (short)swPropertyManagerPageControlType_e.swControlType_Combobox,
+                            "Unit", indent, OptionsFor(f, followsToggle: true), "Unit of " + (s.Label ?? s.Id));
+                        f.UnitBox.AddItems(m.UnitChoices.Select(u => u.Symbol).ToArray());
+                        f.UnitBox.CurrentSelection = (short)Math.Max(0, m.UnitChoices.IndexOf(m.Unit));
+                        _fields[f.UnitBoxId] = f;
+                        f.Parts.Add(f.UnitBox);
+                    }
+                    break;
+                }
+                case "size":
+                {
+                    AddCaption(group, f, tip);
+                    var names = new[] { "Width", "Depth", "Thickness" };
+                    var pictures = new[] { swControlBitmapLabelType_e.swBitmapLabel_Width, swControlBitmapLabelType_e.swBitmapLabel_Depth, swControlBitmapLabelType_e.swBitmapLabel_Thickness1 };
+                    var dims = m.Dims;
+                    f.Boxes = new IPropertyManagerPageNumberbox[dims];
+                    f.BoxIds = new int[dims];
+                    // Stacked vertically; boxes side by side wait for spike S4 (units of Top/Left/Width).
+                    for (var k = 0; k < dims; k++)
+                    {
+                        var id = _nextId++;
+                        var box = (IPropertyManagerPageNumberbox)Control(group, id, (short)swPropertyManagerPageControlType_e.swControlType_Numberbox,
+                            $"{s.Label} - {names[k]}", indent, OptionsFor(f, followsToggle: true), $"{names[k]}. {tip}");
+                        box.SetRange2((int)swNumberboxUnitType_e.swNumberBox_Length, Mm(s.Min ?? 0), Mm(s.Max ?? 10000), true, Mm(1), Mm(10), Mm(0.1));
+                        box.Value = m.SizeSi[k];
+                        ((IPropertyManagerPageControl)box).SetStandardPictureLabel((int)pictures[k]);
+                        f.Boxes[k] = box;
+                        f.BoxIds[k] = id;
+                        _fields[id] = f;
+                        f.Parts.Add(box);
+                    }
+                    f.Id = f.BoxIds[0];
+                    f.Control = f.Boxes[0];
+                    break;
+                }
+                case "info":
+                {
+                    f.Id = _nextId++;
+                    f.Label = (IPropertyManagerPageLabel)Control(group, f.Id, (short)swPropertyManagerPageControlType_e.swControlType_Label, m.Caption ?? "",
+                        (short)swPropertyManagerPageControlLeftAlign_e.swControlAlign_LeftEdge, OptionsFor(f), s.Tip ?? "");
+                    f.Control = f.Label;
+                    f.Parts.Add(f.Label);
                     break;
                 }
                 case "checkbox":
                 {
                     f.Id = _nextId++;
                     var box = (IPropertyManagerPageCheckbox)Control(group, f.Id, (short)swPropertyManagerPageControlType_e.swControlType_Checkbox,
-                        s.Label, (short)swPropertyManagerPageControlLeftAlign_e.swControlAlign_LeftEdge, ControlOptions, tip);
-                    box.Checked = string.Equals(s.Default, "true", StringComparison.OrdinalIgnoreCase);
+                        s.Label, (short)swPropertyManagerPageControlLeftAlign_e.swControlAlign_LeftEdge, OptionsFor(f), tip);
+                    box.Checked = m.Checked;
                     f.Control = box;
+                    f.Parts.Add(box);
                     break;
                 }
                 case "choice":
                 {
-                    AddLabel(group, s.Label);
+                    f.Label = AddLabel(group, s.Label, OptionsFor(f));
+                    f.Parts.Add(f.Label);
+                    if (m.IsData)
+                    {
+                        tip = _form.TipOf(m);
+                        f.Tip = tip;
+                    }
+                    if (m.IsData && m.Parents.Count > 0 && _quirks.ComboVariants && AddVariants(group, f, tip)) break;
                     f.Id = _nextId++;
                     var box = (IPropertyManagerPageCombobox)Control(group, f.Id, (short)swPropertyManagerPageControlType_e.swControlType_Combobox,
-                        s.Label, indent, ControlOptions, tip);
-                    var choices = s.Choices ?? new string[0];
+                        s.Label, indent, OptionsFor(f), tip);
+                    var choices = m.Items.ToArray();
                     if (choices.Length > 0) box.AddItems(choices);
-                    box.CurrentSelection = (short)Math.Max(0, Array.IndexOf(choices, s.Default));
+                    box.CurrentSelection = (short)Math.Max(0, Array.IndexOf(choices, m.Value));
+                    f.Items = m.Items.ToList();
                     f.Control = box;
+                    f.Parts.Add(box);
                     break;
                 }
                 case "options":
                 {
-                    AddLabel(group, s.Label);
+                    f.Label = AddLabel(group, s.Label, OptionsFor(f));
+                    f.Parts.Add(f.Label);
                     f.Options = new List<IPropertyManagerPageOption>();
                     f.Id = _nextId;
                     var choices = s.Choices ?? new string[0];
@@ -286,42 +503,48 @@ namespace SwAgent.UI
                     {
                         var id = _nextId++;
                         var opt = (IPropertyManagerPageOption)Control(group, id, (short)swPropertyManagerPageControlType_e.swControlType_Option,
-                            choices[i], indent, ControlOptions, tip);
-                        opt.Checked = choices[i] == s.Default || (s.Default == null && i == 0);
+                            choices[i], indent, OptionsFor(f), tip);
+                        opt.Checked = choices[i] == m.Value;
                         f.Options.Add(opt);
+                        f.OptionIds.Add(id);
+                        f.Parts.Add(opt);
                         _fields[id] = f;
                     }
                     return;
                 }
                 case "text":
                 {
-                    AddLabel(group, s.Label);
+                    f.Label = AddLabel(group, s.Label, OptionsFor(f));
+                    f.Parts.Add(f.Label);
                     f.Id = _nextId++;
                     var box = (IPropertyManagerPageTextbox)Control(group, f.Id, (short)swPropertyManagerPageControlType_e.swControlType_Textbox,
-                        s.Label, (short)swPropertyManagerPageControlLeftAlign_e.swControlAlign_LeftEdge, ControlOptions,
+                        s.Label, (short)swPropertyManagerPageControlLeftAlign_e.swControlAlign_LeftEdge, OptionsFor(f),
                         (tip.Length > 0 ? tip + " " : "") + "(Win+H to dictate)");
                     box.Style = (int)swPropMgrPageTextBoxStyle_e.swPropMgrPageTextBoxStyle_Multiline;
                     box.Height = 50;
-                    box.Text = s.Default ?? "";
+                    box.Text = m.Value ?? "";
                     f.Control = box;
+                    f.Parts.Add(box);
                     break;
                 }
                 case "files":
                 {
-                    AddLabel(group, s.Label);
+                    f.Label = AddLabel(group, s.Label, OptionsFor(f));
+                    f.Parts.Add(f.Label);
                     f.Id = _nextId++;
                     f.FileList = (IPropertyManagerPageListbox)Control(group, f.Id, (short)swPropertyManagerPageControlType_e.swControlType_Listbox,
-                        s.Label, (short)swPropertyManagerPageControlLeftAlign_e.swControlAlign_LeftEdge, ControlOptions, tip);
+                        s.Label, (short)swPropertyManagerPageControlLeftAlign_e.swControlAlign_LeftEdge, OptionsFor(f), tip);
                     f.FileList.Height = 40;
                     f.AddButtonId = _nextId++;
-                    Control(group, f.AddButtonId, (short)swPropertyManagerPageControlType_e.swControlType_Button, "Add file...",
-                        (short)swPropertyManagerPageControlLeftAlign_e.swControlAlign_LeftEdge, ControlOptions, "Add " + AcceptText(s.Accept));
+                    f.Parts.Add(Control(group, f.AddButtonId, (short)swPropertyManagerPageControlType_e.swControlType_Button, "Add file...",
+                        (short)swPropertyManagerPageControlLeftAlign_e.swControlAlign_LeftEdge, OptionsFor(f), "Add " + AcceptText(s.Accept)));
                     f.ClearButtonId = _nextId++;
-                    Control(group, f.ClearButtonId, (short)swPropertyManagerPageControlType_e.swControlType_Button, "Clear",
-                        (short)swPropertyManagerPageControlLeftAlign_e.swControlAlign_LeftEdge, ControlOptions, "Remove all files");
+                    f.Parts.Add(Control(group, f.ClearButtonId, (short)swPropertyManagerPageControlType_e.swControlType_Button, "Clear",
+                        (short)swPropertyManagerPageControlLeftAlign_e.swControlAlign_LeftEdge, OptionsFor(f), "Remove all files"));
                     _fields[f.AddButtonId] = f;
                     _fields[f.ClearButtonId] = f;
                     f.Control = f.FileList;
+                    f.Parts.Add(f.FileList);
                     break;
                 }
                 default:
@@ -329,6 +552,413 @@ namespace SwAgent.UI
                     return;
             }
             _fields[f.Id] = f;
+        }
+
+        /// <summary>
+        /// The S2 fallback: one dropdown for every entry list a dependent choice can have (all made before Show2), and only
+        /// the one for the current parents visible. False when there are too many lists (or the choices depend on each other
+        /// in a circle) - the field then has one dropdown, which is disabled if it fails to refill (see ComboRefillFailed).
+        /// </summary>
+        private bool AddVariants(IPropertyManagerPageGroup group, Field f, string tip)
+        {
+            var m = f.Model;
+            // Many parent combinations usually share few lists (one per family): the dropdowns made count, not the combinations.
+            var lists = _form.PossibleEntryLists(m, MaxVariantCombinations);
+            if (lists == null || lists.Count < 2 || lists.Count > MaxVariants) return false;
+            if (!lists.Any(l => l.SequenceEqual(m.Items))) lists.Add(m.Items.ToList());
+            f.Variants = new List<Variant>();
+            foreach (var items in lists)
+            {
+                var active = f.Active == null && items.SequenceEqual(m.Items);
+                var id = _nextId++;
+                var options = active ? OptionsFor(f) : (int)swAddControlOptions_e.swControlOptions_Enabled;
+                var box = (IPropertyManagerPageCombobox)Control(group, id, (short)swPropertyManagerPageControlType_e.swControlType_Combobox,
+                    f.Spec.Label, (short)swPropertyManagerPageControlLeftAlign_e.swControlAlign_Indent, options, tip);
+                if (items.Count > 0) box.AddItems(items.ToArray());
+                box.CurrentSelection = (short)Math.Max(0, active ? items.IndexOf(m.Value) : 0);
+                var v = new Variant { Id = id, Box = box, Items = items };
+                f.Variants.Add(v);
+                _fields[id] = f;
+                if (active) f.Active = v;
+            }
+            f.Id = f.Active.Id;
+            f.Control = f.Active.Box;
+            f.Items = f.Active.Items;
+            _fields[f.Id] = f;
+            return true;
+        }
+
+        /// <summary>A converted number's range in the unit it shows (wide: every unit the field offers fits, for pages that can't re-range).</summary>
+        private void SetConvertedRange(Field f, IPropertyManagerPageNumberbox box, bool wide)
+        {
+            var m = f.Model;
+            var (min, max) = DisplayRange(m, m.Unit);
+            if (wide)
+            {
+                foreach (var u in m.UnitChoices)
+                {
+                    var (a, b) = DisplayRange(m, u);
+                    min = Math.Min(min, a);
+                    max = Math.Max(max, b);
+                }
+            }
+            box.SetRange2((int)swNumberboxUnitType_e.swNumberBox_UnitlessDouble, min, max, true, m.Unit.Inc, m.Unit.Fast, m.Unit.Slow);
+        }
+
+        private static (double Min, double Max) DisplayRange(FormField m, UnitDef unit)
+        {
+            var s = m.Spec;
+            var floor = m.Quantity == "temperature" ? -273.15 : 0;
+            var min = unit.FromSi(Units.SpecToSi(s.Unit, s.Min ?? floor));
+            var max = unit.FromSi(Units.SpecToSi(s.Unit, s.Max ?? 1e9));
+            return (Math.Min(min, max), Math.Max(min, max));
+        }
+
+        private static void Wrote(Field f)
+        {
+            if (f.Model == null) return;
+            f.Written = BoxValue(f);
+            f.WrittenSi = f.Model.Si;
+            f.WrittenAt = System.Environment.TickCount;
+        }
+
+        /// <summary>
+        /// A number box reporting back what the code wrote (spike S1: an event raised after the guard, or a box that keeps
+        /// fewer digits than were written) rather than an edit, while the form still holds the value written. Events just
+        /// after the write (timed) allow 0.5 %; reading the boxes at OK allows only the box's display rounding, so a small
+        /// deliberate edit (2000 -> 2009 psi) that raised no event is still read. Only for numbers that use the newer
+        /// options (filled from a table or converted): there a phantom edit would read "edited by the user". Plain boxes
+        /// read as they always did.
+        /// </summary>
+        private static bool IsEcho(Field f, double boxValue, bool timed)
+        {
+            var m = f.Model;
+            if (m == null || m.IsPlain || f.Written == null || !ToolForm.Same(m.Si, f.WrittenSi)) return false;
+            var w = f.Written.Value;
+            var diff = Math.Abs(boxValue - w);
+            if (timed) return unchecked(System.Environment.TickCount - f.WrittenAt) <= 500 && diff <= 0.005 * Math.Max(Math.Abs(w), 1e-12);
+            return diff <= RoundingSlack(f, w);
+        }
+
+        /// <summary>
+        /// What a box's display rounding can change in its value: half a unit in the last digit SolidWorks shows (2 decimals
+        /// for unitless and converted boxes, 0.01 mm / 0.001 in for lengths, 0.01 deg for angles), half a step for integers.
+        /// </summary>
+        internal static double RoundingSlack(string type, string unit, bool converted, double written)
+        {
+            double slack;
+            if (type == "integer") slack = 0.49;
+            else if (converted) slack = 0.005;
+            else
+            {
+                switch ((unit ?? "length").Trim().ToLowerInvariant())
+                {
+                    case "length": slack = 0.0005 * 0.0254; break; // the coarser of 0.005 mm and 0.0005 in, in m
+                    case "angle": slack = 0.005 * Math.PI / 180.0; break;
+                    default: slack = 0.005; break;
+                }
+            }
+            return Math.Max(slack, 1e-9 * Math.Abs(written));
+        }
+
+        private static double RoundingSlack(Field f, double written) => RoundingSlack(f.Type, f.Spec.Unit, f.Model.Converted, written);
+
+        /// <summary>
+        /// A selection or check event raised for something the code just set (a refilled dropdown, a filled-in option): if
+        /// SolidWorks delivers it after the guard (spike S1) it must not undo the form's choice. No user clicks that fast.
+        /// </summary>
+        private static bool IsLateEvent(Field f) => f.SetAt != null && unchecked(System.Environment.TickCount - f.SetAt.Value) < 300;
+
+        /// <summary>What a number box holds: SI for native and plain boxes, the display unit for converted ones.</summary>
+        private static double BoxValue(Field f) => f.Model.Converted ? f.Model.Unit.FromSi(f.Model.Si) : f.Model.Si;
+
+        private static double SiFromBox(Field f, double value) => f.Model.Converted ? (f.ShownUnit ?? f.Model.Unit).ToSiValue(value) : value;
+
+        // ---- keeping the controls in step with the form ----
+
+        /// <summary>Push what the form changed (entries, values, ranges, captions, visibility) into the controls, quietly.</summary>
+        private void Sync()
+        {
+            if (_page == null || _form == null) return;
+            Quiet(() =>
+            {
+                for (var round = 0; round < 3; round++)
+                {
+                    var any = false;
+                    foreach (var f in _ordered)
+                    {
+                        var m = f.Model;
+                        if (m == null || m.Changes == FieldChange.None) continue;
+                        var c = m.Changes;
+                        m.Changes = FieldChange.None;
+                        any = true;
+                        try
+                        {
+                            if ((c & FieldChange.Items) != 0 && f.Type == "choice") Refill(f);
+                            if ((c & FieldChange.Range) != 0) Rerange(f);
+                            if ((c & FieldChange.Value) != 0) ShowValue(f);
+                            if ((c & FieldChange.Caption) != 0) ShowCaption(f);
+                            if ((c & (FieldChange.Value | FieldChange.Items)) != 0 && m.IsData) ShowTip(f);
+                            if ((c & (FieldChange.Visible | FieldChange.Enabled | FieldChange.Items)) != 0) ShowVisibility(f);
+                        }
+                        catch (Exception ex)
+                        {
+                            Log.Warn($"Tool page '{_spec.Name}': updating '{f.Spec.Id}' failed: {ex.Message}");
+                        }
+                    }
+                    if (!any) break;
+                }
+            });
+        }
+
+        /// <summary>New entries for a dependent dropdown: switch to the matching variant, or Clear + AddItems (spike S2).</summary>
+        private void Refill(Field f)
+        {
+            var items = f.Model.Items;
+            if (f.Stale) return; // known not to follow: disabled, the page has said so and OK waits
+            if (f.Variants != null)
+            {
+                var v = f.Variants.FirstOrDefault(x => x.Items.SequenceEqual(items));
+                if (v != null)
+                {
+                    f.Active = v;
+                    f.Id = v.Id;
+                    f.Control = v.Box;
+                    f.Items = v.Items;
+                    f.Tip = null; // this dropdown still has the tip it was made with
+                    return;
+                }
+                // A list the variants didn't foresee: refill the active one.
+            }
+            var box = (IPropertyManagerPageCombobox)f.Control;
+            try
+            {
+                f.SetAt = System.Environment.TickCount;
+                box.Clear();
+                if (items.Count > 0) box.AddItems(items.ToArray());
+                f.Items = items.ToList();
+            }
+            catch (Exception ex)
+            {
+                ComboRefillFailed(f, ex.Message);
+                return;
+            }
+            var wrong = RefillMismatch(box, items);
+            if (wrong != null) ComboRefillFailed(f, wrong);
+        }
+
+        /// <summary>
+        /// The combobox has no item count, so a refill is checked by its entries: the first and the last must be the new
+        /// ones and nothing may follow the last (a Clear that did nothing leaves old entries next to the new ones, and a pick
+        /// would then map to the wrong entry). Null when it took, or when ItemText can't tell on this version.
+        /// </summary>
+        private static string RefillMismatch(IPropertyManagerPageCombobox box, List<string> items)
+        {
+            string Text(int i) => box.get_ItemText((short)i);
+            try
+            {
+                if (items.Count > 0)
+                {
+                    var first = Text(0);
+                    var last = Text(items.Count - 1);
+                    // Empty reads: ItemText doesn't report entries here, no conclusion.
+                    if (string.IsNullOrEmpty(first) && string.IsNullOrEmpty(last)) return null;
+                    if (first != items[0]) return $"entry 0 reads '{first}'";
+                    if (last != items[items.Count - 1]) return $"entry {items.Count - 1} reads '{last}'";
+                }
+            }
+            catch
+            {
+                return null; // ItemText isn't a reliable probe on every version
+            }
+            try
+            {
+                var extra = Text(items.Count);
+                if (!string.IsNullOrEmpty(extra)) return $"an old entry '{extra}' is still listed";
+            }
+            catch
+            {
+                // Past the end: as it should be.
+            }
+            return null;
+        }
+
+        private bool _refillReported;
+
+        /// <summary>
+        /// A dropdown that didn't take its new entries: disabled and marked stale (OK waits), and the page says so once.
+        /// The first time on this PC it switches the one-list-per-choice layout on for the next page; when that is already
+        /// on, this choice has too many lists to prepare, and opening the page again (its parents set) is what helps.
+        /// </summary>
+        private void ComboRefillFailed(Field f, string why)
+        {
+            Log.Warn($"Tool page '{_spec.Name}': refilling '{f.Spec.Id}' failed ({why}).");
+            f.Stale = true;
+            try
+            {
+                ((IPropertyManagerPageControl)f.Control).Enabled = false;
+            }
+            catch
+            {
+                // The page is closing.
+            }
+            var first = !_quirks.ComboVariants;
+            if (first)
+            {
+                _quirks.ComboVariants = true;
+                _quirks.Save();
+            }
+            if (_refillReported) return;
+            _refillReported = true;
+            Message(first
+                ? $"SolidWorks didn't update the '{f.Spec.Label}' list. Close this page and run the tool again - it will use a layout that works."
+                : $"SolidWorks can't update the '{f.Spec.Label}' list while this page is open, and it has too many variants to prepare. Close the page and run the tool again to pick from the list for these settings.");
+        }
+
+        /// <summary>A data choice's tooltip names its selected row (critique C5); a version that can't change tooltips keeps the first.</summary>
+        private void ShowTip(Field f)
+        {
+            var tip = _form.TipOf(f.Model);
+            if (tip == f.Tip || !(f.Control is IPropertyManagerPageControl ctl)) return;
+            try
+            {
+                ctl.Tip = tip;
+                f.Tip = tip;
+            }
+            catch
+            {
+                // Tooltips are a courtesy.
+            }
+        }
+
+        /// <summary>A unit change: the box's range in the new unit (spike S2), unless this PC can't re-range shown boxes.</summary>
+        private void Rerange(Field f)
+        {
+            var m = f.Model;
+            if (!m.Converted || !(f.Control is IPropertyManagerPageNumberbox box) || _quirks.NoRangeAfterShow) return;
+            try
+            {
+                SetConvertedRange(f, box, wide: false);
+            }
+            catch (Exception ex)
+            {
+                RangeFailed(f, ex.Message);
+            }
+        }
+
+        private void RangeFailed(Field f, string why)
+        {
+            Log.Warn($"Tool page '{_spec.Name}': re-ranging '{f.Spec.Id}' failed ({why}); unit changes will need the page reopened.");
+            if (!_quirks.NoRangeAfterShow)
+            {
+                _quirks.NoRangeAfterShow = true;
+                _quirks.Save();
+            }
+            Message($"SolidWorks couldn't switch '{f.Spec.Label}' to another unit while the page is open. Close the page and run the tool again to use it.");
+            // Back to the unit the box still shows.
+            if (f.ShownUnit != null && !ReferenceEquals(f.ShownUnit, f.Model.Unit)) _form.SetUnit(f.Model, f.ShownUnit.Ascii);
+        }
+
+        private void ShowValue(Field f)
+        {
+            var m = f.Model;
+            switch (f.Type)
+            {
+                case "number":
+                case "integer":
+                {
+                    if (!(f.Control is IPropertyManagerPageNumberbox box)) break;
+                    var oldUnit = f.ShownUnit;
+                    var want = BoxValue(f);
+                    box.Value = want;
+                    if (m.Converted && oldUnit != null && !ReferenceEquals(oldUnit, m.Unit))
+                    {
+                        // A unit change: when the box kept a different number (clamped or refused by the old range), the
+                        // range didn't follow the unit (spike S2) - go back to the unit it shows.
+                        var got = box.Value;
+                        if (Math.Abs(got - want) > 0.005 * Math.Max(Math.Abs(want), 1e-12))
+                        {
+                            RangeFailed(f, $"the box kept {got} instead of {want}");
+                            return;
+                        }
+                    }
+                    f.ShownUnit = m.Unit;
+                    Wrote(f);
+                    if (f.UnitBox != null)
+                    {
+                        f.UnitBox.CurrentSelection = (short)Math.Max(0, m.UnitChoices.IndexOf(m.Unit));
+                        f.SetAt = System.Environment.TickCount;
+                    }
+                    break;
+                }
+                case "size":
+                    for (var k = 0; k < (f.Boxes?.Length ?? 0); k++) f.Boxes[k].Value = m.SizeSi[k];
+                    break;
+                case "checkbox":
+                    ((IPropertyManagerPageCheckbox)f.Control).Checked = m.Checked;
+                    f.SetAt = System.Environment.TickCount;
+                    break;
+                case "choice":
+                    if (f.Stale) break; // its entries aren't the form's
+                    ((IPropertyManagerPageCombobox)f.Control).CurrentSelection = (short)f.Items.IndexOf(m.Value);
+                    f.SetAt = System.Environment.TickCount;
+                    break;
+                case "options":
+                    for (var i = 0; i < f.Options.Count; i++) f.Options[i].Checked = (f.Spec.Choices ?? new string[0]).ElementAtOrDefault(i) == m.Value;
+                    f.SetAt = System.Environment.TickCount;
+                    break;
+                case "text":
+                    ((IPropertyManagerPageTextbox)f.Control).Text = m.Value ?? "";
+                    break;
+            }
+            if (f.Toggle != null && f.Toggle.Checked != m.On)
+            {
+                f.Toggle.Checked = m.On;
+                f.SetAt = System.Environment.TickCount;
+            }
+        }
+
+        private void ShowCaption(Field f)
+        {
+            var caption = f.Model.Caption ?? "";
+            if (f.Type == "info" || f.Type == "number" || f.Type == "integer" || f.Type == "size")
+            {
+                if (f.Toggle != null) f.Toggle.Caption = caption;
+                else if (f.Label != null) f.Label.Caption = caption;
+            }
+        }
+
+        /// <summary>ShowWhen and n/a: Visible on every control of the field (or Enabled with the S3 quirk); Optional boxes follow their checkbox.</summary>
+        private void ShowVisibility(Field f)
+        {
+            var m = f.Model;
+            var hidden = m.Hidden;
+            var byDisabling = _quirks.HideByDisabling;
+            foreach (var part in f.Parts)
+            {
+                var ctl = (IPropertyManagerPageControl)part;
+                var followsToggle = m.Optional && !ReferenceEquals(part, f.Toggle) && !ReferenceEquals(part, f.Label);
+                if (byDisabling)
+                {
+                    ctl.Enabled = !hidden && !(followsToggle && !m.On);
+                }
+                else
+                {
+                    if (ctl.Visible != !hidden) ctl.Visible = !hidden;
+                    if (followsToggle) ctl.Enabled = m.On;
+                }
+            }
+            if (f.Variants != null)
+            {
+                foreach (var v in f.Variants)
+                {
+                    var ctl = (IPropertyManagerPageControl)v.Box;
+                    var show = ReferenceEquals(v, f.Active) && (!hidden || byDisabling);
+                    if (ctl.Visible != show) ctl.Visible = show;
+                    if (byDisabling) ctl.Enabled = !hidden;
+                }
+            }
+            if (f.Stale && f.Control is IPropertyManagerPageControl stale) stale.Enabled = false;
         }
 
         /// <summary>Put what the user had already selected into the matching selection boxes.</summary>
@@ -367,11 +997,20 @@ namespace SwAgent.UI
         /// <summary>Read every control. withRefs adds persistent references (needed for the agent, skipped for previews).</summary>
         private ToolInputs Collect(bool withRefs)
         {
+            // At OK, catch changes SolidWorks raised no event for. Previews (from the preview timer) read the form as the
+            // events left it, so no new control reads run from a timer.
+            if (withRefs) Pull();
             var inputs = new ToolInputs();
             var sm = (ISelectionMgr)_model.SelectionManager;
             foreach (var f in _ordered)
             {
                 var id = f.Spec.Id;
+                if (f.Model?.ConditionHidden == true && (f.Type == "selection" || f.Type == "files"))
+                {
+                    // Hidden by ShowWhen: left out, like every other hidden input.
+                    inputs.SetMeta(id, new ToolInputs.InputMeta { Hidden = true });
+                    continue;
+                }
                 switch (f.Type)
                 {
                     case "selection":
@@ -403,43 +1042,78 @@ namespace SwAgent.UI
                         inputs.SetSelection(id, items);
                         break;
                     }
-                    case "number":
-                    case "integer":
-                        inputs.Set(id, ((IPropertyManagerPageNumberbox)f.Control).Value);
-                        break;
-                    case "checkbox":
-                        inputs.Set(id, ((IPropertyManagerPageCheckbox)f.Control).Checked);
-                        break;
-                    case "choice":
-                    {
-                        var box = (IPropertyManagerPageCombobox)f.Control;
-                        var choices = f.Spec.Choices ?? new string[0];
-                        var i = box.CurrentSelection;
-                        inputs.Set(id, i >= 0 && i < choices.Length ? choices[i] : null);
-                        break;
-                    }
-                    case "options":
-                    {
-                        var choices = f.Spec.Choices ?? new string[0];
-                        var i = f.Options.FindIndex(o => o.Checked);
-                        inputs.Set(id, i >= 0 && i < choices.Length ? choices[i] : null);
-                        break;
-                    }
-                    case "text":
-                        inputs.Set(id, ((IPropertyManagerPageTextbox)f.Control).Text ?? "");
-                        break;
                     case "files":
                         inputs.SetFiles(id, f.Files.ToList());
                         break;
                 }
             }
+            // Numbers (SI), sizes, checkboxes, choices, text - with their display text, table values and data rows.
+            _form.Collect(inputs);
             return inputs;
+        }
+
+        /// <summary>
+        /// Read the controls into the form before collecting, in case SolidWorks didn't raise an event for a change (typed
+        /// text, a number still being edited). Same values as reading the controls directly, as the page always did.
+        /// </summary>
+        private void Pull()
+        {
+            foreach (var f in _ordered)
+            {
+                var m = f.Model;
+                if (m == null) continue;
+                try
+                {
+                    switch (f.Type)
+                    {
+                        case "number":
+                        case "integer":
+                        {
+                            var v = ((IPropertyManagerPageNumberbox)f.Control).Value;
+                            if (!IsEcho(f, v, timed: false)) _form.SetNumber(m, SiFromBox(f, v));
+                            break;
+                        }
+                        case "size":
+                            for (var k = 0; k < f.Boxes.Length; k++) _form.SetSize(m, k, f.Boxes[k].Value);
+                            break;
+                        case "checkbox":
+                            _form.SetChecked(m, ((IPropertyManagerPageCheckbox)f.Control).Checked);
+                            break;
+                        case "choice":
+                        {
+                            if (f.Stale) break; // its index no longer maps to the form's entries
+                            var i = ((IPropertyManagerPageCombobox)f.Control).CurrentSelection;
+                            // Plain dropdowns always read their entry like this (the default when nothing is picked).
+                            if (i >= 0 && i < f.Items.Count) _form.SetChoice(m, f.Items[i]);
+                            else if (!m.IsData) m.Value = null;
+                            break;
+                        }
+                        case "options":
+                        {
+                            var i = f.Options.FindIndex(o => o.Checked);
+                            var choices = f.Spec.Choices ?? new string[0];
+                            if (i >= 0 && i < choices.Length) _form.SetChoice(m, choices[i]);
+                            else m.Value = null;
+                            break;
+                        }
+                        case "text":
+                            _form.SetText(m, ((IPropertyManagerPageTextbox)f.Control).Text ?? "");
+                            break;
+                    }
+                    if (f.Toggle != null) _form.SetOn(m, f.Toggle.Checked);
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn($"Tool page '{_spec.Name}': reading '{f.Spec.Id}' failed: {ex.Message}");
+                }
+            }
         }
 
         private bool RequiredSatisfied()
         {
             foreach (var f in _ordered.Where(x => ToolSpec.IsRequired(x.Spec)))
             {
+                if (f.Model?.Hidden == true) continue; // not shown: not asked for
                 switch (f.Type)
                 {
                     case "selection" when ((IPropertyManagerPageSelectionbox)f.Control).ItemCount == 0:
@@ -448,18 +1122,49 @@ namespace SwAgent.UI
                         return false;
                 }
             }
-            return true;
+            if (StaleField() != null) return false;
+            return _form?.Blocking().Field == null;
         }
+
+        /// <summary>A shown dropdown that didn't take its new entries (see ComboRefillFailed): OK waits for the page to reopen.</summary>
+        private Field StaleField() => _ordered.FirstOrDefault(f => f.Stale && f.Model?.Hidden != true);
 
         private void UpdateOkButton()
         {
             try
             {
-                _page?.EnableButton((int)swPropertyManagerPageButtons_e.swPropertyManagerPageButton_Ok, RequiredSatisfied());
+                var ok = RequiredSatisfied();
+                _page?.EnableButton((int)swPropertyManagerPageButtons_e.swPropertyManagerPageButton_Ok, ok);
+                ExplainBlocking();
             }
             catch
             {
                 // Older SolidWorks: the button just stays enabled.
+            }
+        }
+
+        /// <summary>When a newer rule (a required choice, an Optional to switch on, a value out of range) holds OK back, say why at that control once.</summary>
+        private void ExplainBlocking()
+        {
+            var (field, message) = _form?.Blocking() ?? (null, null);
+            var stale = StaleField();
+            if (stale?.Model != null)
+            {
+                field = stale.Model;
+                message = "SolidWorks didn't update this list. Close the page and run the tool again.";
+            }
+            var key = field == null ? null : field.Id + "|" + message;
+            if (key == _bubbleFor) return;
+            _bubbleFor = key;
+            if (field == null || !_byInputId.TryGetValue(field.Id, out var f)) return;
+            try
+            {
+                var target = (object)f.Toggle ?? f.Control;
+                if (target is IPropertyManagerPageControl ctl) ctl.ShowBubbleTooltip(f.Spec.Label ?? f.Spec.Id, message, "");
+            }
+            catch
+            {
+                // Tooltips are a courtesy.
             }
         }
 
@@ -555,6 +1260,8 @@ namespace SwAgent.UI
                 {
                     Log.Error("Reading the tool page failed", ex);
                 }
+                // Inputs with "Remember": their value (spec units) becomes next run's default on this PC.
+                if (_result != null && _form != null) RememberStore.Save(_spec.Name, _form.RememberJson());
             }
             HidePreview();
         }
@@ -578,20 +1285,107 @@ namespace SwAgent.UI
         }
 
         public void OnSelectionboxListChanged(int id, int count) => Changed();
-        public void OnNumberboxChanged(int id, double value) => Changed();
-        public void OnNumberBoxTrackingCompleted(int id, double value) => Changed();
-        public void OnCheckboxCheck(int id, bool check) => Changed();
-        public void OnOptionCheck(int id) => Changed();
-        public void OnTextboxChanged(int id, string text) => UpdateOkButton();
+
+        public void OnNumberboxChanged(int id, double value)
+        {
+            if (_quiet > 0) return;
+            NumberChanged(id, value);
+            Changed();
+        }
+
+        public void OnNumberBoxTrackingCompleted(int id, double value)
+        {
+            if (_quiet > 0) return;
+            NumberChanged(id, value);
+            Changed();
+        }
+
+        public void OnCheckboxCheck(int id, bool check)
+        {
+            if (_quiet > 0) return;
+            if (_fields.TryGetValue(id, out var f) && f.Model != null && !IsLateEvent(f))
+            {
+                Try(f, () =>
+                {
+                    if (id == f.ToggleId) _form.SetOn(f.Model, check); // an Optional's switch
+                    else if (f.Type == "checkbox") _form.SetChecked(f.Model, check);
+                });
+                Sync();
+            }
+            Changed();
+        }
+
+        public void OnOptionCheck(int id)
+        {
+            if (_quiet > 0) return;
+            // Options can be parents of dependent choices, like dropdowns.
+            if (_fields.TryGetValue(id, out var f) && f.Model != null && f.Type == "options" && !IsLateEvent(f))
+            {
+                var i = f.OptionIds.IndexOf(id);
+                var choices = f.Spec.Choices ?? new string[0];
+                if (i >= 0 && i < choices.Length) Try(f, () => _form.SetChoice(f.Model, choices[i]));
+                Sync();
+            }
+            Changed();
+        }
+
+        public void OnTextboxChanged(int id, string text)
+        {
+            if (_quiet > 0) return;
+            if (_fields.TryGetValue(id, out var f) && f.Model != null && f.Type == "text")
+            {
+                Try(f, () => _form.SetText(f.Model, text));
+                Sync();
+            }
+            UpdateOkButton();
+        }
 
         public void OnComboboxSelectionChanged(int id, int item)
         {
+            if (_quiet > 0) return;
             if (id == _tierBoxId)
             {
                 if (item >= 0 && item < ToolSpec.Tiers.Length) TierChanged?.Invoke(ToolSpec.Tiers[item]);
                 return;
             }
+            if (_fields.TryGetValue(id, out var f) && f.Model != null && !IsLateEvent(f) && !(f.Stale && id != f.UnitBoxId))
+            {
+                if (id == f.UnitBoxId)
+                {
+                    if (item >= 0 && item < f.Model.UnitChoices.Count) Try(f, () => _form.SetUnit(f.Model, f.Model.UnitChoices[item].Ascii));
+                }
+                else if (f.Type == "choice")
+                {
+                    // With variants only the visible dropdown speaks; a hidden one's event is stale.
+                    var items = f.Variants == null ? f.Items : ReferenceEquals(f.Variants.FirstOrDefault(v => v.Id == id), f.Active) ? f.Active.Items : null;
+                    if (items != null && item >= 0 && item < items.Count) Try(f, () => _form.SetChoice(f.Model, items[item]));
+                }
+                Sync();
+            }
             Changed();
+        }
+
+        private void NumberChanged(int id, double value)
+        {
+            if (!_fields.TryGetValue(id, out var f) || f.Model == null) return;
+            Try(f, () =>
+            {
+                if (f.Type == "size") _form.SetSize(f.Model, Array.IndexOf(f.BoxIds, id), value);
+                else if ((f.Type == "number" || f.Type == "integer") && id == f.Id && !IsEcho(f, value, timed: true)) _form.SetNumber(f.Model, SiFromBox(f, value));
+            });
+            Sync();
+        }
+
+        private void Try(Field f, Action a)
+        {
+            try
+            {
+                a();
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Tool page '{_spec.Name}': handling a change of '{f.Spec.Id}' failed: {ex.Message}");
+            }
         }
 
         public void OnButtonPress(int id)
@@ -664,11 +1458,16 @@ namespace SwAgent.UI
         internal static ToolInputs TryFromSelection(ToolSpec spec, IModelDoc2 model, List<SelectedEntity> preselected, bool forTest = false)
         {
             if (spec.Confirm == "always" && !forTest) return null;
+            // Inputs using the newer options (units, Optional, size, data choices, fills, ShowWhen, remembered values) get
+            // the page's defaults from the form; the original ones keep exactly the defaults they always had.
+            var form = CreateForm(spec, model, out _);
             var inputs = new ToolInputs();
             var used = new HashSet<object>();
             foreach (var s in spec.Inputs)
             {
                 var type = ToolSpec.Type(s);
+                var field = s?.Id == null ? null : form.Get(s.Id);
+                if (field != null && !field.IsPlain && type != "selection" && type != "files") continue;
                 switch (type)
                 {
                     case "selection":
@@ -720,6 +1519,7 @@ namespace SwAgent.UI
                         break;
                 }
             }
+            form.Collect(inputs, f => !f.IsPlain);
             return inputs;
         }
 
@@ -814,18 +1614,96 @@ namespace SwAgent.UI
         {
             var a = (accept ?? new string[0]).Select(x => x.ToLowerInvariant()).ToList();
             if (a.Count == 0) return "files";
-            return string.Join(", ", a.Select(x => x == "image" ? "images" : x == "pdf" ? "PDFs" : x == "model" ? "3D models" : x));
+            return string.Join(", ", a.Select(x => x == "image" ? "images" : x == "pdf" ? "PDFs" : x == "model" ? "3D models" : x == "drawing" ? "drawings" : x));
         }
 
-        private static string FileFilter(string[] accept)
+        private const string ImageFiles = "*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp", PdfFiles = "*.pdf",
+            ModelFiles = "*.stl;*.step;*.stp;*.3mf;*.igs;*.iges;*.sldprt;*.sldasm;*.x_t", DrawingFiles = "*.slddrw", CadDrawingFiles = "*.dxf;*.dwg";
+
+        internal static string FileFilter(string[] accept)
         {
             var a = (accept ?? new string[0]).Select(x => x.ToLowerInvariant()).ToList();
             var parts = new List<string>();
-            if (a.Count == 0 || a.Contains("image")) parts.Add("Images (*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp)|*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp");
-            if (a.Count == 0 || a.Contains("pdf")) parts.Add("PDF documents (*.pdf)|*.pdf");
-            if (a.Count == 0 || a.Contains("model")) parts.Add("3D models (*.stl;*.step;*.stp;*.3mf;*.igs;*.iges;*.sldprt;*.sldasm;*.x_t)|*.stl;*.step;*.stp;*.3mf;*.igs;*.iges;*.sldprt;*.sldasm;*.x_t");
+            if (a.Contains("drawing"))
+            {
+                // Drawings usually come with PDFs or images: one entry that shows everything the input takes.
+                var all = new List<string>();
+                if (a.Contains("image")) all.Add(ImageFiles);
+                if (a.Contains("pdf")) all.Add(PdfFiles);
+                if (a.Contains("model")) all.Add(ModelFiles);
+                all.Add(DrawingFiles);
+                all.Add(CadDrawingFiles);
+                var joined = string.Join(";", all);
+                parts.Add($"Supported files ({joined})|{joined}");
+            }
+            if (a.Count == 0 || a.Contains("image")) parts.Add($"Images ({ImageFiles})|{ImageFiles}");
+            if (a.Count == 0 || a.Contains("pdf")) parts.Add($"PDF documents ({PdfFiles})|{PdfFiles}");
+            if (a.Count == 0 || a.Contains("model")) parts.Add($"3D models ({ModelFiles})|{ModelFiles}");
+            if (a.Contains("drawing"))
+            {
+                parts.Add($"SolidWorks drawings ({DrawingFiles})|{DrawingFiles}");
+                parts.Add($"DXF/DWG ({CadDrawingFiles})|{CadDrawingFiles}");
+            }
             parts.Add("All files (*.*)|*.*");
             return string.Join("|", parts);
+        }
+    }
+
+    /// <summary>
+    /// How this PC's SolidWorks handles changes to a PropertyManager page after it is shown (spikes S2, S3), in
+    /// %APPDATA%\SwAgent\tools\page-quirks.json. The page sets the first two itself when it sees a failure; the user sets
+    /// them by hand after running tools/dev/page-test:
+    ///   "comboRefill": "variants"  - dropdowns can't be refilled once shown: one dropdown per entry list, toggled visible;
+    ///   "rangeAfterShow": false    - number boxes can't be re-ranged once shown: unit-choice boxes get a range wide enough
+    ///                                for every unit (the form checks the real range before OK);
+    ///   "hidden": "disable"        - Visible=false misbehaves: hidden inputs stay in place, disabled.
+    /// </summary>
+    internal sealed class PageQuirks
+    {
+        public bool ComboVariants;
+        public bool NoRangeAfterShow;
+        public bool HideByDisabling;
+
+        private string _path;
+
+        public static string DefaultPath => Path.Combine(UserTools.Root, "page-quirks.json");
+
+        public static PageQuirks Load(string path = null)
+        {
+            var q = new PageQuirks { _path = path };
+            try
+            {
+                path = path ?? DefaultPath;
+                if (!File.Exists(path)) return q;
+                var o = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(path));
+                q.ComboVariants = string.Equals((string)o["comboRefill"], "variants", StringComparison.OrdinalIgnoreCase);
+                q.NoRangeAfterShow = o["rangeAfterShow"]?.Type == Newtonsoft.Json.Linq.JTokenType.Boolean && !(bool)o["rangeAfterShow"];
+                q.HideByDisabling = string.Equals((string)o["hidden"], "disable", StringComparison.OrdinalIgnoreCase);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("page-quirks.json unreadable: " + ex.Message);
+            }
+            return q;
+        }
+
+        public void Save()
+        {
+            try
+            {
+                var path = _path ?? DefaultPath;
+                var o = new Newtonsoft.Json.Linq.JObject
+                {
+                    ["comboRefill"] = ComboVariants ? "variants" : "dynamic",
+                    ["rangeAfterShow"] = !NoRangeAfterShow,
+                    ["hidden"] = HideByDisabling ? "disable" : "hide",
+                };
+                File.WriteAllText(path, o.ToString());
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("Saving page-quirks.json failed: " + ex.Message);
+            }
         }
     }
 }

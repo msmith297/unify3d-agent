@@ -1,0 +1,20 @@
+{
+  "_about": "TEST DATA for tools/dev/page-test only - shaped like design-compression-mold's mold-materials.json (mold_materials rows), numbers rounded. Not for engineering use.",
+  "schema": "page-test.grades/1",
+  "grades": [
+    { "id": "al_6061_t651", "short": "6061-T651", "name": "6061-T6 / T651 rolled plate", "family": "aluminium", "use": [ "plate" ], "isDefault": true,
+      "max_service_C": { "full_strength": 120, "derated": 150 }, "confidence": "published", "sources": [ "ASM Handbook Vol 2", "MatWeb 6061-T6" ] },
+    { "id": "al_7075_t651", "short": "7075-T651", "name": "7075-T6 / T651 plate", "family": "aluminium", "use": [ "plate" ], "isDefault": false,
+      "max_service_C": { "full_strength": 100, "derated": 120 }, "confidence": "published", "sources": [ "ASM Handbook Vol 2" ] },
+    { "id": "al_mic6", "short": "MIC-6 cast plate", "name": "MIC-6 cast tooling plate", "family": "aluminium", "use": [ "plate", "backing" ], "isDefault": false,
+      "max_service_C": { "full_strength": 120, "derated": 150 }, "confidence": "supplier", "sources": [ "Arconic MIC-6 datasheet" ] },
+    { "id": "st_p20", "short": "P20 pre-hard", "name": "P20 pre-hardened mold steel (28-32 HRC)", "family": "steel", "use": [ "plate", "insert" ], "isDefault": true,
+      "max_service_C": { "full_strength": 300, "derated": 400 }, "confidence": "published", "sources": [ "Uddeholm Impax" ] },
+    { "id": "st_h13", "short": "H13 44-50 HRC", "name": "H13 hot-work steel, 44-50 HRC", "family": "steel", "use": [ "plate", "insert", "stop" ], "isDefault": false,
+      "max_service_C": { "full_strength": 450, "derated": 540 }, "confidence": "published", "sources": [ "ASM Handbook Vol 1" ] },
+    { "id": "st_s7", "short": "S7 54-56 HRC", "name": "S7 shock-resisting tool steel", "family": "steel", "use": [ "insert", "stop" ], "isDefault": false,
+      "max_service_C": { "full_strength": 400, "derated": 450 }, "confidence": "published", "sources": [ "ASM Handbook Vol 1" ] },
+    { "id": "st_a36", "short": "A36", "name": "A36 structural plate", "family": "steel", "use": [ "backing" ], "isDefault": false,
+      "max_service_C": { "full_strength": 300, "derated": 350 }, "confidence": "published", "sources": [ "ASTM A36" ] }
+  ]
+}
