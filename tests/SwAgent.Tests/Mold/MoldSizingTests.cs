@@ -222,6 +222,14 @@ namespace SwAgent.Tests.Mold
             Assert.True((double)stress["demand"] > 5 * (double)sized["demand"]);
             Assert.Equal("5", (string)check.RecordPatch["checks"][0]["stage"]);
             Assert.True((bool)check.RecordPatch.SelectToken("structural.checkedAsBuilt"));
+
+            // the bodies mold_bodies measured replace the planned pieces
+            d["bodies"] = new JArray(
+                new JObject { ["id"] = "BASE-1", ["role"] = "base", ["mass_kg"] = 24.0, ["box_mm"] = new JArray(431.8, 190.5, 44.45) },
+                new JObject { ["id"] = "LID-1", ["role"] = "lid", ["mass_kg"] = 4.9, ["box_mm"] = new JArray(431.8, 190.5, 22.225) });
+            var bodies = Run("check", d);
+            Assert.Contains(bodies.Checks, c => (string)c["id"] == "WEIGHT-BASE-1" && (string)c["status"] == "fail" && (double)c["demand"] == 24.0);
+            Assert.Contains(bodies.Checks, c => (string)c["id"] == "WEIGHT-LID" && (double)c["demand"] == 4.9);
         }
 
         [Fact]

@@ -164,7 +164,7 @@ Wd = ceil_step(pv + 2 * max(edge, max(wV[0], wV[1])), 0.5 * IN)
 edgeU = (L - (2 * pu + gap)) / 2; edgeV = (Wd - pv) / 2
 tfloor = max(12, 0.25 * h, 0.25 * IN + 12)
 tbase = ceil_step(max(tfloor + h, 0.05 * max(L, Wd), 12), 0.125 * IN)
-tlid = ceil_step(max(0.05 * max(L, Wd), 12), 0.125 * IN)
+tlid = ceil_step(max(0.05 * max(L, Wd), 12, 0.25 * IN + 12), 0.125 * IN)   # S28 + the lid's own TC well
 rho = 2700e-9
 mbase = (L * Wd * tbase - 2 * V * s ** 3) * rho
 mlid = L * Wd * tlid * rho

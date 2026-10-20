@@ -306,7 +306,6 @@ namespace SwAgent.Mold
             // allowables (S15-S19) at the wall root: K_t from the part's floor radius over the wall width
             var hBase = d.DepthBase * sx.Sw;
             var hLid = d.DepthLid * sx.Sw;
-            var hMax = Math.Max(hBase, hLid);
             var pu = d.PartU * sx.Su;
             var pv = d.PartV * sx.Sv;
             var rootFactor = cfg.D("wallRootFactor", 1.2);
@@ -358,7 +357,9 @@ namespace SwAgent.Mold
             var tFloor = Plates.Floor(al, hBase, tc, cfg);
             var longest = Math.Max(lay.FootprintL, lay.FootprintW);
             var baseReq = hBase > 0 ? Plates.PocketPlate(al, tFloor, hBase, longest, cfg) : Plates.Lid(al, longest, cfg);
-            var lidReq = hLid > 0 ? Plates.PocketPlate(al, Plates.Floor(al, hLid, tc, cfg), hLid, longest, cfg) : Plates.Lid(al, longest, cfg, d.PlugHeight);
+            // the lid carries its own thermocouple well (shop standard: one per piece), so it keeps d_TC + 2 x 6 mm of steel
+            var lidReq = hLid > 0 ? Plates.PocketPlate(al, Plates.Floor(al, hLid, tc, cfg), hLid, longest, cfg)
+                                  : Plates.Lid(al, longest, cfg, d.PlugHeight, tc + 2 * cfg.D("steelAroundTcWell_mm", 6));
             var support = d.FlatOnPlaten ? Plates.ParseSupport(cfg.ParamStr("support") ?? (string)d.Json.SelectToken("structural.inputs.support")) : Plates.ParseSupport(cfg.ParamStr("support") ?? "B");
             var spanNotes = new JObject();
             if (support != Support.A)
@@ -400,7 +401,23 @@ namespace SwAgent.Mold
                     r.Checks.Add(Check.Status("BOX-" + id, "box", boxOk ? "pass" : "fail", "S72: sorted box + blank allowance <= sorted max_plate_size", boxOk ? "" : (role == "lid" && d.Class == ProcessClass.A_Pour ? "no split lid for class A" : "run mold_calc split"), id));
             }
             var splitPlan = d.Json.SelectToken("structural.split") as JObject;
-            if (splitPlan != null)
+            var built = asBuilt ? (d.Json["bodies"] as JArray)?.OfType<JObject>().Where(b => b["mass_kg"] != null && Si.Lengths(b["box_mm"])?.Length == 3).ToList() : null;
+            if (built != null && built.Count > 0)
+            {
+                // the as-built check: the bodies mold_bodies measured (mass from the grade density, extreme-point boxes)
+                massBase = 0;
+                massLid = 0;
+                foreach (var b in built)
+                {
+                    var role = (string)b["role"] ?? "base";
+                    var box = Si.Lengths(b["box_mm"]);
+                    var m = (double)b["mass_kg"];
+                    if (role == "lid") massLid += m;
+                    else if (role == "base" || role == "subplate") massBase += m;
+                    Piece((string)b["id"], role, box[0], box[1], box[2], m, new StockChoice { Finished = box[2], Stock = box[2] + 2 * data.ShopMm("plates.skimPerFace", 1.5) });
+                }
+            }
+            else if (splitPlan != null)
             {
                 // the chosen split (S74): the base pieces between the cut lines, keyed into a (possibly split) subplate
                 var si = new SplitInput { L = lay.FootprintL, W = lay.FootprintW, T = tBase, Density_kg_m3 = g.Density_kg_m3 };
@@ -424,7 +441,7 @@ namespace SwAgent.Mold
                 }
             }
             else Piece("BASE-1", "base", lay.FootprintL, lay.FootprintW, tBase, massBase, baseT);
-            Piece("LID-1", "lid", lay.FootprintL, lay.FootprintW, tLid, massLid, lidT);
+            if (built == null || built.Count == 0) Piece("LID-1", "lid", lay.FootprintL, lay.FootprintW, tLid, massLid, lidT);
             r.Checks.Add(ToJson(new JCheck { Id = "WEIGHT-LID", Type = "lifting", Demand = massLid, Capacity = lidLimit, Unit = "kg", Method = "S73 + A2: lid <= " + lidBasis }, "size"));
             if (d.MaxBaseMass != null) r.Checks.Add(ToJson(new JCheck { Id = "WEIGHT-BASE", Type = "weight", Demand = massBase, Capacity = d.MaxBaseMass.Value, Unit = "kg", Method = "S73: sum of base pieces <= max_base_mass" }, "size"));
             var liftIndex = Lifting.Index(massLid, lift.Rwl_kg);
