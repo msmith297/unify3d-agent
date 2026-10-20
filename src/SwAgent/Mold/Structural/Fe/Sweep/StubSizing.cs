@@ -5,14 +5,15 @@ using Newtonsoft.Json.Linq;
 namespace SwAgent.Mold.Structural.Fe.Sweep
 {
     /// <summary>
-    /// Stand-in for A1's Sizing until integration: S20-S31 on the coefficient table, optionally finished by the plate FE of the
+    /// A simplified sizing for solver-only comparisons: S20-S31 on the coefficient table, optionally finished by the plate FE of the
     /// actual layout. Three presets, so the Monte Carlo can show what each costs or risks:
     ///   Recommended     walls by the table; plates on rails (B), over an opening (C) and on pillars (E) by the table as a
     ///                   first guess, then the layout FE (two meshes, 24 and 48 elements on the short side, extrapolated);
     ///   TableOnly       the table alone for every case (Pillar rows times the 3D pillar-head factor for E);
     ///   DesignAsWritten design.md 3.7-3.8 literally (root factor 1.2, no interpolation allowance, pillar panels as C4).
     /// Materials are a small built-in set (E and allowables at temperature per N/check/method_check.py and mold-materials.json),
-    /// not MoldData. DELETE OR REPLACE AT INTEGRATION with an adapter to SwAgent.Mold sizing (MonteCarloHarness documents the JSON).
+    /// not MoldData. The Monte Carlo's default sizing is the calculator itself (MoldCalcSizing, an adapter to MoldCalc.Run("size"));
+    /// this stand-in stays for the solver-only comparisons (table only, design as written) and their tests.
     /// </summary>
     public static class StubSizing
     {
@@ -62,8 +63,9 @@ namespace SwAgent.Mold.Structural.Fe.Sweep
             }
         }
 
-        /// <summary>The two meshes the layout FE extrapolates from (never the truth's).</summary>
-        public static readonly MonteCarloHarness.MeshSpec CoarseMesh = new MonteCarloHarness.MeshSpec(24, 3), FineMesh = new MonteCarloHarness.MeshSpec(48, 6);
+        /// <summary>The two meshes the layout FE extrapolates from (never the truth's): LayoutPlate's.</summary>
+        public static MeshSpec CoarseMesh => LayoutPlate.Coarse;
+        public static MeshSpec FineMesh => LayoutPlate.Fine;
 
         sealed class Grade { public double E, Nu, Sy, Su; public double[] RE, RY, RU; public bool Aluminium; }
 
@@ -219,54 +221,18 @@ namespace SwAgent.Mold.Structural.Fe.Sweep
             };
         }
 
-        /// <summary>
-        /// The layout FE's r_w and r_s at thickness t: the plate solved on CoarseMesh and FineMesh and extrapolated to the converged
-        /// value (Richardson, second order: x_inf = x_fine + (x_fine - x_coarse) / 3), never below the fine mesh's.
-        /// </summary>
-        public static (double Rw, double Rs) LayoutRatios(JObject d, double t, double e, double nu, double allow)
-        {
-            var c = MonteCarloHarness.PlateRatios(d, t, e, nu, allow, CoarseMesh);
-            var f = MonteCarloHarness.PlateRatios(d, t, e, nu, allow, FineMesh);
-            double X(double coarse, double fine) => Math.Max(fine, fine + (fine - coarse) / 3);
-            return (X(c.Rw, f.Rw), X(c.Rs, f.Rs));
-        }
+        /// <summary>The layout FE's r_w and r_s at thickness t, extrapolated from CoarseMesh and FineMesh (LayoutPlate.Extrapolated).</summary>
+        public static (double Rw, double Rs) LayoutRatios(JObject d, double t, double e, double nu, double allow) =>
+            LayoutPlate.Extrapolated(d, t, e, nu, allow, MonteCarloHarness.TruePillarFactor, MonteCarloHarness.TruthMemoryMB);
 
-        /// <summary>The layout FE sizes to this fraction of the limits: the extrapolation's own error (about 0.1%) stays inside.</summary>
-        public const double LayoutTarget = 0.995;
+        /// <summary>The layout FE sizes to this fraction of the limits.</summary>
+        public const double LayoutTarget = LayoutPlate.Target;
 
-        /// <summary>
-        /// Plates B, C, E by the layout FE: the thinnest t whose extrapolated land deflection is within LayoutTarget x delta, then
-        /// thickened until the extrapolated stress fits as well. Deflection goes as t^-3 and stress as t^-2 (both drift slowly with
-        /// t/b), so a power-law step from the table's answer t0 lands within 0.2% in three or four solves; a bracket and bisection
-        /// take over if it does not.
-        /// </summary>
+        /// <summary>Plates B, C, E by the layout FE from the table's answer t0 (LayoutPlate.Size, the same code the calculator runs).</summary>
         static (double t, string governs) LayoutFe(JObject d, double e, double nu, double allow, double t0)
         {
-            double t = t0;
-            var c = LayoutRatios(d, t, e, nu, allow);
-            double tOk = double.NaN, tBad = double.NaN;
-            (double Rw, double Rs) atOk = default;
-            for (int it = 0; it < 12; it++)
-            {
-                if (c.Rw <= LayoutTarget) { if (double.IsNaN(tOk) || t < tOk) { tOk = t; atOk = c; } }
-                else if (double.IsNaN(tBad) || t > tBad) tBad = t;
-                if (!double.IsNaN(tOk) && c.Rw <= LayoutTarget && c.Rw > LayoutTarget - 0.002) break;
-                double next = t * Math.Pow(c.Rw / LayoutTarget, 1.0 / 3) * (c.Rw > LayoutTarget ? 1.001 : 1.0);
-                if (!double.IsNaN(tOk) && !double.IsNaN(tBad) && (next >= tOk || next <= tBad)) next = Math.Sqrt(tOk * tBad); // keep inside the bracket
-                if (Math.Abs(next / t - 1) < 2e-4) { if (c.Rw > LayoutTarget) next = t * 1.002; else break; }
-                t = next;
-                c = LayoutRatios(d, t, e, nu, allow);
-            }
-            if (double.IsNaN(tOk)) { t *= 1.01; c = LayoutRatios(d, t, e, nu, allow); while (c.Rw > LayoutTarget) { t *= 1.02; c = LayoutRatios(d, t, e, nu, allow); } tOk = t; atOk = c; }
-            t = tOk; c = atOk;
-            if (c.Rs <= LayoutTarget) return (t, "deflection");
-            // stress governs: thicken until the extrapolated stress fits (moments shift a little with t/b, so re-check)
-            for (int it = 0; it < 20 && c.Rs > LayoutTarget; it++)
-            {
-                t *= Math.Sqrt(c.Rs / LayoutTarget) * 1.001;
-                c = LayoutRatios(d, t, e, nu, allow);
-            }
-            return (t, "stress");
+            var r = LayoutPlate.Size(d, e, nu, allow, t0, MonteCarloHarness.TruePillarFactor, MonteCarloHarness.TruthMemoryMB);
+            return (r.T, r.Governs);
         }
 
         /// <summary>Thicknesses go out in micrometres, rounded up (rounding down could put a just-sized part a hair over its limit).</summary>

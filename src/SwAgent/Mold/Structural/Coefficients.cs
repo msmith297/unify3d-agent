@@ -38,6 +38,8 @@ namespace SwAgent.Mold
         private sealed class Table
         {
             public List<Row> Rows = new List<Row>();
+            /// <summary>Rows per boundary set (case-insensitive), so a lookup scans one set instead of the whole table.</summary>
+            public Dictionary<string, List<Row>> ByBc = new Dictionary<string, List<Row>>(StringComparer.OrdinalIgnoreCase);
             public string Version = "unknown", Sha = "", Header = "";
             public bool Provisional;
             public double? AllowanceHeader;
@@ -80,6 +82,7 @@ namespace SwAgent.Mold
                     t.Rows.Add(new Row { Bc = c[0].Trim(), Aspect = P(1), Tau = P(2), Nu = P(3), LoadFrac = P(4), Alpha = P(5), Beta = P(6), WX = P(7), WY = P(8) });
                 }
                 t.Header = head.ToString();
+                foreach (var g in t.Rows.GroupBy(r => r.Bc, StringComparer.OrdinalIgnoreCase)) t.ByBc[g.Key] = g.ToList();
                 t.BodySha = Hex(SHA256.Create().ComputeHash(Encoding.ASCII.GetBytes(body.ToString())));
                 if (t.Version == "unknown" && t.Sha.Length >= 12) t.Version = "sha-" + t.Sha.Substring(0, 12);
                 return t;
@@ -125,12 +128,11 @@ namespace SwAgent.Mold
         /// <summary>Sets whose a/b and b/a are the same plate (all four edges alike).</summary>
         public static bool IsSymmetric(string bc) => string.Equals(bc, "SS4", StringComparison.OrdinalIgnoreCase) || string.Equals(bc, "C4", StringComparison.OrdinalIgnoreCase);
 
-        public static bool Has(string bc) => _table.Value.Rows.Any(r => string.Equals(r.Bc, bc, StringComparison.OrdinalIgnoreCase));
+        public static bool Has(string bc) => _table.Value.ByBc.ContainsKey(bc ?? "");
 
         public static (double Alpha, double Beta) Get(string bc, double aspect, double tOverB, double nu, double loadFrac)
         {
-            var rows = _table.Value.Rows.Where(r => string.Equals(r.Bc, bc, StringComparison.OrdinalIgnoreCase)).ToList();
-            if (rows.Count == 0) throw new ArgumentException("No coefficients for boundary set '" + bc + "' (have " + string.Join(", ", BoundarySets) + ")");
+            if (!_table.Value.ByBc.TryGetValue(bc ?? "", out var rows) || rows.Count == 0) throw new ArgumentException("No coefficients for boundary set '" + bc + "' (have " + string.Join(", ", BoundarySets) + ")");
             var wall = IsWall(bc);
             if (IsSymmetric(bc) && aspect < 1) aspect = 1 / aspect;   // a/b and b/a are the same plate
 
@@ -160,6 +162,13 @@ namespace SwAgent.Mold
                 var b = AtNu(hi);
                 var w = (nuC - lo) / (hi - lo);
                 res = (a.Item1 + (b.Item1 - a.Item1) * w, a.Item2 + (b.Item2 - a.Item2) * w);
+            }
+            // above the last tabulated aspect the limit (cantilever strip for walls, one-way strip for plates) is taken at the
+            // requested nu itself: interpolating it linearly between the tabulated nu reads up to 0.03% under it (1 - nu² is concave)
+            if (aspect > rows.Max(r => r.Aspect))
+            {
+                var lim = wall ? Strip(tOverB, nu) : OneWay(bc, tOverB, nu);
+                res = (Math.Max(res.A, lim.Alpha), Math.Max(res.B, lim.Beta));
             }
             var k = _table.Value.Allowance;
             return (res.A * k, res.B * k);

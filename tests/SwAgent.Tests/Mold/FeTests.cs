@@ -240,32 +240,19 @@ namespace SwAgent.Tests.Mold
             Near(35.4, t, 0.005, "T16 thickness");
         }
 
-        // T17 and T18 pin the hand arithmetic of N/structural.md 6.3 and the press example (the member stiffness and the bolt
-        // stiffness come from production code here; the load factor, separation factor and press force are A1's formulas).
-        // AT INTEGRATION: point them at A1's bolt and press functions (SwAgent.Mold) or retire them for A1's E1/E4 example tests.
+        // T17 pins the member and bolt stiffness of N/structural.md 6.3 (production JointStiffness, the A2 solver side). The
+        // calculator's own joint arithmetic (load factor, thermal preload change, separation with tightening scatter and the hot
+        // proof factor) is checked on the critique-revised example by MoldExamplesTests.E4 (E_bolt 205 GPa there: C 0.311), and
+        // T18's press force by MoldExamplesTests.E1 (Press.Compute: 670.8 kN, 3,142 psi on 48 in2), so neither is repeated here.
         [Fact]
         public void T17_bolted_corner_example()
         {
-            // N/structural.md 6.3: 4 x 1/2-13, grade-8 proof (120 ksi), grip 2 in, aluminium joint, dT = 100 K, 0.6 F_p
-            double at = 0.1419, fp = 120e3 * at, l = 2.0, d = 0.5;
+            // N/structural.md 6.3: 4 x 1/2-13, grade-8 proof (120 ksi), grip 2 in, aluminium joint
+            double at = 0.1419, l = 2.0, d = 0.5;
             double kb = JointStiffness.Bolt(29e6, at, at, 0, l); // all thread in the grip (structural.md: k_b = A_t E / l)
             Assert.Equal(at * 29e6 / l, kb, 6);
             double km = JointStiffness.Wileman(10e6, d, l, JointStiffness.WilemanAluminium);
-            double c = kb / (kb + km);
-            double dF = (23.6 - 11.7) * 1e-6 * 100 * l * kb * km / (kb + km);
-            double fi = 0.6 * fp, p = 56500.0 / 2 / 4;
-            double n0 = 0.9 * fi / (p * (1 - c));
-            Near(0.306, c, 0.01, "T17 C");
-            Near(3400, dF, 0.01, "T17 thermal preload change");
-            Near(1.87, n0, 0.01, "T17 separation factor");
-        }
-
-        [Fact]
-        public void T18_press_force()
-        {
-            double aRam = Math.PI * 8 * 8 / 4, f = 3000 * aRam;
-            Assert.Equal(150796, Math.Round(f));
-            Assert.Equal(3142, Math.Round(f / 48));
+            Near(0.306, kb / (kb + km), 0.01, "T17 C");
         }
 
         // ---------------- beyond T1-T18 ----------------

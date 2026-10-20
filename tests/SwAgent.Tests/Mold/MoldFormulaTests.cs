@@ -49,9 +49,12 @@ namespace SwAgent.Tests.Mold
         [InlineData("Rails")]
         public void Long_plates_tend_to_the_one_way_strip_and_never_fall_below_the_last_row(string bc)
         {
+            // the last tabulated aspect (6 in Track A2's table): thick clamped plates' alpha may fall slightly between rows
+            // (a real Mindlin effect at the clamped short edges), but past the table a plate never reads less than that row
+            var lastAspect = 6.0;
             foreach (var tau in new[] { 0.02, 0.2, 0.5 })
             {
-                var last = Coefficients.Get(bc, 4.0, tau, 0.3, 1);
+                var last = Coefficients.Get(bc, lastAspect, tau, 0.3, 1);
                 var far = Coefficients.Get(bc, 10.0, tau, 0.3, 1);
                 Assert.True(far.Alpha >= last.Alpha - 1e-12 && far.Beta >= last.Beta - 1e-12);
                 var one = Coefficients.OneWay(bc, tau, 0.3);
@@ -75,9 +78,10 @@ namespace SwAgent.Tests.Mold
             var b = Coefficients.Get("SS4", 0.5, 0.1, 0.3, 1);
             Assert.Equal(a.Alpha, b.Alpha, 12);
             // thin-plate limit (Roark 11.4 case 1a: alpha 0.0444 / beta 0.2874 for a/b = 1, nu 0.3)
+            // Get includes the table's interpolation allowance (1.01): compare the row itself
             var thin = Coefficients.Get("SS4", 1.0, 0.02, 0.3, 1);
-            Assert.Equal(0.0444, thin.Alpha, 3);
-            Assert.Equal(0.287, thin.Beta, 2);
+            Assert.Equal(0.0444, thin.Alpha / Coefficients.Allowance, 3);
+            Assert.Equal(0.287, thin.Beta / Coefficients.Allowance, 2);
         }
 
         // ---------------------------------------------------------------- A11 gap budget

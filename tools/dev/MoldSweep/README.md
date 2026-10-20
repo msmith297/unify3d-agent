@@ -4,11 +4,12 @@ Dev-only console behind the structural tables of the built-in tool `design-compr
 The solvers and the sweep logic live in `src/SwAgent/Mold/Structural/Fe/` (namespace `SwAgent.Mold.Structural.Fe`), so the
 headless tests can run them; this project is only the command line.
 
-Build and run from the repository root (Release: the sweeps are about 4x faster than Debug):
+Build and run in Release (the sweeps are about 4x faster than Debug) - from a scratch copy, never in the checkout SolidWorks loads
+the add-in from (a Release build of this project builds `SwAgent` into `src/SwAgent/bin/Release`; see the end of this file):
 
 ```
-dotnet build tools/dev/MoldSweep/MoldSweep.csproj -c Release
-tools/dev/MoldSweep/bin/Release/net48/MoldSweep.exe all
+dotnet build <scratch>/tools/dev/MoldSweep/MoldSweep.csproj -c Release
+<scratch>/tools/dev/MoldSweep/bin/Release/net48/MoldSweep.exe all --root <scratch>
 ```
 
 | Command | Writes | Time (16 threads) |
@@ -21,12 +22,22 @@ tools/dev/MoldSweep/bin/Release/net48/MoldSweep.exe all
 
 The exit code is 1 when a gate fails; the failing gates are printed and written into the outputs.
 
-The same checks run from the test project: `dotnet test tests/SwAgent.Tests` covers T1-T18, the 3D and axisymmetric solvers, the VDI
-2230 worked example, a 50-row regeneration of the CSV, the data gates and a 60-mold Monte Carlo smoke run (E12, on a 40-element truth
+The same checks run from the test project: `dotnet test tests/SwAgent.Tests` covers T1-T17, the 3D and axisymmetric solvers, the VDI
+2230 worked example, a 50-row regeneration of the CSV, the data gates and a 60-mold Monte Carlo smoke run of the calculator (E12, on a 40-element truth
 mesh). With `MOLD_SWEEP=1` set, the tests in `Category=Sweep` rerun the full sweeps (an hour or more in Debug).
 
-The Monte Carlo sizes each random mold through a delegate `Func<JObject, JObject>` (schema in `MonteCarloHarness`). Until the
-calculator (`SwAgent.Mold` sizing) is integrated, `StubSizing` stands in for it; at integration replace it with an adapter. The truth
+The Monte Carlo sizes each random mold through a delegate `Func<JObject, JObject>` (schema in `MonteCarloHarness`): the calculator
+itself, `MoldCalc.Run("size")`, through the adapter `MoldCalcSizing` (one mold_calc design per cavity for its walls; the first also
+carries the drawn plate layout and supports as overrides, so `size` finishes the plate with the same layout FE, `LayoutPlate`). The
+calculator takes the wall-root slope and the pillar-head factor from `sizing-defaults.json`; `montecarlo` refuses to accept a run
+when they differ from `solid3d-summary.json`. `StubSizing` stays for the comparison sizings in the summary (table only, design as
+written) and the solver-only tests. The calculator reads the coefficient table embedded at build time: after `coefficients`,
+rebuild before `montecarlo`.
+
+Build it without touching the add-in's own Release output (SolidWorks loads `src/SwAgent/bin/Release`): a Release build of this
+project also builds `SwAgent` in Release. Copy `src/SwAgent`, `tools/dev/MoldSweep`, `tools/builtin`, `assets/brand` and
+`nuget.config` to a scratch folder (drop the `SwAgent.Speech` project reference there), build and run it there with `--root <scratch>`,
+and copy `data/validation/montecarlo-summary.json` back. The truth
 never uses a mesh the sizing uses (truth 64 elements on the short side and pillar heads 8 elements wide; the layout-FE sizing
 extrapolates from 24/3 and 48/6), and a run is accepted only if it is safe, has no errors, covers every group (plates on supports
 A, B, C, E; walls) and is not wasteful in any group.

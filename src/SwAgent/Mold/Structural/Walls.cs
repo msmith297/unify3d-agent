@@ -14,7 +14,10 @@ namespace SwAgent.Mold
         public double DeltaAllow;
         /// <summary>Sides clamped (pocket milled from solid, "Wall-C") or simply supported (bolted frame corners, "Wall-S").</summary>
         public bool SidesClamped = true;
-        public double RootFactor = 1.2, Lambda = 1.0;
+        /// <summary>Wall-root factor on the plate deflection (S21): RootFactor + RootSlope x w/h. Track A2's 3D pocket models
+        /// (solid3d-summary.json) give 1 + 2.8 w/h; the design's constant 1.2 holds only below w/h 0.07. RootSlope 0 gives a
+        /// constant factor.</summary>
+        public double RootFactor = 1.0, RootSlope = Walls.DefaultRootSlope, Lambda = 1.0;
         public double AllowStatic, AllowFatigue;
         /// <summary>Drawn width from geometry (lip + groove band + clearance + hardware) and the class B minimum, mm.</summary>
         public double WGeom, WMin;
@@ -39,7 +42,8 @@ namespace SwAgent.Mold
     /// S20-S25 cavity walls. A plate of width w (thickness of the wall), loaded height h, length L: bottom clamped, top free,
     /// sides clamped or simply supported. alpha_w, beta_w from the coefficient table in (L/h, (w/h)²), with the strip
     /// above the last L/h row (critique A4).
-    /// (S21) w = [1.2 alpha lambda p h⁴/(E delta)]^(1/3), fixed point from 0.3 h.
+    /// (S21) w = [(1 + 2.8 w/h) alpha lambda p h⁴/(E delta)]^(1/3), fixed point from 0.3 h (the root factor from Track A2's
+    ///       3D pocket models; the design's constant 1.2 is unsafe above w/h 0.07).
     /// (S22) sigma = beta lambda p h²/w² + p b_perp/(2w) (membrane from the perpendicular walls).
     /// (S23) if sigma exceeds min(static, fatigue) allowable, w grows until it does not.
     /// (S24) w/h > 0.5 is flagged; the class A abuse case LC1x uses the strip upper bound 3 p h²/w² + p b/(2w) against
@@ -48,6 +52,15 @@ namespace SwAgent.Mold
     /// </summary>
     public static class Walls
     {
+        /// <summary>The 3D wall-root slope c in 1 + c w/h (Track A2, coefficients.csv "# wall root:").</summary>
+        public const double DefaultRootSlope = 2.8;
+
+        /// <summary>The wall-root factor at width w (S21): RootFactor + RootSlope w/h.</summary>
+        public static double Root(WallInput i, double w) => i.RootFactor + i.RootSlope * w / i.H;
+
+        /// <summary>The factor as a formula for check methods: "(1 + 2.8 w/h)" or "1.2".</summary>
+        public static string RootText(WallInput i) => i.RootSlope == 0 ? Si.F(i.RootFactor) : "(" + Si.F(i.RootFactor) + " + " + Si.F(i.RootSlope) + " w/h)";
+
         public static WallResult Size(WallInput i, double tauMax = 0.5)
         {
             var r = new WallResult { Id = i.Id, Bc = i.SidesClamped ? "Wall-C" : "Wall-S", LOverH = i.L / i.H };
@@ -56,7 +69,7 @@ namespace SwAgent.Mold
             for (var k = 0; k < 200; k++)
             {
                 var a = Coefficients.Get(r.Bc, r.LOverH, w / i.H, i.Nu, 1.0).Alpha;
-                var wn = Math.Pow(i.RootFactor * a * i.Lambda * i.P * Math.Pow(i.H, 4) / (i.E * i.DeltaAllow), 1.0 / 3.0);
+                var wn = Math.Pow(Root(i, w) * a * i.Lambda * i.P * Math.Pow(i.H, 4) / (i.E * i.DeltaAllow), 1.0 / 3.0);
                 if (Math.Abs(wn - w) / w < 1e-10) { w = wn; break; }
                 w = wn;
             }
@@ -86,8 +99,8 @@ namespace SwAgent.Mold
             r.Alpha = co.Alpha;
             r.Beta = co.Beta;
             r.Sigma = Sigma(r.WDrawn);
-            r.Deflection = i.RootFactor * co.Alpha * i.Lambda * i.P * Math.Pow(i.H, 4) / (i.E * Math.Pow(r.WDrawn, 3));
-            r.Checks.Add(new JCheck { Id = "WALL-DEFL-" + i.Id, Type = "deflection", Demand = r.Deflection, Capacity = i.DeltaAllow, Unit = "mm", LoadCase = "LC1", Method = "S21: 1.2 alpha p h^4/(E w^3) <= delta_wall (A11)" });
+            r.Deflection = Root(i, r.WDrawn) * co.Alpha * i.Lambda * i.P * Math.Pow(i.H, 4) / (i.E * Math.Pow(r.WDrawn, 3));
+            r.Checks.Add(new JCheck { Id = "WALL-DEFL-" + i.Id, Type = "deflection", Demand = r.Deflection, Capacity = i.DeltaAllow, Unit = "mm", LoadCase = "LC1", Method = "S21: " + RootText(i) + " alpha p h^4/(E w^3) <= delta_wall (A11)" });
             r.Checks.Add(new JCheck { Id = "WALL-STRESS-" + i.Id, Type = i.AllowFatigue < i.AllowStatic ? "fatigue" : "stress", Demand = r.Sigma, Capacity = allow, Unit = "MPa", LoadCase = "LC1", Method = "S22-S23: beta p h^2/w^2 + p b/(2w) <= min(Sy/2, fatigue)" });
             if (r.StockyFlag)
                 r.Checks.Add(new JCheck { Id = "WALL-STOCKY-" + i.Id, Type = "stress", Demand = r.TauStruct, Capacity = tauMax, Unit = "w/h", Status = "warn", Method = "S24: w/h > 0.5 - plate theory no longer applies; prefer steel, a wall keyed into the base, or a 3D check" });

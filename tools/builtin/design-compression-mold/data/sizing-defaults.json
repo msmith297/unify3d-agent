@@ -10,7 +10,13 @@
   "aluminiumHotAboveC": 150,
   "note": "critique A8: aluminium lands and stops creep under sustained bearing above ~120 C; D_b = 4 above 150 C until 10,000 h creep data is loaded"
  },
- "wallRootFactor": 1.2,
+ "wallRootFactor": {
+  "form": "base + c w/h",
+  "base": 1.0,
+  "c": 2.8,
+  "note": "Track A2 3D pocket models (data/validation/solid3d-summary.json): 3D / plate deflection 1.24-2.23, envelope 1 + 2.8 w/h; the design's constant 1.2 holds only below w/h 0.07. A plain number here is a constant factor"
+ },
+ "pillarHeadFactor": 1.2,
  "lateralPressureFactor": 1.0,
  "tauMax": 0.5,
  "deltaFlash_mm": {

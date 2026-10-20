@@ -15,7 +15,10 @@ namespace MoldSweep
     /// MoldSweep: the dev console behind the compression-mold structural tables (design 2.4 and 3.20).
     ///   coefficients  Sweep 1: src/SwAgent/Mold/Structural/coefficients.csv, with its gates.
     ///   table         data/validation/sizing-table.csv (thickness vs pressure, span, material, deflection limit).
-    ///   montecarlo    Sweep 2: data/validation/montecarlo-summary.json and results/montecarlo.csv (stub sizing until integration).
+    ///   montecarlo    Sweep 2: data/validation/montecarlo-summary.json and results/montecarlo.csv - the calculator's own sizing
+    ///                 (MoldCalc.Run("size") through MoldCalcSizing), with the stub's table-only and design-as-written sizings of
+    ///                 the same molds for comparison. The calculator reads the coefficient table embedded at build time: after
+    ///                 `coefficients` rewrites the CSV, rebuild before `montecarlo`.
     ///   solid3d       3D solid cross-check: wall-root factor, thick plates, bolted-joint member stiffness -> solid3d-summary.json.
     ///   all           solid3d, coefficients, table, montecarlo.
     /// Options: --root DIR (repository root; found from the working directory by default), --elements N, --n N, --seed N, --quick.
@@ -129,11 +132,18 @@ namespace MoldSweep
             MonteCarloHarness.TrueRootFactor = wh => 1 + slope * wh;
             MonteCarloHarness.TruePillarFactor = pillar;
             StubSizing.Calibrate(slope, pillar);
+            var data = SwAgent.Mold.MoldData.Load(p.ToolDir);
             Console.WriteLine($"Sweep 2: {n} random molds, seed {seed}, truth {MonteCarloHarness.TruthMesh}; root factor 1 + {slope} w/h, pillar-head factor {pillar}");
-            Console.WriteLine($"  sizing: {StubSizing.Recommended.Name}...");
-            var run = MonteCarloHarness.Run(n, seed, StubSizing.Create(table, StubSizing.Recommended), log: Console.WriteLine);
+            // the calculator must use the factors the 3D check found (the truth uses them): sizing-defaults.json against solid3d-summary.json
+            var cfg = new SwAgent.Mold.Cfg(data.Defaults);
+            var calcSlope = SwAgent.Mold.Sizing.RootFactor(cfg).Slope;
+            var calcPillar = cfg.D("pillarHeadFactor", 1.2);
+            var mismatch = Math.Abs(calcSlope - slope) > 1e-9 || Math.Abs(calcPillar - pillar) > 1e-9;
+            if (mismatch) Console.WriteLine($"  NOT ACCEPTED: sizing-defaults.json has wallRootFactor.c {calcSlope} and pillarHeadFactor {calcPillar}, solid3d-summary.json {slope} and {pillar} - update gen_defaults.py");
+            Console.WriteLine($"  sizing: {MoldCalcSizing.Name}...");
+            var run = MonteCarloHarness.Run(n, seed, MoldCalcSizing.Create(data), log: Console.WriteLine);
             Report(run);
-            var summary = run.Summary(StubSizing.Recommended.Name);
+            var summary = run.Summary(MoldCalcSizing.Name);
             foreach (var (key, opts) in new[] { ("compare_table_only", StubSizing.TableOnly), ("compare_design_as_written", StubSizing.DesignAsWritten) })
             {
                 Console.WriteLine($"  the same molds sized by {opts.Name}...");
@@ -150,7 +160,7 @@ namespace MoldSweep
             File.WriteAllText(p.MonteCarloCsv, run.ToCsv(), new UTF8Encoding(false));
             File.WriteAllText(p.MonteCarloSummary, summary.ToString(Formatting.Indented), new UTF8Encoding(false));
             Console.WriteLine($"  wrote {p.MonteCarloCsv} and {p.MonteCarloSummary}");
-            return run.Accepted;
+            return run.Accepted && !mismatch;
         }
 
         static void Report(MonteCarloRun run)
@@ -174,9 +184,10 @@ namespace MoldSweep
 
     sealed class SweepPaths
     {
-        public readonly string Coefficients, SizingTable, MonteCarloCsv, MonteCarloSummary, Solid3dSummary;
+        public readonly string Coefficients, SizingTable, MonteCarloCsv, MonteCarloSummary, Solid3dSummary, ToolDir;
         public SweepPaths(string root)
         {
+            ToolDir = Path.Combine(root, "tools", "builtin", "design-compression-mold");
             Coefficients = Path.Combine(root, "src", "SwAgent", "Mold", "Structural", "coefficients.csv");
             var v = Path.Combine(root, "tools", "builtin", "design-compression-mold", "data", "validation");
             Directory.CreateDirectory(v);

@@ -58,45 +58,58 @@ namespace SwAgent.Mold
             {
                 case Support.B: return "Rails";
                 case Support.C: return integralFrame ? "C4" : "SS4";
-                case Support.E: return "C4";   // pillar panel treated as C4 (design 3.8)
+                // a pillar cell deflects about 2.8 x a C4 panel of the same spacing (Track A2): the periodic Pillar rows, with
+                // their alpha times the 3D pillar-head factor; the layout FE then finishes the plate (edge panels deflect more)
+                case Support.E: return "Pillar";
                 default: return null;
             }
         }
 
         /// <summary>
         /// (S29-S31) span of short side b (aspect = long/short, for rails the length along the rails / the span),
-        /// t = [alpha p b⁴/(E delta)]^(1/3) by fixed point from 0.2 b; sigma = beta p b²/t² is checked by the caller.
+        /// t = [f alpha p b⁴/(E delta)]^(1/3) by fixed point from 0.2 b (f: the 3D pillar-head factor 1.2 on Pillar rows,
+        /// else 1); then, when an allowable is given, thickened until sigma = beta p b²/t² fits it.
         /// </summary>
-        public static SpanResult Span(string bc, double aspect, double b, double p, double E, double nu, double delta, double tauMax, double eSteel = 205000)
+        public static SpanResult Span(string bc, double aspect, double b, double p, double E, double nu, double delta, double tauMax, double eSteel = 205000, double alphaFactor = 1.0, double? allow = null)
         {
             var r = new SpanResult { Bc = bc };
             var t = 0.2 * b;
             for (var k = 0; k < 200; k++)
             {
-                var a = Coefficients.Get(bc, aspect, t / b, nu, 1.0).Alpha;
+                var a = alphaFactor * Coefficients.Get(bc, aspect, t / b, nu, 1.0).Alpha;
                 var tn = Math.Pow(a * p * Math.Pow(b, 4) / (E * delta), 1.0 / 3.0);
                 if (Math.Abs(tn - t) < 1e-10 * b) { t = tn; break; }
                 t = tn;
             }
+            if (allow is double sa && sa > 0)
+            {
+                // (S30) stress: beta changes slowly with t/b, so a few passes of t = sqrt(beta p b²/allow) settle it
+                for (var k = 0; k < 20; k++)
+                {
+                    var need = Math.Sqrt(Coefficients.Get(bc, aspect, t / b, nu, 1.0).Beta * p * b * b / sa);
+                    if (need <= t * (1 + 1e-9)) break;
+                    t = need;
+                }
+            }
             var co = Coefficients.Get(bc, aspect, t / b, nu, 1.0);
             r.T = t;
-            r.Alpha = co.Alpha;
+            r.Alpha = co.Alpha * alphaFactor;
             r.Beta = co.Beta;
             r.Sigma = co.Beta * p * b * b / (t * t);
-            r.Deflection = co.Alpha * p * Math.Pow(b, 4) / (E * Math.Pow(t, 3));
+            r.Deflection = r.Alpha * p * Math.Pow(b, 4) / (E * Math.Pow(t, 3));
             r.TooThick = t / b > tauMax;
-            r.BMax = MaxSpan(bc, aspect, t, p, E, nu, delta);
+            r.BMax = MaxSpan(bc, aspect, t, p, E, nu, delta, alphaFactor);
             r.TSteelEquivalent = t * Math.Pow(E / eSteel, 1.0 / 3.0);
             return r;
         }
 
         /// <summary>(S31) the largest span for thickness t: b_max = [E delta t³/(alpha p)]^(1/4) (fixed point on alpha(t/b)).</summary>
-        public static double MaxSpan(string bc, double aspect, double t, double p, double E, double nu, double delta)
+        public static double MaxSpan(string bc, double aspect, double t, double p, double E, double nu, double delta, double alphaFactor = 1.0)
         {
             var b = 5 * t;
             for (var k = 0; k < 200; k++)
             {
-                var a = Coefficients.Get(bc, aspect, t / b, nu, 1.0).Alpha;
+                var a = alphaFactor * Coefficients.Get(bc, aspect, t / b, nu, 1.0).Alpha;
                 var bn = Math.Pow(E * delta * t * t * t / (a * p), 0.25);
                 if (Math.Abs(bn - b) < 1e-10 * b) { b = bn; break; }
                 b = bn;

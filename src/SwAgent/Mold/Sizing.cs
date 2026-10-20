@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using Newtonsoft.Json.Linq;
+using SwAgent.Mold.Structural.Fe;
 
 namespace SwAgent.Mold
 {
@@ -218,7 +219,7 @@ namespace SwAgent.Mold
                 ["aProj_mm2"] = Si.R(p.AProj_mm2, 6), ["aProjForce_mm2"] = Si.R(p.AProjForce_mm2, 6),
                 ["pLC1_MPa"] = Si.R(p.PLC1, 5), ["pLC1x_MPa"] = Si.R(p.PLC1x, 5), ["pReq_MPa"] = Si.R(p.PReq, 5),
                 ["fReq_kN"] = Si.R(p.FReq_N / 1000, 5), ["gaugeNeeded_MPa"] = Si.R(p.GaugeNeeded_MPa, 5),
-                ["gauge"] = new JObject { ["recommended_MPa"] = Si.R(p.GaugeSet_MPa, 5), ["basis"] = "S7: F_req / A_ram" },
+                ["gauge"] = new JObject { ["recommended_MPa"] = Si.R(p.GaugeSet_MPa, 5), ["basis"] = "S7: F_req / A_ram", ["unitShown"] = d.GaugeUnit },
                 ["loadCentre_mm"] = new JArray(Si.R(p.LoadCentreU, 5), Si.R(p.LoadCentreV, 5)),
             };
             if (d.Meaning == PressMeaning.OnPart) r.PressJson["gaugeForInput_MPa"] = Si.R(p.GaugeForInput_MPa, 5);
@@ -332,7 +333,9 @@ namespace SwAgent.Mold
             var hLid = d.DepthLid * sx.Sw;
             var pu = d.PartU * sx.Su;
             var pv = d.PartV * sx.Sv;
-            var rootFactor = cfg.D("wallRootFactor", 1.2);
+            // S21 wall-root factor base + c w/h (Track A2's 3D pocket models: 1 + 2.8 w/h); a plain number is a constant factor
+            var (rootBase, rootSlope) = RootFactor(cfg);
+            var rootText = rootSlope == 0 ? Si.F(rootBase) : Si.F(rootBase) + " + " + Si.F(rootSlope) + " w/h";
             var tauMax = cfg.D("tauMax", 0.5);
             var kf = cfg.ParamNum("kf");
 
@@ -348,7 +351,7 @@ namespace SwAgent.Mold
                     wr = Walls.Size(new WallInput
                     {
                         Id = id, P = pLC1 * cfg.D("lateralPressureFactor", 1.0), H = h, L = L, BPerp = bPerp, E = g.E, Nu = g.Nu,
-                        DeltaAllow = r.Gap.DeltaWall, SidesClamped = true, RootFactor = rootFactor, AllowStatic = fa.AllowStatic, AllowFatigue = fa.AllowFatigue,
+                        DeltaAllow = r.Gap.DeltaWall, SidesClamped = true, RootFactor = rootBase, RootSlope = rootSlope, AllowStatic = fa.AllowStatic, AllowFatigue = fa.AllowFatigue,
                         WGeom = wGeom, WMin = wMin, PAbuse = pAbuse > 0 ? pAbuse : (double?)null, SyT = g.Sy,
                     }, tauMax);
                     var ktAt = Fatigue.Kt(d.CornerRadius / wr.WStruct, cfg);
@@ -389,7 +392,7 @@ namespace SwAgent.Mold
             var support = d.FlatOnPlaten ? Plates.ParseSupport(cfg.ParamStr("support") ?? (string)d.Json.SelectToken("structural.inputs.support")) : Plates.ParseSupport(cfg.ParamStr("support") ?? "B");
             var spanNotes = new JObject();
             if (support != Support.A)
-                baseReq = Math.Max(baseReq, SpanBlock(r, cfg, support, lay, hBase, spanNotes) + hBase);
+                baseReq = Math.Max(baseReq, SpanBlock(r, cfg, data, support, lay, hBase, spanNotes) + hBase);
             var baseT = StockRounding.Thickness(baseReq, d.PlateGrade, data, d.Imperial);
             var lidT = StockRounding.Thickness(lidReq, d.PlateGrade, data, d.Imperial);
             var tBase = Num(d.Json, "structural.asBuilt.baseThickness_mm") ?? baseT.Finished;
@@ -524,10 +527,10 @@ namespace SwAgent.Mold
                 // the same sideways pressure (lambda x p_LC1) that SizeWall used
                 var pLat = pLC1 * cfg.D("lateralPressureFactor", 1.0);
                 wr.Sigma = co.Beta * pLat * h * h / (drawn * drawn) + pLat * (isU ? pu : pv) / (2 * drawn);
-                wr.Deflection = rootFactor * co.Alpha * pLat * Math.Pow(h, 4) / (g.E * Math.Pow(drawn, 3));
+                wr.Deflection = (rootBase + rootSlope * drawn / h) * co.Alpha * pLat * Math.Pow(h, 4) / (g.E * Math.Pow(drawn, 3));
                 wr.SigmaAllow = fa.Allow;
                 wr.Checks.Clear();
-                wr.Checks.Add(new JCheck { Id = "WALL-DEFL-" + w.Id, Type = "deflection", Demand = wr.Deflection, Capacity = r.Gap.DeltaWall, Unit = "mm", LoadCase = "LC1", Method = "S21 + A11: 1.2 alpha p h^4/(E w^3) <= 0.25 x width tolerance" });
+                wr.Checks.Add(new JCheck { Id = "WALL-DEFL-" + w.Id, Type = "deflection", Demand = wr.Deflection, Capacity = r.Gap.DeltaWall, Unit = "mm", LoadCase = "LC1", Method = "S21 + A11: (" + rootText + ") alpha p h^4/(E w^3) <= 0.25 x width tolerance" });
                 wr.Checks.Add(new JCheck { Id = "WALL-STRESS-" + w.Id, Type = fa.AllowFatigue < fa.AllowStatic ? "fatigue" : "stress", Demand = wr.Sigma, Capacity = fa.Allow, Unit = "MPa", LoadCase = "LC1", Method = "S22-S23: beta p h^2/w^2 + p b/(2w) <= min(Sy/2, fatigue), K_f " + Si.F(fa.Kf) });
                 if (wr.StockyFlag)
                     wr.Checks.Add(new JCheck { Id = "WALL-STOCKY-" + w.Id, Type = "stress", Demand = wr.TauStruct, Capacity = tauMax, Unit = "w/h", Status = "warn", Method = "S24: w/h > 0.5 - plate theory no longer applies; prefer steel, a keyed wall, or a 3D check" });
@@ -748,7 +751,7 @@ namespace SwAgent.Mold
                     ["support"] = support.ToString(), ["deltaGap_mm"] = Si.R(r.Gap.DeltaGap, 4), ["deltaWall_mm"] = Si.R(r.Gap.DeltaWall, 4),
                     ["gapBasis"] = r.Gap.GapBasis, ["wallBasis"] = r.Gap.WallBasis, ["flowClass"] = flow,
                     ["deltaFlash_mm"] = r.Gap.DeltaFlash, ["landFlatness_mm"] = r.Gap.Flatness,
-                    ["cycles"] = d.Cycles, ["tempC"] = d.TempC, ["tier"] = Tier(d.Cycles, cfg), ["rootFactor"] = rootFactor,
+                    ["cycles"] = d.Cycles, ["tempC"] = d.TempC, ["tier"] = Tier(d.Cycles, cfg), ["rootFactor"] = rootText,
                 },
                 ["loadCases"] = new JObject
                 {
@@ -781,10 +784,19 @@ namespace SwAgent.Mold
                 ["gauge"] = new JObject
                 {
                     ["recommended_MPa"] = Si.R(p.GaugeSet_MPa, 5), ["max_MPa"] = r.GaugeMax_MPa == null ? null : (JToken)Si.R(r.GaugeMax_MPa.Value, 5), ["maxBasis"] = r.GaugeMaxBasis,
+                    // the unit the user's gauge reads (the page's picked unit), for the setup sheet's gauge filter
+                    ["unitShown"] = d.GaugeUnit,
                     // every cap with its cavity pressure, so a later `press` run (other press, other gauge) keeps them (H3 fix)
                     ["caps"] = GaugeCapsJson(r.GaugeCaps),
                 },
             };
+            // the support geometry (overrides or the record) stays with the record, so check and later runs size the same plate
+            var sInputs = (JObject)r.Structural["inputs"];
+            foreach (var key in SupportKeys)
+            {
+                var v = cfg.Param(key) ?? d.Json.SelectToken("structural.inputs." + key);
+                if (v != null && v.Type != JTokenType.Null) sInputs[key] = v.DeepClone();
+            }
             if (r.Advisory) r.Structural["advisory"] = (d.Class == ProcessClass.C_Positive ? "class C" : "class B deeper than wide (semi-positive)") + ": numbers for planning only - not built by this tool in v1";
             return Finish(r, cfg);
         }
@@ -986,9 +998,15 @@ namespace SwAgent.Mold
             return total;
         }
 
-        /// <summary>Support cases B-E: the base floor spans b under the larger of the cavity pressure and the press force over
-        /// the footprint (S29-S32); returns the floor thickness the span needs.</summary>
-        private static double SpanBlock(SizingResult r, Cfg cfg, Support s, LayoutResult lay, double hBase, JObject notes)
+        /// <summary>
+        /// Support cases B-E: the base floor spans b under the cavity pressure (S29-S32); returns the floor thickness the span needs.
+        /// Cases B (rails), C (an opening) and E (pillars): the coefficient table gives the first guess (Rails, SS4 / C4, and the
+        /// periodic Pillar rows with alpha x the 3D pillar-head factor), then the layout plate FE of the planned layout finishes it
+        /// (design 2.3.2, Track A2: cavities plus land loaded, supports where they are, two meshes extrapolated) - the table alone
+        /// is about 17% thick on rails and over openings, and unsafe next to the plate edges on pillars. The press force beyond
+        /// what the cavities carry is spread over the footprint. Case D is the overhang strip; case F needs a separate FE.
+        /// </summary>
+        private static double SpanBlock(SizingResult r, Cfg cfg, MoldData data, Support s, LayoutResult lay, double hBase, JObject notes)
         {
             var d = r.Design;
             var g = r.Plate;
@@ -997,7 +1015,7 @@ namespace SwAgent.Mold
             var tauMax = cfg.D("tauMax", 0.5);
             if (s == Support.D)
             {
-                var c = cfg.ParamNum("overhang_mm") ?? 0;
+                var c = cfg.ParamNum("overhang_mm") ?? Si.Num(d.Json.SelectToken("structural.inputs.overhang_mm")) ?? 0;
                 if (c <= 0) return 0;
                 var t = Plates.OverhangThickness(p, c, g.E, g.Nu, delta);
                 var ov = Plates.Overhang(p, c, t, g.E, g.Nu);
@@ -1007,20 +1025,196 @@ namespace SwAgent.Mold
             }
             if (s == Support.F)
             {
-                r.Checks.Add(Check.Status("SPAN-CASE-F", "deflection", "warn", "Case F (ram or platen smaller than the lid): FE only", "run the plate FE check (Track A2 solver) before building"));
+                r.Checks.Add(Check.Status("SPAN-CASE-F", "deflection", "warn", "Case F (ram or platen smaller than the lid): FE only", "model the ram contact and run the plate FE before building"));
                 return 0;
             }
-            var bc = Plates.BcFor(s, cfg.ParamStr("frame") == "integral");
-            var b = cfg.ParamNum("rail_span_mm") ?? cfg.ParamNum("span_mm") ?? Math.Min(lay.FootprintL, lay.FootprintW);
-            var len = cfg.ParamNum("span_length_mm") ?? Math.Max(lay.FootprintL, lay.FootprintW);
-            var sp = Plates.Span(bc, len / b, b, p, g.E, g.Nu, delta, tauMax);
-            var fa = Fatigue.Allowables(g, d.Cycles, cfg.D("fatigue.ktHoleInBentPlate", 2.5), cfg);
+            var integral = (cfg.ParamStr("frame") ?? (string)d.Json.SelectToken("structural.inputs.frame")) == "integral";
+            var kf = cfg.ParamNum("kf");
+            var fa = kf != null ? Fatigue.AllowablesKf(g, d.Cycles, kf.Value, cfg) : Fatigue.Allowables(g, d.Cycles, cfg.D("fatigue.ktHoleInBentPlate", 2.5), cfg);
+            var plan = PlatePlan(r, cfg, data, s, lay, delta);
+            double L = (double)plan["plate"]["length_mm"], W = (double)plan["plate"]["width_mm"];
+            string bc;
+            double b, len, alphaFactor = 1;
+            switch (s)
+            {
+                case Support.B:
+                    bc = "Rails";
+                    b = (double)plan["rails"]["y2_mm"] - (double)plan["rails"]["y1_mm"];
+                    len = L;
+                    break;
+                case Support.C:
+                    bc = integral ? "C4" : "SS4";
+                    var o = plan["opening"];
+                    double ol = (double)o["x2_mm"] - (double)o["x1_mm"], ow = (double)o["y2_mm"] - (double)o["y1_mm"];
+                    b = Math.Min(ol, ow); len = Math.Max(ol, ow);
+                    break;
+                default:
+                    if (plan["pillars"] != null)
+                    {
+                        bc = "Pillar";
+                        b = LayoutPlate.PillarSpan(plan);
+                        len = LayoutPlate.PillarSpanLong(plan);
+                        alphaFactor = cfg.D("pillarHeadFactor", 1.2);
+                    }
+                    else
+                    {
+                        // no pillar positions (pillars_mm or span_mm): the plate on its edges alone
+                        bc = integral ? "C4" : "SS4";
+                        b = Math.Min(L, W); len = Math.Max(L, W);
+                        r.Notes.Add("Case E without pillar positions: the plate is sized on its edges alone - pass overrides {\"pillars_mm\": {\"u\": [...], \"v\": [...]}} (from the plate corner) or {\"span_mm\": pitch}");
+                    }
+                    break;
+            }
+            var sp = Plates.Span(bc, len / b, b, p, g.E, g.Nu, delta, tauMax, alphaFactor: alphaFactor, allow: fa.Allow);
             notes["case"] = s.ToString(); notes["bc"] = bc; notes["span_mm"] = Si.R(b, 6); notes["p_MPa"] = Si.R(p, 5);
-            notes["t_mm"] = Si.R(sp.T, 5); notes["tOverB"] = Si.R(sp.T / b, 4); notes["bMax_mm"] = Si.R(sp.BMax, 5); notes["tSteel_mm"] = Si.R(sp.TSteelEquivalent, 5);
-            r.Checks.Add(ToJson(new JCheck { Id = "SPAN-STRESS", Type = "stress", Demand = sp.Sigma, Capacity = fa.Allow, Unit = "MPa", LoadCase = "LC1", Method = "S30: beta p b^2/t^2 <= min(Sy/2, fatigue with K_t 2.5 at holes)" }, "size"));
+            notes["tTable_mm"] = Si.R(sp.T, 5); notes["bMax_mm"] = Si.R(sp.BMax, 5); notes["tSteel_mm"] = Si.R(sp.TSteelEquivalent, 5);
+            if (alphaFactor != 1) notes["pillarHeadFactor"] = alphaFactor;
+            notes["geometry"] = plan;
+            var t0 = sp.T;
+            var tFinal = t0;
+            var governs = sp.Sigma > fa.Allow * (1 - 1e-6) ? "stress" : "deflection";
+            var feDone = false;
             if (sp.TooThick)
+            {
                 r.Checks.Add(Check.Status("SPAN-TOO-THICK", "deflection", "warn", "S31: t/b > 0.5 - add support instead", "largest span for this plate " + Si.F(sp.BMax) + " mm; or steel at " + Si.F(sp.TSteelEquivalent) + " mm"));
-            return sp.T;
+                governs = "add support";
+            }
+            else if ((bool?)cfg.Param("plate_fe") != false)
+            {
+                try
+                {
+                    var fe = LayoutPlate.Size(plan, g.E, g.Nu, fa.Allow, t0, alphaFactor);
+                    tFinal = fe.T;
+                    governs = fe.Governs;
+                    feDone = true;
+                    notes["fe"] = new JObject
+                    {
+                        ["method"] = "layout plate FE: MITC4, " + LayoutPlate.Coarse.Elements + " and " + LayoutPlate.Fine.Elements + " elements on the short side, extrapolated; sized to " + Si.F(LayoutPlate.Target * 100) + "% of the limits",
+                        ["t_mm"] = Si.R(fe.T, 5), ["r_w"] = Si.R(fe.Rw, 4), ["r_s"] = Si.R(fe.Rs, 4), ["governs"] = fe.Governs, ["solves"] = fe.Solves,
+                    };
+                    var how = "layout plate FE (from the " + bc + " rows' " + Si.F(t0) + " mm)";
+                    r.Checks.Add(ToJson(new JCheck { Id = "SPAN-DEFL", Type = "deflection", Demand = fe.Rw * delta, Capacity = delta, Unit = "mm", LoadCase = "LC1", Method = "S29 + 2.3.2: land deflection by the " + how + " <= delta_gap" }, "size", "BASE-1"));
+                    r.Checks.Add(ToJson(new JCheck { Id = "SPAN-STRESS", Type = fa.AllowFatigue < fa.AllowStatic ? "fatigue" : "stress", Demand = fe.Rs * fa.Allow, Capacity = fa.Allow, Unit = "MPa", LoadCase = "LC1", Method = "S30 + 2.3.2: plate stress by the " + how + " <= min(Sy/2, fatigue" + (kf != null ? ", K_f " + Si.F(kf.Value) : " with K_t 2.5 at holes") + ")" }, "size", "BASE-1"));
+                }
+                catch (InvalidOperationException ex)
+                {
+                    // a mechanism (supports that do not hold the plate) or a model over the memory cap: say so, keep the table
+                    r.Checks.Add(Check.Status("SPAN-FE", "deflection", "warn", "2.3.2: the layout plate FE could not run", ex.Message + " - the coefficient table's thickness is used; check the supports"));
+                }
+            }
+            if (!feDone)
+            {
+                var defl = sp.Alpha * p * Math.Pow(b, 4) / (g.E * Math.Pow(t0, 3));
+                r.Checks.Add(ToJson(new JCheck { Id = "SPAN-DEFL", Type = "deflection", Demand = defl, Capacity = delta, Unit = "mm", LoadCase = "LC1", Method = "S29: " + (alphaFactor != 1 ? Si.F(alphaFactor) + " x " : "") + "alpha p b^4/(E t^3) <= delta_gap (" + bc + " rows)" }, "size", "BASE-1"));
+                r.Checks.Add(ToJson(new JCheck { Id = "SPAN-STRESS", Type = "stress", Demand = sp.Sigma, Capacity = fa.Allow, Unit = "MPa", LoadCase = "LC1", Method = "S30: beta p b^2/t^2 <= min(Sy/2, fatigue with K_t 2.5 at holes)" }, "size", "BASE-1"));
+            }
+            notes["t_mm"] = Si.R(tFinal, 5); notes["tOverB"] = Si.R(tFinal / b, 4); notes["governs"] = governs;
+            return tFinal;
+        }
+
+        /// <summary>
+        /// The base plate as the layout FE sees it (LayoutPlate's JSON, from the plate corner): the planned footprint and cavities
+        /// (or the `plate_layout` override {footprint_mm, cavities_mm [[u0, v0, u1, v1], ...]} for a what-if or the Monte Carlo),
+        /// the land, and the supports from the overrides or the record's structural.inputs: rails `rails_v_mm` [v1, v2] (along U)
+        /// or `rails_u_mm` [u1, u2] (along V; the plan is then transposed so the rails run along x), else `rail_span_mm` centred
+        /// under the long side (default: the plate's edges); an opening `opening_mm` [u1, v1, u2, v2], else `span_mm` x
+        /// `span_length_mm` centred (default: the footprint); pillars `pillars_mm` {u: [...], v: [...]}, else an even grid at
+        /// most `span_mm` apart.
+        /// </summary>
+        public static JObject PlatePlan(SizingResult r, Cfg cfg, MoldData data, Support s, LayoutResult lay, double delta)
+        {
+            var d = r.Design;
+            JToken G(string key) => cfg.Param(key) ?? d.Json.SelectToken("structural.inputs." + key);
+            double? GN(string key) => Si.Num(G(key));
+            double[] GA(string key) => (G(key) as JArray)?.Select(x => Si.Num(x) ?? double.NaN).ToArray();
+            double L, W;
+            var cav = new List<double[]>();   // x0, y0, x1, y1
+            if (cfg.Param("plate_layout") is JObject over)
+            {
+                var fp = Si.Lengths(over["footprint_mm"]);
+                if (fp == null || fp.Length < 2 || !(fp[0] > 0) || !(fp[1] > 0)) throw new ArgumentException("overrides.plate_layout.footprint_mm must be [L, W] in mm.");
+                L = fp[0]; W = fp[1];
+                foreach (var c in (over["cavities_mm"] as JArray ?? new JArray()).OfType<JArray>())
+                {
+                    var v = c.Select(x => Si.Num(x) ?? double.NaN).ToArray();
+                    if (v.Length != 4 || v.Any(double.IsNaN) || v[2] <= v[0] || v[3] <= v[1]) throw new ArgumentException("overrides.plate_layout.cavities_mm items are [u0, v0, u1, v1] from the plate corner (mm).");
+                    cav.Add(v);
+                }
+            }
+            else
+            {
+                L = lay.FootprintL; W = lay.FootprintW;
+                double pu = d.PartU * r.Shrink.Su, pv = d.PartV * r.Shrink.Sv;
+                foreach (var c in lay.Cavities) cav.Add(new[] { c.U + L / 2 - pu / 2, c.V + W / 2 - pv / 2, c.U + L / 2 + pu / 2, c.V + W / 2 + pv / 2 });
+            }
+            var land = cfg.ParamNum("land_mm") ?? LandWidth(d, data);
+            var pCav = r.Press.PLC1;
+            var loaded = cav.Sum(c => (c[2] - c[0] + 2 * land) * (c[3] - c[1] + 2 * land));
+            var extra = Math.Max(0, r.Press.Force_N - pCav * loaded) / (L * W);
+            // rails along V: transpose so the rails run along x like the Rails rows and the FE model expect
+            var railsU = s == Support.B ? GA("rails_u_mm") : null;
+            var railsV = s == Support.B ? GA("rails_v_mm") : null;
+            var transpose = s == Support.B && (railsU == null && railsV == null ? W > L + 1e-9 : railsU != null && railsV == null);
+            if (transpose)
+            {
+                var tmp = L; L = W; W = tmp;
+                cav = cav.Select(c => new[] { c[1], c[0], c[3], c[2] }).ToList();
+            }
+            var j = new JObject
+            {
+                ["schema"] = "unify3d.mold-mc/1", ["support"] = s.ToString(),
+                ["plate"] = new JObject { ["length_mm"] = L, ["width_mm"] = W },
+                ["cavities"] = new JArray(cav.Select(c => new JObject { ["x_mm"] = c[0], ["y_mm"] = c[1], ["length_mm"] = c[2] - c[0], ["width_mm"] = c[3] - c[1] })),
+                ["land_mm"] = land, ["pressure_MPa"] = pCav, ["kf"] = 1.0, ["delta_allow_mm"] = delta,
+                ["transposed"] = transpose,
+            };
+            if (extra > 0) j["uniform_MPa"] = extra;
+            switch (s)
+            {
+                case Support.B:
+                {
+                    var rl = transpose ? railsU : railsV;
+                    double y1, y2;
+                    if (rl != null && rl.Length == 2 && !rl.Any(double.IsNaN)) { y1 = Math.Min(rl[0], rl[1]); y2 = Math.Max(rl[0], rl[1]); }
+                    else { var span = Math.Min(GN("rail_span_mm") ?? W, W); y1 = (W - span) / 2; y2 = (W + span) / 2; }
+                    if (!(y2 > y1) || y1 < -1e-9 || y2 > W + 1e-9) throw new ArgumentException("The rails must lie on the plate: rails_v_mm / rails_u_mm are positions from the plate corner (0 to the plate width).");
+                    j["rails"] = new JObject { ["y1_mm"] = y1, ["y2_mm"] = y2 };
+                    break;
+                }
+                case Support.C:
+                {
+                    var op = GA("opening_mm");
+                    double x1, y1, x2, y2;
+                    if (op != null && op.Length == 4 && !op.Any(double.IsNaN)) { x1 = op[0]; y1 = op[1]; x2 = op[2]; y2 = op[3]; }
+                    else
+                    {
+                        var sShort = GN("span_mm") ?? Math.Min(L, W);
+                        var sLong = GN("span_length_mm") ?? Math.Max(L, W);
+                        double ou = L >= W ? sLong : sShort, ov = L >= W ? sShort : sLong;
+                        ou = Math.Min(ou, L); ov = Math.Min(ov, W);
+                        x1 = (L - ou) / 2; x2 = (L + ou) / 2; y1 = (W - ov) / 2; y2 = (W + ov) / 2;
+                    }
+                    if (!(x2 > x1) || !(y2 > y1)) throw new ArgumentException("opening_mm is [u1, v1, u2, v2] from the plate corner with u2 > u1 and v2 > v1.");
+                    j["opening"] = new JObject { ["x1_mm"] = x1, ["y1_mm"] = y1, ["x2_mm"] = x2, ["y2_mm"] = y2 };
+                    break;
+                }
+                case Support.E:
+                {
+                    var pil = G("pillars_mm") as JObject;
+                    double[] xs = (pil?["u"] as JArray)?.Select(x => Si.Num(x) ?? double.NaN).Where(x => x > 0 && x < L).ToArray();
+                    double[] ys = (pil?["v"] as JArray)?.Select(x => Si.Num(x) ?? double.NaN).Where(x => x > 0 && x < W).ToArray();
+                    if ((xs == null || ys == null) && GN("span_mm") is double pitch && pitch > 0)
+                    {
+                        double[] Grid(double size) { var n = Math.Max(0, (int)Math.Ceiling(size / pitch - 1e-9) - 1); return Enumerable.Range(1, n).Select(i => size * i / (n + 1)).ToArray(); }
+                        xs = xs ?? Grid(L);
+                        ys = ys ?? Grid(W);
+                    }
+                    if (xs != null && ys != null && xs.Length > 0 && ys.Length > 0)
+                        j["pillars"] = new JObject { ["xs_mm"] = new JArray(xs), ["ys_mm"] = new JArray(ys) };
+                    break;
+                }
+            }
+            return j;
         }
 
         /// <summary>
@@ -1372,6 +1566,18 @@ namespace SwAgent.Mold
         }
 
         // ------------------------------------------------------------------ helpers
+
+        /// <summary>The support geometry parameters (overrides) that are kept in structural.inputs.</summary>
+        public static readonly string[] SupportKeys = { "frame", "rail_span_mm", "rails_v_mm", "rails_u_mm", "opening_mm", "span_mm", "span_length_mm", "pillars_mm", "overhang_mm" };
+
+        /// <summary>The S21 wall-root factor from sizing-defaults: {base, c} (base + c w/h) or a plain number (constant).</summary>
+        public static (double Base, double Slope) RootFactor(Cfg cfg)
+        {
+            var t = cfg.T("wallRootFactor");
+            if (t is JObject) return (cfg.D("wallRootFactor.base", 1.0), cfg.D("wallRootFactor.c", Walls.DefaultRootSlope));
+            var n = Si.Num(t);
+            return n != null ? (n.Value, 0.0) : (1.0, Walls.DefaultRootSlope);
+        }
 
         /// <summary>A computed check as a record checks[] entry; an explicit status (warn) replaces the margin's.</summary>
         public static JObject ToJson(JCheck c, string stage, string body = null)

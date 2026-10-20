@@ -192,15 +192,16 @@ namespace SwAgent.Tests.Mold
         }
 
         /// <summary>Smoke-run truth: coarser than the full run's TruthMesh (64/8) to keep the default test run short, and still never a mesh the layout-FE sizing uses (24/3, 48/6).</summary>
-        static readonly MonteCarloHarness.MeshSpec SmokeTruth = new MonteCarloHarness.MeshSpec(40, 5);
+        static readonly MeshSpec SmokeTruth = new MeshSpec(40, 5);
 
         [Fact]
         public void Monte_carlo_smoke_E12()
         {
-            // E12 (smoke): random molds, seed 1: the recommended sizing is never unsafe (max r <= 1.00), throws nowhere, covers every
-            // group and is not wasteful (median r_w >= 0.75 per group). The full 2000-mold run with the 64-element truth is Sweep 2.
+            // E12 (smoke): random molds, seed 1, sized by the calculator itself (MoldCalc.Run("size") through MoldCalcSizing): never
+            // unsafe (max r <= 1.00), throws nowhere, covers every group and is not wasteful (median r_w >= 0.75 per group). The
+            // full 2000-mold run with the 64-element truth is Sweep 2 (MoldSweep montecarlo).
             SweepFiles.Calibrate();
-            var run = MonteCarloHarness.Run(SmokeSamples, 1, StubSizing.Create(SweepFiles.Table, StubSizing.Recommended), SmokeTruth);
+            var run = MonteCarloHarness.Run(SmokeSamples, 1, MoldCalcSizing.Create(MoldTestData.Data), SmokeTruth);
             _out.WriteLine($"max r_w {run.MaxRw:F4}, max r_s {run.MaxRs:F4}, median r_w {run.MedianRwGoverned:F3}, {run.Checks.Count} checks, {run.Elapsed.TotalSeconds:F1} s");
             foreach (var g in run.Stats()) _out.WriteLine($"  {g.Name}: {g.Live}/{g.Checks} live, max r_w {g.MaxRw:F3}, median {g.MedianRw:F3} over {g.DeflectionGoverned}");
             Assert.True(run.MaxRw <= 1.0, $"max r_w {run.MaxRw}");
@@ -268,6 +269,35 @@ namespace SwAgent.Tests.Mold
         }
 
         [Fact]
+        public void The_calculator_uses_the_3d_factors_the_truth_uses()
+        {
+            // the Monte Carlo truth takes the wall-root slope and the pillar-head factor from solid3d-summary.json; the calculator
+            // takes them from sizing-defaults.json (gen_defaults.py): they must be the same numbers
+            var solid = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(Path.Combine(SweepFiles.Validation, "solid3d-summary.json")));
+            var cfg = MoldTestData.Cfg();
+            Assert.Equal((double)solid["wallRoot"]["recommendedSlope"], SwAgent.Mold.Sizing.RootFactor(cfg).Slope, 9);
+            Assert.Equal(1.0, SwAgent.Mold.Sizing.RootFactor(cfg).Base, 9);
+            Assert.Equal((double)solid["pillarCell"]["pillarHeadFactor"], cfg.D("pillarHeadFactor", 0), 9);
+            // and the shipped Monte Carlo summary is the calculator's, not the stub's
+            var mc = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(Path.Combine(SweepFiles.Validation, "montecarlo-summary.json")));
+            Assert.StartsWith("MoldCalc.Run", (string)mc["sizing"]);
+        }
+
+        [Fact]
+        public void The_adapter_sizes_for_the_drawn_pressure_and_reports_every_wall()
+        {
+            var rnd = new Random(11);
+            foreach (var d in Enumerable.Range(0, 40).Select(_ => MonteCarloHarness.Draw(rnd)).GroupBy(x => (string)x["support"]).Select(g => g.First()))
+            {
+                var s = MoldCalcSizing.Size(MoldTestData.Data, d);
+                Assert.Equal(2 * ((Newtonsoft.Json.Linq.JArray)d["cavities"]).Count, ((Newtonsoft.Json.Linq.JArray)s["walls"]).Count);
+                Assert.True((double)s["plate"]["t_mm"] > 0);
+                if ((string)d["support"] != "A" && (string)s["plate"]["governs"] != "add support" && (string)s["plate"]["governs"] != "minimum")
+                    Assert.NotNull(s["plate"]["fe"]);
+            }
+        }
+
+        [Fact]
         public void Wall_root_factor_from_a_coarse_3d_pocket()
         {
             // the 3D pocket (L/h 4, w/h 0.25, floor 0.5 h) against the clamped-root Wall-C plate: well above the design's 1.2,
@@ -321,8 +351,8 @@ namespace SwAgent.Tests.Mold
         public void Sweep2_monte_carlo_2000_is_accepted()
         {
             SweepFiles.Calibrate();
-            var run = MonteCarloHarness.Run(2000, 1, StubSizing.Create(SweepFiles.Table, StubSizing.Recommended), log: _out.WriteLine);
-            _out.WriteLine(run.Summary(StubSizing.Recommended.Name).ToString());
+            var run = MonteCarloHarness.Run(2000, 1, MoldCalcSizing.Create(MoldTestData.Data), log: _out.WriteLine);
+            _out.WriteLine(run.Summary(MoldCalcSizing.Name).ToString());
             Assert.True(run.Accepted);
         }
 

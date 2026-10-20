@@ -120,14 +120,15 @@ namespace SwAgent.Tests.Mold
             Near((double)x["Al.Sy_MPa"], al.Sy, 0.01, "Sy");
             var fa = Fatigue.AllowablesKf(al, 1e5, 1.5, cfg);
             Near((double)x["Al.allowFatigue_MPa"], fa.AllowFatigue, 0.1, "fatigue allowable");
-            WallInput W(GradeAtT g, FatigueResult f, double root) => new WallInput
+            // the wall-root factor is 1 + 2.8 w/h (Track A2's 3D pocket models); slope 0 is the plate alone
+            WallInput W(GradeAtT g, FatigueResult f, double slope) => new WallInput
             {
-                Id = "E3", P = 10.3, H = 25, L = 150, BPerp = 0, E = g.E, DeltaAllow = 0.05, RootFactor = root,
+                Id = "E3", P = 10.3, H = 25, L = 150, BPerp = 0, E = g.E, DeltaAllow = 0.05, RootFactor = 1.0, RootSlope = slope,
                 AllowStatic = f.AllowStatic, AllowFatigue = f.AllowFatigue,
             };
-            var noRoot = Walls.Size(W(al, new FatigueResult { AllowStatic = 1e9, AllowFatigue = 1e9 }, 1.0));
+            var noRoot = Walls.Size(W(al, new FatigueResult { AllowStatic = 1e9, AllowFatigue = 1e9 }, 0.0));
             Near((double)x["Al.wDefl_noRoot_mm"], noRoot.WDefl, tol, "Al no root");
-            var a = Walls.Size(W(al, fa, 1.2));
+            var a = Walls.Size(W(al, fa, Walls.DefaultRootSlope));
             Near((double)x["Al.wDefl_mm"], a.WDefl, tol, "Al defl");
             Near((double)x["Al.wStruct_mm"], a.WStruct, tol, "Al struct (fatigue)");
             Assert.True(a.StockyFlag, "w/h > 0.5 must be flagged");
@@ -137,8 +138,8 @@ namespace SwAgent.Tests.Mold
             var f6 = Fatigue.AllowablesKf(p20, 1e6, 1.5, cfg);
             Near((double)x["P20.allow1e5_MPa"], f5.Allow, 0.1, "P20 allow 1e5");
             Near((double)x["P20.allow1e6_MPa"], f6.Allow, 0.1, "P20 allow 1e6");
-            var p5 = Walls.Size(W(p20, f5, 1.2));
-            var p6 = Walls.Size(W(p20, f6, 1.2));
+            var p5 = Walls.Size(W(p20, f5, Walls.DefaultRootSlope));
+            var p6 = Walls.Size(W(p20, f6, Walls.DefaultRootSlope));
             Near((double)x["P20.wDefl_mm"], p5.WDefl, tol, "P20 defl");
             Near((double)x["P20.wStruct1e5_mm"], p5.WStruct, tol, "P20 1e5");
             Near((double)x["P20.wStruct1e6_mm"], p6.WStruct, tol, "P20 1e6");

@@ -21,13 +21,22 @@ namespace SwAgent.Mold
     {
         public static LiftResult LidLimit(string liftAt, double? reach_cm, double? liftsPerHour, Cfg cfg, double asymmetryDeg = 0)
         {
-            if (string.IsNullOrWhiteSpace(liftAt) || reach_cm == null || liftsPerHour == null)
-                return new LiftResult { Rwl_kg = cfg.D("lifting.unknownLid_kg", 11), Basis = "default 11 kg (25 lb): lifting answers not given" };
-            var loc = liftAt.Trim().ToLowerInvariant().Contains("press") ? "press" : "table";
+            var unknown = cfg.D("lifting.unknownLid_kg", 11);
+            if (string.IsNullOrWhiteSpace(liftAt) || liftsPerHour == null)
+                return new LiftResult { Rwl_kg = unknown, Basis = "default 11 kg (25 lb): lifting answers not given" };
+            // where the lid comes off: "Inside the press" or "At the slide-out table"; anything else ("Not sure") is the
+            // 11 kg fallback, never a guessed location
+            var k = liftAt.Trim().ToLowerInvariant();
+            var loc = k.Contains("press") ? "press" : k.Contains("table") || k.Contains("slide") ? "table" : null;
+            if (loc == null)
+                return new LiftResult { Rwl_kg = unknown, Basis = "default 11 kg (25 lb): where the lid is lifted is not known (" + liftAt.Trim() + ")" };
+            var hLoc = cfg.D("lifting.locations." + loc + ".H_cm", loc == "press" ? 55 : 40);
+            // inside the press the lid is reached over the platen: at least the location's reach (55 cm) whatever was typed
+            var H = loc == "press" ? Math.Max(reach_cm ?? hLoc, hLoc) : reach_cm ?? hLoc;
             var V = cfg.D("lifting.locations." + loc + ".V_cm", loc == "press" ? 100 : 90);
             var D = cfg.D("lifting.locations." + loc + ".D_cm", 25);
             var cm = cfg.D("lifting.locations." + loc + ".coupling", loc == "press" ? 0.9 : 1.0);
-            return Rwl(reach_cm.Value, V, D, liftsPerHour.Value / 60.0, cm, cfg, asymmetryDeg, "NIOSH RWL, lid lifted at the " + (loc == "press" ? "press" : "slide-out table"));
+            return Rwl(H, V, D, liftsPerHour.Value / 60.0, cm, cfg, asymmetryDeg, "NIOSH RWL, lid lifted " + (loc == "press" ? "inside the press" : "at the slide-out table") + ", reach " + Si.F(H) + " cm");
         }
 
         public static LiftResult Rwl(double H_cm, double V_cm, double D_cm, double liftsPerMin, double coupling, Cfg cfg, double asymmetryDeg = 0, string basis = "NIOSH RWL")

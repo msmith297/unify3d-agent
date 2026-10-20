@@ -72,6 +72,7 @@ def fat(a, N, kf):
 # Mirrors the C# reader's rules (not its code): full-load rows (the largest loadFrac), nu interpolated linearly between the
 # tabulated values, walls the running maximum over L/h and above the last L/h max(that, strip with shear), no clamp to the strip,
 # and the table's interpolation allowance (header "# allowance:", else 1.01 for a swept table, 1.0 for the provisional one).
+# Above the last tabulated aspect the limit (walls: the cantilever strip; plates: the one-way strip) is taken at the requested nu.
 TAB = {}
 HEAD = [l for l in open(CSV) if l.startswith("#")]
 PROVISIONAL = any(l.startswith("# provisional") for l in HEAD)
@@ -106,6 +107,10 @@ def coef_nu(bc, aspect, tau, nu):
     r0 = in_tau(t[a0], tau); r1 = in_tau(t[a1], tau); w = (aspect - a0) / (a1 - a0) if a1 > a0 else 0
     al, be = r0[0] + (r1[0] - r0[0]) * w, r0[1] + (r1[1] - r0[1]) * w
     return (max(env[0], al), max(env[1], be)) if wall else (al, be)
+def one_way(bc, tau, nu):
+    if bc == "Overhang": return strip(tau, nu)
+    shear = (1 + nu) / (4 * (5 / 6)) * tau * tau
+    return (12 * (1 - nu * nu) / 384 + shear, 0.5) if bc in ("C4", "C2S2") else (5 * 12 * (1 - nu * nu) / 384 + shear, 0.75)
 def coef(bc, aspect, tau, nu=0.33):
     nus = sorted(TAB[bc]); n = min(max(nu, nus[0]), nus[-1])
     lo = max(x for x in nus if x <= n); hi = min(x for x in nus if x >= n)
@@ -113,13 +118,20 @@ def coef(bc, aspect, tau, nu=0.33):
     if hi > lo:
         b = coef_nu(bc, aspect, tau, hi); w = (n - lo) / (hi - lo)
         a = (a[0] + (b[0] - a[0]) * w, a[1] + (b[1] - a[1]) * w)
+    asp = aspect if not (bc in ("SS4", "C4") and aspect < 1) else 1 / aspect
+    if asp > max(max(t) for t in TAB[bc].values()):
+        lim = strip(tau, nu) if bc.startswith("Wall") else one_way(bc, tau, nu)
+        a = (max(a[0], lim[0]), max(a[1], lim[1]))
     return a[0] * ALLOW, a[1] * ALLOW
 
 # ---------------------------------------------------------------- walls (S21-S23)
-def wall(p, h, L, b, E, delta, allow, root=1.2, nu=0.33):
+# S21 wall-root factor: 1 + c w/h (Track A2's 3D pocket models, solid3d-summary.json; sizing-defaults wallRootFactor)
+ROOT_SLOPE = 2.8
+def root_factor(w, h, slope=ROOT_SLOPE, base=1.0): return base + slope * w / h
+def wall(p, h, L, b, E, delta, allow, slope=ROOT_SLOPE, base=1.0, nu=0.33):
     w = 0.3 * h
     for _ in range(200):
-        wn = (root * coef("Wall-C", L / h, w / h, nu)[0] * p * h ** 4 / (E * delta)) ** (1 / 3)
+        wn = (root_factor(w, h, slope, base) * coef("Wall-C", L / h, w / h, nu)[0] * p * h ** 4 / (E * delta)) ** (1 / 3)
         if abs(wn - w) / w < 1e-10: w = wn; break
         w = wn
     sig = lambda x: coef("Wall-C", L / h, x / h, nu)[1] * p * h * h / x ** 2 + p * b / (2 * x)
@@ -192,7 +204,7 @@ mlid = L * Wd * tlid * rho
 drawnU, drawnV = min(edgeU, gap), edgeV
 def at_drawn(Lw, b, w):
     al, be = coef("Wall-C", Lw / h, w / h, a6["nu"])
-    return be * pLC1 * h * h / w ** 2 + pLC1 * b / (2 * w), 1.2 * al * pLC1 * h ** 4 / (a6["E"] * w ** 3)
+    return be * pLC1 * h * h / w ** 2 + pLC1 * b / (2 * w), root_factor(w, h) * al * pLC1 * h ** 4 / (a6["E"] * w ** 3)
 sigV, defV = at_drawn(pu, pv, drawnV)
 sigU, defU = at_drawn(pv, pu, drawnU)
 capV = a6["Sy"] / (3 * h * h / drawnV ** 2 + pv / (2 * drawnV))
@@ -245,7 +257,7 @@ examples.append({"id": "E2", "title": "Class A, the user's typical job: TDI-ethe
 # ---------------------------------------------------------------- E3 class B wall (L/h = 6, per structural 5.3)
 a150 = at("al_6061_t651", 150); p20 = at("st_p20", 150)
 f3 = fat(a150, 1e5, 1.5)
-w0 = wall(10.3, 25, 150, 0, a150["E"], 0.05, 1e9, root=1.0, nu=a150["nu"])[0]
+w0 = wall(10.3, 25, 150, 0, a150["E"], 0.05, 1e9, slope=0.0, nu=a150["nu"])[0]
 w1, ws1, sig1 = wall(10.3, 25, 150, 0, a150["E"], 0.05, min(f3["fat"], f3["static"]), nu=a150["nu"])
 pa = fat(p20, 1e5, 1.5); pb = fat(p20, 1e6, 1.5)
 wp, wsp, sigp = wall(10.3, 25, 150, 0, p20["E"], 0.05, min(pa["fat"], pa["static"]), nu=p20["nu"])
@@ -256,7 +268,7 @@ examples.append({"id": "E3", "title": "Class B wall: p = 10.3 MPa, h = 25 mm, L 
                  "P20.wDefl_mm": wp, "P20.sigmaAtDefl_MPa": coef("Wall-C", 6, wp / 25, p20["nu"])[1] * 10.3 * 625 / wp ** 2,
                  "P20.allow1e5_MPa": min(pa["fat"], pa["static"]), "P20.wStruct1e5_mm": max(wp, wsp), "P20.allow1e6_MPa": min(pb["fat"], pb["static"]), "P20.wStruct1e6_mm": max(wp6, wsp6)},
     "flags": {"Al.stocky": max(w1, ws1) / 25 > 0.5},
-    "notes": "Re-derived for the L/h = 6 row (critique A4). Before: the L/h = 4 row gave 13.3 / 16.9 mm (Al) and 8.65 mm at 232 MPa against 231 MPa (P20, critique H1: fails by 0.4% -> 8.66 mm). The aluminium wall is still stocky (w/h > 0.5): prefer P20 or a 3D check.",
+    "notes": "Re-derived for the L/h = 6 row (critique A4). Before: the L/h = 4 row gave 13.3 / 16.9 mm (Al) and 8.65 mm at 232 MPa against 231 MPa (P20, critique H1: fails by 0.4% -> 8.66 mm). The wall-root factor is Track A2's 3D 1 + 2.8 w/h (the design's constant 1.2 holds only below w/h 0.07), so the walls come out thicker than with 1.2. The aluminium wall is still stocky (w/h > 0.5): prefer P20 or a 3D check.",
     "tolerancePct": 1.0, "tableDependentTolerancePct": 2.0})
 
 # ---------------------------------------------------------------- E4 bolted frame corner (critique A1: scatter + hot proof)

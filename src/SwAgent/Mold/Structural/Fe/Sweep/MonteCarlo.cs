@@ -47,14 +47,6 @@ namespace SwAgent.Mold.Structural.Fe.Sweep
         public const int MinLiveChecks = 10;
         public const double MinCoverage = 0.5, MinMedianRw = 0.75;
 
-        /// <summary>Plate mesh: elements on the plate's short side, and at least HeadElements across a pillar head.</summary>
-        public sealed class MeshSpec
-        {
-            public int Elements, HeadElements;
-            public MeshSpec(int elements, int headElements) { Elements = elements; HeadElements = headElements; }
-            public override string ToString() => $"{Elements} elements on the short side, pillar heads {HeadElements} elements wide";
-        }
-
         public static readonly MeshSpec TruthMesh = new MeshSpec(64, 8);
 
         public static readonly string[] Grades = { "al_6061_t651", "al_7075_t651", "st_p20", "st_h13" };
@@ -193,67 +185,15 @@ namespace SwAgent.Mold.Structural.Fe.Sweep
             return new MonteCarloRun { Checks = results.SelectMany(r => r).ToList(), Samples = n, Seed = seed, Designs = designs, Elapsed = sw.Elapsed, Truth = truth };
         }
 
-        /// <summary>The plate model of a sized design (t), its x/y offset (case C models the opening only) and the span.</summary>
-        public static PlateModel PlateOf(JObject d, double t, double e, double nu, MeshSpec mesh, bool clampedHeads, out double ox, out double oy, out double span)
-        {
-            string support = (string)d["support"];
-            double pl = (double)d["plate"]["length_mm"], pw = (double)d["plate"]["width_mm"], p = (double)d["pressure_MPa"], land = (double?)d["land_mm"] ?? 3.175;
-            PlateModel m;
-            ox = 0; oy = 0;
-            double shortSide;
-            switch (support)
-            {
-                case "A":
-                    m = PlateModel.Rect(pl, pw, t, e, nu, EdgeBc.Free, EdgeBc.Free, EdgeBc.Free, EdgeBc.Free);
-                    m.Foundations.Add(new WinklerRegion(0, pl, 0, pw, 1e4, unilateral: true)); // a rigid platen through a thin contact layer
-                    span = shortSide = Math.Min(pl, pw);
-                    break;
-                case "B":
-                    m = PlateModel.Rect(pl, pw, t, e, nu, EdgeBc.Free, EdgeBc.Free, EdgeBc.Free, EdgeBc.Free);
-                    double y1 = (double)d["rails"]["y1_mm"], y2 = (double)d["rails"]["y2_mm"];
-                    m.Lines.Add(new LineSupport('y', y1)); m.Lines.Add(new LineSupport('y', y2));
-                    span = y2 - y1; shortSide = Math.Min(pl, pw);
-                    break;
-                case "C":
-                    var o = d["opening"];
-                    ox = (double)o["x1_mm"]; oy = (double)o["y1_mm"];
-                    double ol = (double)o["x2_mm"] - ox, ow = (double)o["y2_mm"] - oy;
-                    m = PlateModel.Rect(ol, ow, t, e, nu, EdgeBc.SimpleHard, EdgeBc.SimpleHard, EdgeBc.SimpleHard, EdgeBc.SimpleHard);
-                    span = shortSide = Math.Min(ol, ow);
-                    break;
-                case "E":
-                    m = PlateModel.Rect(pl, pw, t, e, nu, EdgeBc.SimpleHard, EdgeBc.SimpleHard, EdgeBc.SimpleHard, EdgeBc.SimpleHard);
-                    var xs = d["pillars"]["xs_mm"].Select(v => (double)v).ToList();
-                    var ys = d["pillars"]["ys_mm"].Select(v => (double)v).ToList();
-                    span = PillarSpan(d);
-                    shortSide = Math.Min(pl, pw);
-                    double hh = CoefficientSweep.PillarHead * span / 2;
-                    foreach (var px in xs) foreach (var py in ys) m.Fixed.Add(new FixedRegion(px - hh, px + hh, py - hh, py + hh, clampedHeads));
-                    break;
-                default: throw new ArgumentException("Unknown support " + support);
-            }
-            m.ElementSize = shortSide / mesh.Elements;
-            if (support == "E") m.ElementSize = Math.Min(m.ElementSize, CoefficientSweep.PillarHead * span / mesh.HeadElements);
-            m.MaxMemoryMB = 4000; // dev harness, outside SolidWorks
-            foreach (var c in d["cavities"])
-            {
-                double cx = (double)c["x_mm"], cy = (double)c["y_mm"], cl = (double)c["length_mm"], cw = (double)c["width_mm"];
-                m.Pressures.Add(new PressurePatch(cx - land - ox, cx + cl + land - ox, cy - land - oy, cy + cw + land - oy, p));
-                // grid lines on the cavity outline too, so both edges of the land ring are nodes on every mesh (the land is
-                // narrower than an element: without them a coarse mesh reads the land only at its outer edge)
-                m.XLines.Add(cx - ox); m.XLines.Add(cx + cl - ox); m.YLines.Add(cy - oy); m.YLines.Add(cy + cw - oy);
-            }
-            return m;
-        }
+        /// <summary>Band storage cap of the truth models (dev harness, outside SolidWorks).</summary>
+        public const int TruthMemoryMB = 4000;
+
+        /// <summary>The plate model of a sized design (t), its x/y offset (case C models the opening only) and the span (LayoutPlate.Model).</summary>
+        public static PlateModel PlateOf(JObject d, double t, double e, double nu, MeshSpec mesh, bool clampedHeads, out double ox, out double oy, out double span) =>
+            LayoutPlate.Model(d, t, e, nu, mesh, clampedHeads, out ox, out oy, out span, TruthMemoryMB);
 
         /// <summary>The short pillar spacing of case E: min over x and y of the largest gap between pillars and plate edges.</summary>
-        public static double PillarSpan(JObject d)
-        {
-            double pl = (double)d["plate"]["length_mm"], pw = (double)d["plate"]["width_mm"];
-            var gx = new[] { 0.0 }.Concat(d["pillars"]["xs_mm"].Select(v => (double)v)).Concat(new[] { pl }).ToList();
-            var gy = new[] { 0.0 }.Concat(d["pillars"]["ys_mm"].Select(v => (double)v)).Concat(new[] { pw }).ToList();
-            return Math.Min(Enumerable.Range(0, gx.Count - 1).Max(k => gx[k + 1] - gx[k]), Enumerable.Range(0, gy.Count - 1).Max(k => gy[k + 1] - gy[k]));
-        }
+        public static double PillarSpan(JObject d) => LayoutPlate.PillarSpan(d);
 
         /// <summary>The FE truth for one sized design (plate and walls) on the given mesh (TruthMesh by default).</summary>
         public static List<Check> CheckDesign(int index, JObject d, JObject s, MeshSpec mesh = null, CancellationToken ct = default)
@@ -309,54 +249,13 @@ namespace SwAgent.Mold.Structural.Fe.Sweep
         }
 
         /// <summary>
-        /// r_w and r_s of the plate of a design at thickness t on a mesh: the largest land deflection over delta (case A: the
-        /// spread between land points, the plate settles into the platen as a whole), and the largest stress x K_f over the
-        /// allowable. Case E: deflection over w-only heads times TruePillarFactor; stress the larger of the plate outside the heads
-        /// (and 0.1 span around them) and the hogging on the faces of clamped heads, read a quarter of the head side or more from
-        /// the head corners (what the Pillar rows tabulate).
+        /// r_w and r_s of the plate of a design at thickness t on a mesh (LayoutPlate.Ratios with the truth's pillar-head factor):
+        /// the largest land deflection over delta (case A: the spread between land points), and the largest stress x K_f over the
+        /// allowable; case E: deflection over w-only heads times TruePillarFactor, stress the larger of the plate between the
+        /// pillars and the hogging on the faces of clamped heads.
         /// </summary>
-        public static (double Rw, double Rs, double Span, string Note) PlateRatios(JObject d, double t, double e, double nu, double allow, MeshSpec mesh, CancellationToken ct = default)
-        {
-            string support = (string)d["support"];
-            double delta = (double)d["delta_allow_mm"], kf = (double)d["kf"], land = (double?)d["land_mm"] ?? 3.175;
-            var cavs = d["cavities"].Select(c => (x: (double)c["x_mm"], y: (double)c["y_mm"], l: (double)c["length_mm"], w: (double)c["width_mm"])).ToList();
-            var m = PlateOf(d, t, e, nu, mesh, false, out double ox, out double oy, out double span);
-            // the land ring of each cavity: between the outline and the outline + land
-            Func<double, double, bool> onLand = (x, y) => cavs.Any(c =>
-            {
-                double lx = x + ox, ly = y + oy, eps = 1e-6;
-                bool inOuter = lx >= c.x - land - eps && lx <= c.x + c.l + land + eps && ly >= c.y - land - eps && ly <= c.y + c.w + land + eps;
-                bool inInner = lx > c.x + eps && lx < c.x + c.l - eps && ly > c.y + eps && ly < c.y + c.w - eps;
-                return inOuter && !inInner;
-            });
-            var r = MindlinPlateSolver.Solve(m, ct);
-            double wl = Math.Abs(r.MaxW(onLand, out _));
-            string note = null;
-            if (support == "A")
-            {
-                double lo = double.MaxValue, hi = double.MinValue;
-                for (int i = 0; i < r.Xs.Length; i++)
-                    for (int j = 0; j < r.Ys.Length; j++)
-                        if (onLand(r.Xs[i], r.Ys[j])) { lo = Math.Min(lo, r.W[i, j]); hi = Math.Max(hi, r.W[i, j]); }
-                wl = hi - lo;
-                note = $"contact {r.ContactFraction:P0}";
-            }
-            double mMax = r.MMax;
-            if (support == "E")
-            {
-                wl *= TruePillarFactor;
-                double hs = CoefficientSweep.PillarHead * span;
-                double band = hs / 2 + CoefficientSweep.CornerExclusion * span;
-                var heads = m.Fixed.Select(f => ((f.X1 + f.X2) / 2, (f.Y1 + f.Y2) / 2)).ToList();
-                double interior = r.MaxMoment((x, y) => heads.All(q => Math.Max(Math.Abs(x - q.Item1), Math.Abs(y - q.Item2)) > band), out _);
-                var mc = PlateOf(d, t, e, nu, mesh, true, out _, out _, out _);
-                var rc = MindlinPlateSolver.Solve(mc, ct);
-                double face = CoefficientSweep.HeadFaceMoment(rc, mc, CoefficientSweep.PillarCornerExclusion / CoefficientSweep.PillarHead * hs);
-                mMax = Math.Max(interior, face);
-                note = face >= interior ? "stress: hogging on a head face" : "stress: between the pillars";
-            }
-            return (wl / delta, 6 * mMax / (t * t) * kf / allow, span, note);
-        }
+        public static (double Rw, double Rs, double Span, string Note) PlateRatios(JObject d, double t, double e, double nu, double allow, MeshSpec mesh, CancellationToken ct = default) =>
+            LayoutPlate.Ratios(d, t, e, nu, allow, mesh, TruePillarFactor, TruthMemoryMB, ct);
     }
 
     public sealed class MonteCarloRun
@@ -365,7 +264,7 @@ namespace SwAgent.Mold.Structural.Fe.Sweep
         public List<JObject> Designs;
         public int Samples, Seed;
         public TimeSpan Elapsed;
-        public MonteCarloHarness.MeshSpec Truth;
+        public MeshSpec Truth;
 
         IEnumerable<MonteCarloHarness.Check> Live => Checks.Where(c => !c.Skipped && !c.Error);
         public List<MonteCarloHarness.Check> Errors => Checks.Where(c => c.Error).ToList();

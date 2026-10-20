@@ -33,6 +33,9 @@ namespace SwAgent.Mold
 
         public PressMeaning Meaning;
         public double PressValue, RatedForce_kN, RatedGauge_MPa;
+        /// <summary>The unit the user's gauge reads (the page's picked unit of press_pressure / press_rated_gauge, or
+        /// inputs.gauge_unit): psi, bar, kgf/cm2 or MPa; null when not known. The setup sheet prints gauge settings in it.</summary>
+        public string GaugeUnit;
         public bool PressValueGiven;
         public double? RamArea_mm2, PlatenL, PlatenW, Daylight, Stroke;
         public bool SlideIn = true, FlatOnPlaten = true;
@@ -54,7 +57,7 @@ namespace SwAgent.Mold
         /// </summary>
         public static readonly Dictionary<string, string> Quantities = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
-            ["press_pressure"] = "pressure", ["press_rated_gauge"] = "pressure", ["molding_pressure"] = "pressure",
+            ["press_pressure"] = "pressure", ["part_pressure"] = "pressure", ["press_rated_gauge"] = "pressure", ["molding_pressure"] = "pressure",
             ["press_rated_force"] = "force", ["press_force"] = "force", ["press_force_reading"] = "force",
             ["platen_size"] = "length", ["daylight"] = "length", ["stroke"] = "length", ["max_plate_size"] = "length",
             ["lid_reach"] = "length", ["lid_reach_cm"] = "length_cm", ["ram_bore"] = "length", ["ram_area_mm2"] = "area", ["ram_area"] = "area",
@@ -155,10 +158,17 @@ namespace SwAgent.Mold
             d.Cavities = (int)Math.Round(N("cavities") ?? (design.SelectToken("layout.cavities") as JArray)?.Count ?? 1);
             if (d.Cavities < 1) d.Cavities = 1;
             d.Meaning = Press.ParseMeaning(S("press_pressure_is"));
-            // a force reading is its own number (kN): a pressure typed into the psi box is never read as a force (C2)
-            var pv = d.Meaning == PressMeaning.ForceReading ? N("press_force", "press_force_reading") : N("press_pressure");
+            // each meaning has its own page field (the page sends only the one press_pressure_is shows): a force reading is its
+            // own number (kN), never a pressure typed into the psi box (C2); "On the part" has its own field with a higher limit
+            // (C1: 150 MPa against the gauge's 100 MPa). press_force / press_pressure are the older ids, still read.
+            var pv = d.Meaning == PressMeaning.ForceReading ? N("press_force_reading", "press_force")
+                   : d.Meaning == PressMeaning.OnPart ? N("part_pressure", "press_pressure")
+                   : N("press_pressure");
             d.PressValueGiven = pv != null;
             d.PressValue = pv ?? 0;
+            string UnitOf(string key) => (inp[key] as JObject)?["unit"]?.Type == JTokenType.String ? (string)inp[key]["unit"] : null;
+            var gaugeUnit = S("gauge_unit") ?? UnitOf("press_pressure") ?? UnitOf("press_rated_gauge");
+            if (gaugeUnit != null && new[] { "psi", "bar", "kgf/cm2", "kgf/cm²", "mpa" }.Contains(gaugeUnit.Trim().ToLowerInvariant())) d.GaugeUnit = gaugeUnit.Trim();
             d.RatedForce_kN = N("press_rated_force") ?? 0;
             d.RatedGauge_MPa = N("press_rated_gauge") ?? 0;
             var bore = N("ram_bore");
@@ -226,10 +236,12 @@ namespace SwAgent.Mold
         {
             if (Meaning == PressMeaning.Unknown)
                 throw new ArgumentException("press_pressure_is is \"Not sure\": ask the user whether the number is a gauge reading, the pressure on the part, or a force reading, then merge it into inputs.");
-            if (!PressValueGiven)
+            if (!PressValueGiven || !(PressValue > 0))
                 throw new ArgumentException(Meaning == PressMeaning.ForceReading
-                    ? "press_pressure_is is \"Force reading (tons)\" but inputs.press_force is not set: ask the user for the force the press shows (US ton, t or kN) and merge it into inputs.press_force."
-                    : "inputs.press_pressure is not set: ask the user for the press setting and merge it into inputs.");
+                    ? "press_pressure_is is \"Force reading (tons)\" but inputs.press_force_reading is " + (PressValueGiven ? "not above 0" : "not set") + ": ask the user for the force the press shows (US ton, t or kN) and merge it into inputs.press_force_reading."
+                    : Meaning == PressMeaning.OnPart
+                    ? "press_pressure_is is \"On the part\" but inputs.part_pressure is " + (PressValueGiven ? "not above 0" : "not set") + ": ask the user for the pressure on the part and merge it into inputs.part_pressure."
+                    : "press_pressure_is is \"Gauge reading\" but inputs.press_pressure is " + (PressValueGiven ? "not above 0" : "not set") + ": ask the user for the gauge setting and merge it into inputs.press_pressure.");
             if (RatedForce_kN <= 0)
                 throw new ArgumentException("The press rating is unknown: set inputs.press_rated_force (the nameplate force) and inputs.press_rated_gauge (the gauge reading at that force).");
             if ((RamArea_mm2 == null || RamArea_mm2 <= 0) && RatedGauge_MPa <= 0)
