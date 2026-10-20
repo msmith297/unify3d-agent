@@ -156,6 +156,15 @@ namespace SwAgent.Mold
             return ToCalc(v, unit);
         }
 
+        /// <summary>The text after the leading number ("24 in" -> "in"; "24" -> "").</summary>
+        private static string UnitText(string s)
+        {
+            s = (s ?? "").Trim();
+            var i = 0;
+            while (i < s.Length && (char.IsDigit(s[i]) || s[i] == '.' || s[i] == '-' || s[i] == '+' || s[i] == ',' || s[i] == 'e' || s[i] == 'E')) i++;
+            return s.Substring(i).Trim();
+        }
+
         /// <summary>Reads a length array (e.g. [610, 610] mm, or {"value":[24,24],"unit":"in"}) in mm; null when absent.</summary>
         public static double[] Lengths(JToken t)
         {
@@ -181,11 +190,18 @@ namespace SwAgent.Mold
             }
             if (t.Type == JTokenType.String)
             {
-                var parts = ((string)t).Split(new[] { 'x', 'X', ',', '×' }, StringSplitOptions.RemoveEmptyEntries);
+                var text = (string)t;
+                var br = text.IndexOfAny(new[] { '(', '[' });   // "24 x 24 in (610 x 610 mm)" -> the first reading
+                if (br > 0) text = text.Substring(0, br);
+                var parts = text.Split(new[] { 'x', 'X', ',', '×' }, StringSplitOptions.RemoveEmptyEntries);
                 var r = new double[parts.Length];
+                // "24 x 24 in": a unit written once at the end applies to every number
+                var lastUnit = parts.Length > 0 ? UnitText(parts[parts.Length - 1]) : "";
                 for (var i = 0; i < parts.Length; i++)
                 {
-                    var n = ParseWithUnit(parts[i], out _);
+                    var p = parts[i].Trim();
+                    if (UnitText(p).Length == 0 && lastUnit.Length > 0) p += " " + lastUnit;
+                    var n = ParseWithUnit(p, out _);
                     if (n == null) return null;
                     r[i] = n.Value;
                 }

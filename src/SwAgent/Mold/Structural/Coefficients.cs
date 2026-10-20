@@ -16,9 +16,10 @@ namespace SwAgent.Mold
     ///
     /// Boundary sets: SS4, C4 (symmetric plates: aspect = long/short, so a/b and b/a are the same), Rails, C2S2, Overhang,
     /// Pillar (aspect as the set defines it, clamped to the table), Wall-C, Wall-S (walls; aspect = L/h, below 1 allowed).
-    /// Walls above the last tabulated L/h use max(the last row, the cantilever strip with shear) (critique A4, Track A2):
+    /// Wall coefficients are the running maximum over L/h (a longer wall is never sized thinner: the A4 monotonic rule);
+    /// above the last tabulated L/h they are max(that envelope, the cantilever strip with shear) (critique A4, Track A2):
     /// alpha = 12(1-nu²)/8 + (1+nu)/kappa tau², beta = 3. Rows are not clamped to the strip: thick walls overshoot it by up to
-    /// about 1% near L/h 6 (a real Mindlin effect, Track A2). Below the first tau the first row is used; above the last tau
+    /// about 1% near L/h 6-8 (a real Mindlin effect, Track A2), and the envelope keeps that overshoot for longer walls. Below the first tau the first row is used; above the last tau
     /// alpha is extended linearly in tau² (results there are flagged by the tauMax gate anyway). nu is interpolated linearly
     /// between the tabulated values (clamped), loadFrac likewise. The interpolated alpha and beta are multiplied by the
     /// table's interpolation allowance (Track A2: 1.01 covers the worst under-read between rows), read from a header line
@@ -168,11 +169,20 @@ namespace SwAgent.Mold
         {
             var aspects = rows.Select(r => r.Aspect).Distinct().OrderBy(x => x).ToArray();
             var strip = Strip(tau, nu);
-            if (wall && aspect > aspects[aspects.Length - 1])
+            if (wall)
             {
-                // critique A4 + Track A2: above the last row the larger of that row and the strip with shear
-                var lastW = InTau(rows.Where(r => r.Aspect == aspects[aspects.Length - 1]).ToList(), tau);
-                return (Math.Max(lastW.Item1, strip.Alpha), Math.Max(lastW.Item2, strip.Beta));
+                // Walls use the running maximum over L/h: thick walls overshoot the strip by up to about 1% near L/h 6-8
+                // and then fall back to it (Track A2), but a longer wall must never be sized thinner than a shorter one
+                // (A4 monotonic rule). Above the last row: the larger of that envelope and the strip with shear (A4).
+                var env = (A: 0.0, B: 0.0);
+                foreach (var a in aspects.Where(x => x <= aspect + 1e-12))
+                {
+                    var ra = InTau(rows.Where(r => r.Aspect == a).ToList(), tau);
+                    env = (Math.Max(env.A, ra.Item1), Math.Max(env.B, ra.Item2));
+                }
+                if (aspect > aspects[aspects.Length - 1]) return (Math.Max(env.A, strip.Alpha), Math.Max(env.B, strip.Beta));
+                var lerp = Lerp(rows, aspects, aspect, tau);
+                return (Math.Max(env.A, lerp.Item1), Math.Max(env.B, lerp.Item2));
             }
             if (!wall && aspect > aspects[aspects.Length - 1])
             {
@@ -181,6 +191,11 @@ namespace SwAgent.Mold
                 var one = OneWay(rows[0].Bc, tau, nu);
                 return (Math.Max(last.Item1, one.Alpha), Math.Max(last.Item2, one.Beta));
             }
+            return Lerp(rows, aspects, aspect, tau);
+        }
+
+        private static (double, double) Lerp(List<Row> rows, double[] aspects, double aspect, double tau)
+        {
             var a0 = aspects.Where(x => x <= aspect).DefaultIfEmpty(aspects[0]).Max();
             var a1 = aspects.Where(x => x >= aspect).DefaultIfEmpty(aspects[aspects.Length - 1]).Min();
             var r0 = InTau(rows.Where(r => r.Aspect == a0).ToList(), tau);

@@ -59,6 +59,11 @@ namespace SwAgent.Tests.Mold
             Assert.Equal(13.7895, Si.Num(new JObject { ["value"] = "2000 psi (13.79 MPa)", ["si"] = 13789514.6 }).Value, 4);
             Assert.Equal(25.4, Si.Num(new JObject { ["value"] = 1.0, ["unit"] = "in", ["si"] = 0.0254 }).Value, 9);
             Assert.Equal(4.0, Si.Num(new JObject { ["value"] = "4", ["si"] = 4 }).Value, 9);                         // a count
+            // sizes: a unit written once applies to every number; SI arrays are metres
+            Assert.Equal(new[] { 609.6, 609.6 }, Si.Lengths("24 x 24 in").Select(x => Math.Round(x, 6)));
+            Assert.Equal(new[] { 609.6, 609.6 }, Si.Lengths("24 x 24 in (610 x 610 mm)").Select(x => Math.Round(x, 6)));
+            Assert.Equal(new[] { 610.0, 500.0 }, Si.Lengths("610 x 500"));
+            Assert.Equal(new[] { 610.0, 500.0 }, Si.Lengths(new JObject { ["value"] = "24 x 19.7 in", ["si"] = new JArray(0.61, 0.5) }).Select(x => Math.Round(x, 6)));
         }
 
         [Fact]
@@ -211,6 +216,11 @@ namespace SwAgent.Tests.Mold
             Assert.Equal(new[] { "WALL-X", "PRESS-Y" }, t["checks"].Select(c => (string)c["id"]));
             Assert.Null(t[MoldRecord.ReplaceKey]);
             Assert.Null(t[MoldRecord.ReplaceChecksKey]);
+            // the cure checks belong to the process step, which every action re-runs
+            Assert.Equal("process", Check.Group("CURE-TEMP-HIGH"));
+            Assert.Equal("process", Check.Group("CHG-POUR"));
+            Assert.Equal("structural", Check.Group("WALL-DEFL-V-B"));
+            Assert.Equal(new[] { "press", "process", "scope" }, Run("press", E2Design()).RecordPatch[MoldRecord.ReplaceChecksKey].Select(x => (string)x));
         }
 
         // ---------------------------------------------------------------- 5. broken numbers never pass
@@ -573,13 +583,12 @@ namespace SwAgent.Tests.Mold
             d["inputs"]["max_lid_mass"] = 1.0;
             var r = Run("size", d);
             var lid = r.RecordPatch.SelectToken("structural.results.plates.lid");
-            if ((double)normal["required_mm"] > (double)lid["required_mm"] + 1e-9)
-            {
-                Assert.Contains("A2.6", r.Text);
-                Assert.Contains("A2.6", (string)lid["basis"]);
-                Assert.True((double)lid["t_mm"] <= (double)normal["t_mm"]);
-            }
-            else Assert.DoesNotContain("A2.6", r.Text);                 // the 0.05 L rule did not govern
+            // E2's 432 mm lid: 0.05 L = 21.6 mm governs; without it the plug + 10 mm / TC well rule leaves about 18 mm
+            Assert.True((double)normal["required_mm"] > (double)lid["required_mm"] + 1e-9);
+            Assert.Contains("A2.6", r.Text);
+            Assert.Contains("A2.6", (string)lid["basis"]);
+            Assert.True((double)lid["t_mm"] < (double)normal["t_mm"]);
+            Assert.DoesNotContain("A2.6", Run("size", E2Design()).Text);   // under the limit the rule stays
         }
 
         [Fact]

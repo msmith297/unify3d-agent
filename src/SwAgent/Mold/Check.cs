@@ -117,13 +117,14 @@ namespace SwAgent.Mold
 
         /// <summary>
         /// Which calculator action owns a check id, so a re-run replaces exactly what it recomputes (MoldRecord
-        /// "$replaceChecks"): press (PRESS-*), process (CHG-*), scope (SCOPE-*), structural (everything size/check emit).
+        /// "$replaceChecks"): press (PRESS-*), process (CHG-*, CURE-*), scope (SCOPE-*), structural (everything else size/check
+        /// emit). Every action that runs the process step (process, press, layout, size, check) replaces process and scope.
         /// </summary>
         public static string Group(string id)
         {
             id = id ?? "";
             if (id.StartsWith("PRESS-", StringComparison.Ordinal)) return "press";
-            if (id.StartsWith("CHG-", StringComparison.Ordinal)) return "process";
+            if (id.StartsWith("CHG-", StringComparison.Ordinal) || id.StartsWith("CURE-", StringComparison.Ordinal)) return "process";
             if (id.StartsWith("SCOPE-", StringComparison.Ordinal)) return "scope";
             return "structural";
         }

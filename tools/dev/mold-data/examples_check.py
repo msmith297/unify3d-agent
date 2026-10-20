@@ -70,7 +70,7 @@ def fat(a, N, kf):
 
 # ---------------------------------------------------------------- coefficients (bilinear in aspect and tau²; strip above walls)
 # Mirrors the C# reader's rules (not its code): full-load rows (the largest loadFrac), nu interpolated linearly between the
-# tabulated values, walls above the last L/h = max(last row, strip with shear), no clamp to the strip inside the table,
+# tabulated values, walls the running maximum over L/h and above the last L/h max(that, strip with shear), no clamp to the strip,
 # and the table's interpolation allowance (header "# allowance:", else 1.01 for a swept table, 1.0 for the provisional one).
 TAB = {}
 HEAD = [l for l in open(CSV) if l.startswith("#")]
@@ -95,12 +95,17 @@ def coef_nu(bc, aspect, tau, nu):
     t = TAB[bc][nu]; wall = bc.startswith("Wall")
     if bc in ("SS4", "C4") and aspect < 1: aspect = 1 / aspect
     asp = sorted(t)
+    env = [0.0, 0.0]   # walls: running maximum over L/h (a longer wall is never sized thinner)
+    if wall:
+        for x in asp:
+            if x <= aspect + 1e-12: r = in_tau(t[x], tau); env = [max(env[0], r[0]), max(env[1], r[1])]
     if wall and aspect > asp[-1]:
-        last = in_tau(t[asp[-1]], tau); s = strip(tau, nu)
-        return max(last[0], s[0]), max(last[1], s[1])
+        s = strip(tau, nu)
+        return max(env[0], s[0]), max(env[1], s[1])
     a0 = max([x for x in asp if x <= aspect] or [asp[0]]); a1 = min([x for x in asp if x >= aspect] or [asp[-1]])
     r0 = in_tau(t[a0], tau); r1 = in_tau(t[a1], tau); w = (aspect - a0) / (a1 - a0) if a1 > a0 else 0
-    return r0[0] + (r1[0] - r0[0]) * w, r0[1] + (r1[1] - r0[1]) * w
+    al, be = r0[0] + (r1[0] - r0[0]) * w, r0[1] + (r1[1] - r0[1]) * w
+    return (max(env[0], al), max(env[1], be)) if wall else (al, be)
 def coef(bc, aspect, tau, nu=0.33):
     nus = sorted(TAB[bc]); n = min(max(nu, nus[0]), nus[-1])
     lo = max(x for x in nus if x <= n); hi = min(x for x in nus if x >= n)

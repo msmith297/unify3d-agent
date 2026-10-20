@@ -166,7 +166,7 @@ namespace SwAgent.Mold
             };
             var patch = new JObject
             {
-                [MoldRecord.ReplaceChecksKey] = new JArray("press", "scope"),
+                [MoldRecord.ReplaceChecksKey] = new JArray("press", "process", "scope"),
                 ["process"] = new JObject { ["gauge"] = r.PressJson["gauge"].DeepClone(), ["press"] = r.PressJson.DeepClone() },
                 ["structural"] = new JObject { ["loadCases"] = loadCases },
                 ["checks"] = new JArray(r.Checks),
@@ -187,7 +187,7 @@ namespace SwAgent.Mold
             var json = l.ToJson();
             var patch = new JObject
             {
-                [MoldRecord.ReplaceKey] = new JArray("layout.cavities"), [MoldRecord.ReplaceChecksKey] = new JArray("scope"),
+                [MoldRecord.ReplaceKey] = new JArray("layout.cavities"), [MoldRecord.ReplaceChecksKey] = new JArray("process", "scope"),
                 ["layout"] = json.DeepClone(), ["checks"] = new JArray(r.Checks),
             };
             return Done(sb, json, patch, r.Checks);

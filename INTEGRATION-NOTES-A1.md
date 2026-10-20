@@ -14,7 +14,8 @@ critique left room. Everything here is pure C# (no SolidWorks types) under `src/
 - `tools/builtin/design-compression-mold/data/{materials, mold-materials, shop-standards, sizing-defaults}.json` and
   `data/validation/examples.json`.
 - `tools/dev/mold-data/` - generators (see its README). `--check` on each reproduces the shipped files.
-- `tests/SwAgent.Tests/Mold/Mold{Data, Formula, Examples, Sizing, Record}Tests.cs` (+ `MoldTestData.cs`).
+- `tests/SwAgent.Tests/Mold/Mold{Data, Formula, Examples, Sizing, Record, Review}Tests.cs` (+ `MoldTestData.cs`);
+  `MoldReviewTests` holds the regression tests for the independent review's findings.
 
 ## 2. Public API (as in the contract, plus extras)
 
@@ -27,27 +28,54 @@ CalcResult { Text, Json, RecordPatch (null for lookup and split), Checks }
 MoldCalc.Run(action, design, query, overrides, data); MoldCalc.Version = "1.0.0"; MoldCalc.Fix(check) (the fix text)
 MoldRecord.Init(folder, moldPartPath, inputs, toolVersion, addinVersion)  - throws InvalidOperationException if mold.json exists
 MoldRecord.Open(folder) (FileNotFoundException when none), .Exists(folder), .Folder .Id .Json .FilePath
-  .Summary(maxChars = 6000) .Section(dottedPath) .Merge(patch) -> status line .Validate() .Save() (atomic)
+  .Summary(maxChars = 6000) .Section(dottedPath) .Merge(patch) -> status line .Validate() .Save() (atomic, retried)
   MoldRecord.DeepMerge(target, patch) (static; the same rules, for designs held in memory)
+  MoldRecord.ReplaceKey = "$replace", MoldRecord.ReplaceChecksKey = "$replaceChecks" (patch directives, see 3)
+MoldData.MergeRow(shipped, overrideRow) (the key-by-key override merge, see 3a); Check.Group(checkId)
 SetupSheet.Write(record, templatePath, data) -> path; SetupSheet.Fill(record, template, data, out unresolved)
 MachiningSheet.Write(record, templatePath, data) -> path (also writes hardware-bom.csv); MachiningSheet.Fill(...)
 HardwareBom.Build(recordJson, data); HardwareBom.WriteCsv(record, data)
 Coefficients.Get(bc, aspect, tOverB, nu, loadFrac) -> (Alpha, Beta); Coefficients.Version; .HeaderSha; .DataSha; .Provisional
+  .Allowance .Has(bc) .IsSymmetric(bc) .Strip(tau, nu) .OneWay(bc, tau, nu)
 Sizing.Size(design, data, cfg, asBuilt)  (MoldCalc "size"/"check" call it; usable as the Monte Carlo delegate)
 ```
 
-Errors the agent can fix (press meaning "Not sure", missing geometry, unknown material, unknown action) are
+Errors the agent can fix (press meaning "Not sure", missing geometry, unknown material or grade, unknown action, a
+force reading without `press_force`, no press rating / ram area, a record layout whose cavity count differs from
+`inputs.cavities` or whose cavities no longer fit the footprint, a used-up gap budget) are
 `ArgumentException` with the fix in the message; Track D's `mold_calc` should return the message as the tool result.
 
 ## 3. For Track D (mold_calc, mold_record)
 
 - `mold_calc` with `design` omitted: pass the record (`MoldRecord.Open(folder).Json`). With `record` true, merge
-  `RecordPatch` (skip when null). `split` writes nothing: the agent merges the chosen option as `structural.split`
-  (`{"structural": {"split": <options[i]>}}`) and runs `size` again.
+  `RecordPatch` (skip when null) with `MoldRecord.Merge` / `DeepMerge`, unchanged: the patch carries two directives
+  that give calculator-owned data replace semantics, and they must reach the merge (they are never stored):
+  `"$replace": ["layout.cavities", "hardware.bolts", ...]` drops those dotted paths before the merge, and
+  `"$replaceChecks": ["press", "process", "scope"]` (or `["all"]`) drops the earlier checks whose `source` starts
+  `mold_calc@` and whose `Check.Group(id)` is listed. So a check that now passes, a removed cavity or an abandoned
+  split's bolts do not linger; checks other tools wrote are kept. An empty array in any patch now clears that list.
+  `mold_record merge` should accept the same directives from the agent (the `split` text tells it to use them).
+- `split {plate: "base" | "lid"}` writes nothing: the agent merges the chosen option keyed by plate,
+  `{"$replace": ["structural.split.base"], "structural": {"split": {"base": <json.options[i]>}}}` (or `.lid`; a
+  class A lid is refused), and runs `size` again. `{"structural": {"split": {"base": null}}}` drops a split. A plan
+  stored straight in `structural.split` (older records) is read as the base's. A split class B lid gives bodies
+  `LID-n` (role lid) keyed into a lid plate `LSUB-n` (role subplate); joint ids `LSUB/LID-n`.
+- Inputs win over what the calculator wrote back: the agent merges corrections into `inputs`. `materials.part.id`,
+  `materials.part.used.*`, `materials.plates.id`, `shrink.basis` and `shrink.pctAxis` in the record are only read
+  when the matching input is absent (and `used` / `shrink.*` only for the same material). An unknown `part_grade`,
+  `mold_grade` or `insert_grade` is an ArgumentException, never a silent fallback to the old material.
+- **`units.display` must be written by `mold_record init`** from the mold document's unit system: `"metric"` for
+  MMGS / CGS / MKS, `"imperial"` for IPS. The calculator reads it (else `inputs.units`) and defaults to imperial, so a
+  metric mold without it gets inch screws, inch stock and 0.5 in plate rounding.
+- `materials.part.{rheology, kinetics, thermal, mechanical}` (F2) are only created by the calculator when absent
+  (`MoldRecord.Init` creates them); a simulator's values are never reset.
 - `mold_record init`: the `inputs` it passes are stored as given. The calculator reads each page input as a plain number
   in calculator units (mm, MPa, degC, kg, kN, cP, min, %, deg), or `{"value": x, "unit": "psi"}` (any of psi, bar,
   kgf/cm2, Pa, MPa, in, m, lb, g, lbf, N, US ton, t, degF, Pa*s, s, h), or `{"si": x}` meaning Track B's true SI (Pa,
-  m, N, Pa·s, s, rad), converted by `Design.Quantities[id]`. Choices may be plain strings or `{"value": "..."}`.
+  m, N, Pa·s, s, rad; degC, kg, % unchanged), converted by `Design.Quantities[id]` - also when the object carries a
+  display `value` next to it, as Track B's payload does (`{"value": "2000 psi (13.79 MPa)", "si": 13789514.6}`).
+  Sizes: `[L, W]` in mm, `{"si": [0.61, 0.61]}` (m), or text ("24 x 24 in": a unit written once applies to every
+  number). Choices may be plain strings or `{"value": "..."}`.
   A grade/material can be the id, the full name, the short label, or the payload text "name [id; ...]".
 - `mold_record save_default {table, id?, values}` -> `data.SaveDefault(MoldData.DefaultOverrideDir, table, id, values)`.
 - `mold_record setup_sheet` -> `SetupSheet.Write(record, Path.Combine(toolDir, "data", "setup-sheet.html"), data)`.
@@ -56,16 +84,36 @@ Errors the agent can fix (press meaning "Not sure", missing geometry, unknown ma
   - `part.volume_mm3`, `part.projectedArea_mm2`, `part.perimeter_mm`, `part.box_mm` [U, V, W] (unscaled molded part)
   - `part.depthBase_mm`, `part.depthLid_mm` (cavity depth each side of the parting plane; default: all in the base)
   - `part.floorRadius_mm` (smallest wall-to-floor radius; K_t), `part.maxSection_mm`, `part.plugHeight_mm`, `part.wellArea_mm2`
-  - `part.fragile[] {id, kind ("core_pin" | "shut_off" | ...), d_mm, h_mm, shutOff (bool), guided (bool)}`
+  - `part.fragile[] {id, kind, ...}` (S61-S63), kinds: `core_pin {d_mm, h_mm, guided}`, `shut_off {d_mm, h_mm}`
+    (or `shutOff: true`), `steel_wall {w_mm}` (the steel between two features, measured on the molded part; an insert
+    below 3 mm), `pinch_off`, `pry` / `cleaning` (always an insert in aluminium), `cut_off` (an insert at tier T3+).
+    An entry without the numbers its kind needs gets a `FRAGILE-<id>` warning instead of being skipped.
   - `part.drawing.tolerances[] {id, what, tol_mm (+-), closure (bool), nominal_mm}`
   - as built (for `check`): `structural.asBuilt {walls: {"V-B": w_mm, "U-B": w_mm, "V-L": ..., "U-L": ...},
     baseThickness_mm, lidThickness_mm, baseMass_kg, lidMass_kg, bearingArea_mm2}` - wall ids: V = walls facing +-V
     (they run along U), U = walls facing +-U; -B base half, -L lid half.
-  - H3 pressure field: `structural.loadCases.LC1.pressureField` = array of `{bodyId, point, normal, p}` (MPa) or
-    `{max_MPa}`; the calculator uses the peak when it exceeds the uniform p_LC1.
+  - H3 pressure field: `structural.loadCases.LC1.pressureField` = array of `{bodyId, point, normal, p}` (MPa), of
+    `[u, v, w, p]` tuples, `{max_MPa}` or `{samples: [...]}`; the calculator uses the peak when it exceeds the uniform
+    p_LC1. It reads no files: a path string (or any other shape) gives a `LOAD-PFIELD` warning and the uniform p_LC1.
+  - `layout.runnersExitPlate` (default true, the shop standard): false for a closed moat that must hold the whole
+    excess itself (CHG-OVERFLOW).
 - `overrides` (one call): any sizing-defaults path (`"bolts.tighteningScatter": 0.1`) or a parameter: `support`
-  (A-F), `rail_span_mm`, `span_mm`, `span_length_mm`, `overhang_mm`, `frame` ("integral"), `delta_allow_mm`, `kf`,
+  (A-F), `rail_span_mm`, `span_mm`, `span_length_mm`, `overhang_mm`, `frame` ("integral"), `delta_allow_mm` (the
+  land/plate gap allowable; applied before the budget test, so it can stand in for a budget flatness used up),
+  `delta_wall_mm` (the cavity-wall allowable), `runners_exit_plate` (bool), `kf`,
   `pattern` ("CxR"), `gap_mm` (wider steel between cavities, kept in the record as `layout.gapRequest_mm`).
+
+## 3a. For Track B (page data, payload)
+
+- **Override rows merge key by key**, not row for row: `mold_record save_default` writes partial rows such as
+  `{"id": "pu-tdi-ether-90a", "shrinkPct": {"typ": 1.7}}` into the shop override file, and `MoldData` lays them over
+  the shipped row (nested objects merged, other values replaced; `MoldData.MergeRow`, test
+  `Override_rows_merge_key_by_key`). Design 1.5.5 says an override row "replaces the shipped row"; that is not what
+  ships. `ToolData` must merge rows the same way, or a saved default turns the page's row into a stub with no name,
+  family or Fills values (Track B's `ToolData` in its own worktree already merges key by key - keep it that way).
+- Payload entries `{value: display text, si, display, unit, table, row, edited}` are read through `si` by the input's
+  quantity (`Design.Quantities`): pressure Pa, length m, area m², force N, time s, viscosity Pa·s, angle rad;
+  temperature degC, mass kg and percent as they are. Size inputs: `si` an array in metres.
 
 ## 4. For Track E (inputs.json, TOOL.md, templates, mold.schema.json)
 
@@ -105,11 +153,20 @@ Data fields for the page: rows have `familyShort` / `short` (C5 labels), `isDefa
   `materials.part.{id, used, confidence, sources, rheology, kinetics, thermal, mechanical}` (F2: status "unknown").
 - Arrays merged by id (each item needs a string id): checks, simulations, stages, decisions, bodies, airTraps, vents,
   layout.cavities, partingLine.planes, hardware.{bolts, dowels, fits, stops, tcWells}, part.{fragile, criticalFaces,
-  drawing.tolerances}. `hardware.lift` has no ids (replaced as a whole).
+  drawing.tolerances}. `hardware.lift` has no ids (replaced as a whole). Record patches may carry `$replace` and
+  `$replaceChecks` (see 3); they are consumed by the merge and never stored, so the schema need not allow them.
+- Added by the review fixes: `structural.gauge.caps[] {basis, gauge_MPa, pCavity_MPa}` (every gauge cap; abuse caps
+  keep their cavity pressure so a later `press` run converts them with its ram area), `structural.split.{base, lid}`,
+  `structural.results.pins[] {id, kind, d_mm, h_mm, w_mm, material, insert, reason, sigma_MPa, deflection_mm,
+  sigmaAbuse_MPa, shutOffRecess_mm, axialForce_N, euler_N}`, `structural.results.plates.lid.basis` (may name A2.6),
+  `hardware.bolts[].{rows, edgeDistance_mm}`, `hardware.lift[].threads[] {what, count, size, loadEach_N,
+  engagement_mm, tapDepth_mm, insert, insertReason, rating}`, `layout.runnersExitPlate`. A check whose numbers could
+  not be computed has `demand` / `capacity` null and status fail. New check ids: `PIN-ABUSE-*` (LC1x), `THREAD-LIFT-*`
+  (LC4), `FRAGILE-*`, `INSERT-*`, `LOAD-PFIELD`, `SPLIT-LID`. Body ids may start `LSUB-` (role subplate).
 - Simulations status: not_run | running | done | failed; hook H1 | H2 | H3. Stage status: pending | running |
   in_progress | done | failed | skipped. Record status: planning | sizing | building | verifying | done.
 
-Template language (`data/setup-sheet.html`, `data/machining-sheet.html`): `{{path}}` (dotted, `list.0.x` ok,
+Template language (`data/setup-sheet.html`, `data/machining-sheet.html`): `{{path}}` (dotted, `list.0.x` and `list[0].x` both work,
 HTML-escaped), `{{path|unit}}` dual units, document system first (units: mm, mm2, mm3, kg, g, MPa, kN, Nm, degC, min,
 pct, or length/area/volume/mass/pressure/force/torque/temperature), `{{#each path}}...{{/each}}` (inside: item paths
 first, then the root; `{{this}}`, `{{@index}}`, `{{@number}}`), `{{#if path}}...{{else}}...{{/if}}`. Missing paths
@@ -135,12 +192,19 @@ the split text tells the agent to re-run size with `{"gap_mm": ...}`); a class A
 - `coefficients.csv` columns `bc, aspect, tau, nu, loadFrac, alpha, beta, wMaxX, wMaxY`; bc names `SS4`, `C4`,
   `Rails`, `Wall-C`, `Wall-S` (keep them; other sets may be added). Plates: aspect = long/short (Rails: along the rails /
   span), alpha = w E t³/(q b⁴), beta = 6 M/(q b²), b = short side; walls: aspect = L/h, reference h.
-- Header comments read by the reader: a line starting `# provisional` (drop it), `# version: x`, `# sha256: <hex>` =
+- Header comments read by the reader: a line starting `# provisional` (drop it), `# version: x` (else the
+  `# generator:` text, else `sha-` + the first 12 hex of the sha256), `# allowance: x` (the factor on every
+  interpolated alpha and beta; without it 1.01 for a swept table, 1.0 for the provisional one), `# sha256: <hex>` =
   SHA-256 of the ASCII data part: every non-comment line (header row `bc,...` included), each ending in `\n`. A test
   asserts the header hash equals the computed one.
-- The reader clamps wall rows to the cantilever strip with shear (12(1-nu²)/8 + (1+nu)/kappa tau², beta 3) and uses the
-  strip above the last L/h row (A4); plates above the last aspect use max(last row, one-way strip); alpha is extended
-  linearly in tau² above the last tau. nu: nearest tabulated; loadFrac: interpolated, clamped.
+- The reader (changed for Track A2's table): nu is interpolated linearly between the tabulated values (clamped),
+  loadFrac likewise; rows are not clamped to the strip. Walls use the running maximum over L/h (a longer wall is never
+  sized thinner - A4's monotonic test; thick walls overshoot the strip by about 1% near L/h 6-8 and the envelope keeps
+  it), and above the last L/h row max(that envelope, the cantilever strip with shear 12(1-nu²)/8 + (1+nu)/kappa tau²,
+  beta 3). Plates above the last aspect use max(last row, one-way strip: Overhang -> cantilever strip, C4/C2S2 ->
+  clamped strip, others -> simply supported strip); alpha is extended linearly in tau² above the last tau. Only SS4
+  and C4 fold aspect < 1 to 1/aspect; for Rails, C2S2, Overhang and Pillar aspect < 1 is a different plate.
+  `tools/dev/mold-data/examples_check.py` mirrors these rules.
 - Monte Carlo delegate: `design => MoldCalc.Run("size", design, null, overrides, data).Json` (or `Sizing.Size(...)`).
   Wall results are in `structural.results.walls[]` of the patch (`w_struct_mm`, `w_drawn_mm`, `sigma_MPa`, `allow_MPa`).
 
@@ -150,8 +214,20 @@ the split text tells the agent to re-run size with `{"gap_mm": ...}`); a class A
   `examples.json` (it records the coefficient version). The C# example tests allow 2% on table-dependent wall values,
   so they should pass either way; E3 uses 2% for the walls.
 - The data tests run the generators' `--check` when `python` is on PATH (silently skipped otherwise).
-- Mold-schema validation of sample records with JsonSchema.Net was not added here (the schema is Track E's file);
-  `MoldRecord.Validate` is the hand-written equivalent and is tested.
+- Mold-schema validation of sample records with JsonSchema.Net was not added here (the schema is Track E's file and
+  is not in this worktree); `MoldRecord.Validate` is the hand-written equivalent and is tested. At integration: add a
+  test-only JsonSchema.Net reference and validate the records `MoldReviewTests` / `MoldRecordTests` build (E2, the
+  rubber mold, a split class B lid) against `data/mold.schema.json` (see 4 for what the schema must accept).
+- Not done in A1, tracked here:
+  - The plate FE check of the planned layout that `size` should run (design 2.3.2) needs Track A2's
+    `MindlinPlateSolver`; after the merge, call it from `Sizing.Size` for the base and lid with the layout's pockets
+    and supports, and add its result as a check next to the coefficient-based plate checks.
+  - Track A2's validation changes the wall method: root factor 1 + 2.6 w/h from the 3D check (its review says the
+    converged slope is nearer 2.7) against A1's flat `wallRootFactor` 1.2 in sizing-defaults, and case E (pillars)
+    not sized as C4. The Monte Carlo against A1's `size` will fail until those are reconciled in `Walls` / `Plates`
+    and `sizing-defaults.json` (gen_defaults.py), with examples.json refreshed.
+  - The A2 table's Pillar beta under-reads the hogging next to the heads (A2 review); A1 does not use Pillar rows yet -
+    do not adopt them until A2 fixes beta.
 
 ## 7. Decisions and deviations (for review)
 

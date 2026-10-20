@@ -18,6 +18,7 @@ namespace SwAgent.Tests.Mold
         [InlineData("Wall-S")]
         public void Wall_coefficients_never_fall_with_L_over_h_and_never_pass_the_strip(string bc)
         {
+            var k = Coefficients.Allowance;
             foreach (var tau in new[] { 0.02, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5 })
             {
                 var prev = (Alpha: 0.0, Beta: 0.0);
@@ -26,14 +27,18 @@ namespace SwAgent.Tests.Mold
                 {
                     var c = Coefficients.Get(bc, lh, tau, 0.3, 1.0);
                     Assert.True(c.Alpha >= prev.Alpha - 1e-9, $"{bc} alpha fell at L/h {lh}, tau {tau}");
-                    Assert.True(c.Beta >= prev.Beta - 0.02, $"{bc} beta fell at L/h {lh}, tau {tau}");   // beta rows wobble ~1% at small L/h (mesh)
-                    Assert.True(c.Alpha <= strip.Alpha + 1e-9 && c.Beta <= strip.Beta + 1e-9, $"{bc} above the strip at L/h {lh}, tau {tau}");
+                    Assert.True(c.Beta >= prev.Beta - 1e-9, $"{bc} beta fell at L/h {lh}, tau {tau}");
+                    // thick walls may overshoot the strip by about 1% (a Mindlin effect, Track A2), never more
+                    Assert.True(c.Alpha <= strip.Alpha * 1.015 * k + 1e-9 && c.Beta <= strip.Beta * 1.015 * k + 1e-9, $"{bc} far above the strip at L/h {lh}, tau {tau}");
                     prev = c;
                 }
-                // above the last tabulated row: exactly the cantilever strip with shear (critique A4), never the L/h = 4 row
+                // above the last tabulated row: the strip with shear (critique A4) or the envelope's overshoot, never the
+                // L/h = 4 row, and constant from there on
                 var far = Coefficients.Get(bc, 50, tau, 0.3, 1.0);
-                Assert.Equal(strip.Alpha, far.Alpha, 9);
-                Assert.Equal(3.0, far.Beta, 9);
+                Assert.True(far.Alpha >= strip.Alpha * k - 1e-9 && far.Beta >= 3.0 * k - 1e-9);
+                Assert.True(far.Alpha <= strip.Alpha * 1.015 * k && far.Beta <= 3.0 * 1.015 * k);
+                Assert.Equal(far.Alpha, Coefficients.Get(bc, 500, tau, 0.3, 1.0).Alpha, 12);
+                if (tau <= 0.1) Assert.Equal(strip.Alpha * k, far.Alpha, 3);   // thin walls: the strip itself
             }
             Assert.Equal(1.365 + 1.56 * 0.25, Coefficients.Strip(0.5, 0.3).Alpha, 9);
         }
