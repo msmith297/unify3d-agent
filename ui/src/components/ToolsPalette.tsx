@@ -1,15 +1,61 @@
-import { useCallback, useRef, useState } from "react";
+import { Fragment, useCallback, useRef, useState } from "react";
 import { useOutside } from "./Menu";
-import { Caret, IconCancel, IconEdit, IconNewChat, IconPart, IconToolbox, ToolIcon } from "./SwIcons";
+import { Caret, IconCancel, IconEdit, IconNewChat, IconPart, IconToolbox, IconTree, ToolIcon } from "./SwIcons";
 import { EMPTY, draftKey, useStore } from "../store";
 import { rpc } from "../lib/bridge";
-import { confirmAction } from "./Dialog";
+import { ask, confirmAction } from "./Dialog";
 import { svgDataUrl } from "../lib/toolIcons";
+import { categoryNames, paletteSections } from "../lib/toolGroups";
 import type { Tier, UserToolInfo } from "../lib/types";
 import { TIERS } from "../lib/models";
 
 function Icon({ t }: { t: UserToolInfo }) {
   return t.iconSvg ? <img src={svgDataUrl(t.iconSvg)} alt="" width={16} height={16} /> : <ToolIcon name={t.icon} />;
+}
+
+/**
+ * Move a tool or workflow to a category (or out of one). Built-in tools keep the choice in the user's settings. Tools
+ * move to their category's box on the ribbon tab after SolidWorks restarts (the panel offers that).
+ */
+async function chooseCategory(t: UserToolInfo, existing: string[]) {
+  let value = t.category ?? "";
+  const listId = `categories-${t.name}`;
+  const choice = await ask({
+    title: `Category of "${t.title}"`,
+    message: (
+      <div className="flex flex-col gap-1.5">
+        <p>Tools in the same category share a section in this menu{t.kind === "tool" ? " and a box on the Unify3D ribbon tab (after a restart)" : ""}. Leave it empty for none.</p>
+        <input
+          // The dialog focuses its Save button when it opens: take the focus after that, and let Enter save.
+          ref={(el) => {
+            if (el) setTimeout(() => el.focus(), 30);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") e.currentTarget.closest("[role=dialog]")?.querySelector<HTMLButtonElement>(".sw-btn-primary")?.click();
+          }}
+          defaultValue={value}
+          list={listId}
+          maxLength={48}
+          placeholder="e.g. Molding & Toolmaking"
+          onChange={(e) => (value = e.target.value)}
+          className="sw-input h-[24px] w-full px-1.5 text-[12px]"
+        />
+        <datalist id={listId}>
+          {existing.map((c) => (
+            <option key={c} value={c} />
+          ))}
+        </datalist>
+      </div>
+    ),
+    actions: [{ value: "save", label: "Save", primary: true }],
+    icon: <IconTree size={15} />,
+  });
+  if (choice !== "save") return;
+  const next = value.replace(/\s+/g, " ").trim();
+  if (next === (t.category ?? "")) return;
+  await rpc("userTools.setValue", { name: t.name, key: "category", value: next }).catch((err) =>
+    useStore.setState({ notice: `Couldn't change the category: ${err.message}` }),
+  );
 }
 
 /**
@@ -22,9 +68,8 @@ export function ToolsPalette({ disabled }: { disabled?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   useOutside(ref, useCallback(() => setOpen(false), []));
   const all = useStore((s) => s.userTools ?? EMPTY);
-  const builtIn = all.filter((t) => t.builtIn);
-  const workflows = all.filter((t) => !t.builtIn && t.kind !== "tool");
-  const tools = all.filter((t) => !t.builtIn && t.kind === "tool");
+  // One section per category (built-ins first, then the user's), then the uncategorised ones as before.
+  const { categories, workflows, builtIn, tools } = paletteSections(all);
   const hasDoc = useStore((s) => !!s.docs[s.activeDocKey ?? ""]);
   const { runUserTool, deleteUserTool, send, setDraft } = useStore.getState();
 
@@ -43,8 +88,19 @@ export function ToolsPalette({ disabled }: { disabled?: boolean }) {
         <div className="truncate text-[12px] font-semibold text-text">{t.title}</div>
         <div className="line-clamp-2 text-[11px] text-text-3">{t.description}</div>
       </div>
-      {!t.builtIn && (
       <div className="flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+        <button
+          className="sw-tool !h-[22px] !min-w-[22px] !p-0"
+          title={t.category ? `Category: ${t.category} - change` : "Put it in a category"}
+          onClick={() => {
+            setOpen(false);
+            void chooseCategory(t, categoryNames(all));
+          }}
+        >
+          <IconTree size={12} />
+        </button>
+        {!t.builtIn && (
+        <>
         <button
           className="sw-tool !h-[22px] !min-w-[22px] !p-0"
           title={`Change this ${t.kind === "tool" ? "tool" : "workflow"} with the agent`}
@@ -61,8 +117,9 @@ export function ToolsPalette({ disabled }: { disabled?: boolean }) {
         >
           <IconCancel size={9} />
         </button>
+        </>
+        )}
       </div>
-      )}
       {run || t.kind === "tool" ? (
         <button
           className="sw-btn sw-btn-primary shrink-0 !h-[22px] !px-2"
@@ -117,7 +174,21 @@ export function ToolsPalette({ disabled }: { disabled?: boolean }) {
           </div>
 
           <div className="max-h-[50vh] overflow-y-auto">
-            {workflows.length === 0 && (
+            {categories.map((c, i) => (
+              <Fragment key={c.title.toLowerCase()}>
+                <div className={`sw-rollout-head !min-h-[20px] text-[11px] ${i > 0 ? "border-t border-line" : ""}`} title="A category: its tools also share a box on the Unify3D ribbon tab">
+                  <span className="flex-1 truncate">{c.title}</span>
+                </div>
+                {c.rows.map((r) => row(r.tool, r.run))}
+              </Fragment>
+            ))}
+
+            {categories.length > 0 && workflows.length > 0 && (
+              <div className="sw-rollout-head !min-h-[20px] border-t border-line text-[11px]">
+                <span className="flex-1">Workflows</span>
+              </div>
+            )}
+            {workflows.length === 0 && categories.length === 0 && (
               <p className="px-2.5 py-2 text-[11.5px] text-text-3">
                 No workflows yet. Describe a job you repeat, or turn the current model into a workflow, and the agent will write it with you.
               </p>

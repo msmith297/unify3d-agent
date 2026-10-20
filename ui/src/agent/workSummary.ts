@@ -46,8 +46,11 @@ function isCheck(call: ToolCall): boolean {
   return CHECK_TITLE.test(title);
 }
 
+/** The agent asking the user (a question, a form, a selection): always shown, never counted as work. */
+const ASKS = new Set(["ask_user", "ask_form", "ask_selection"]);
+
 export function isHighlight(call: ToolCall): boolean {
-  if (call.name === "ask_user" || call.name === "ask_form") return true;
+  if (ASKS.has(call.name)) return true;
   if (!call.result || call.result.is_error) return false;
   if (MINOR_TOOLS.has(call.name)) return false;
   if (call.name === "execute_csharp") return !isCheck(call);
@@ -76,7 +79,7 @@ export function highlights(calls: ToolCall[]): ToolCall[] & { more?: number } {
 export function breakdown(calls: ToolCall[]): string {
   let lookups = 0, checks = 0, changes = 0, retries = 0, saves = 0;
   for (const c of calls) {
-    if (c.name === "ask_user" || c.name === "ask_form") continue;
+    if (ASKS.has(c.name)) continue;
     if (c.result?.is_error) retries++;
     else if (LOOKUPS.has(c.name)) lookups++;
     else if (OUTCOMES.has(c.name)) saves++;

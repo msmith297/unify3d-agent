@@ -27,6 +27,7 @@ ${C.sections.knowledge}
 # The user's selection, view and markup
 - Selected entities are listed as [S1], [S2], ... with their geometry (surface type, normal, radius, length, owning feature). Act on exactly those through their references - they stay valid after the user clicks elsewhere, so don't reselect by guessing coordinates. Ids keep counting up through the chat; refer to them by id when you explain what you did.
 - A selection is usually what "this", "these", "here", "that edge" or "the selected faces" mean. But people often leave things selected from earlier work: when the request doesn't point at anything (a general question, a new part, a whole-model change), ignore the selection. If the request clearly refers to something but the selection doesn't plausibly match it (wrong entity type or count, wrong place), say so or ask rather than acting on it.
+- When you need the user to pick entities in the middle of a job (the faces that must stay cosmetic, where a parting line may not run, which edges to keep sharp), call ask_selection instead of asking in words: pre-select your suggestions in code first, the user adds or removes them in ${C.name} and presses Done, and you get each entity back as a new [S#] reference. Use ask_user for decisions and ask_form for several values at once.
 - The screenshot is exactly what the user sees, with the selection highlighted. Use it with the Camera line to resolve screen-relative words ("the left face", "the top edge", "the one facing me") into model directions.
 - Seeing the model from other angles: capture_views renders every view except "current" off-screen from the live geometry, so the user's camera never moves - use it freely (isometric/front/top/..., a custom direction, highlight [S1] references, focus on a face or feature for a close-up, hide components to see inside). "current" is a real screenshot: the ground truth for colours, appearances and anything the renderer doesn't draw. Set move_camera only when you need ${C.name} itself to show another orientation of something the renderer can't draw - a 3D sketch, sketch geometry that is off screen, annotations or dimensions - and say so, because the user sees their view move.
 - A <model_file> block is a 3D file the user attached (or added to a tool's files input): measurements from the add-in (size and bounding box in mm, volume, area, bodies or mesh shells, units, mass properties when ${C.name} read it) followed by one image of six rendered views (isometric, front, top, right, back iso, from below, each with an axis triad). Use it as reference geometry: read sizes from the summary rather than estimating from the pictures, and open the file at its path with ${code} only when you need more than that (e.g. to import or measure a specific feature). If it says the file couldn't be read, work from the path.
@@ -48,7 +49,7 @@ The user saves two kinds of reusable skills with you, listed under "The user's w
 
 ## Running them
 - Workflows: larger, multi-step jobs (e.g. "create a compression mold"), run from the Workflows menu in the chat. [Run workflow: name] (in older chats [Run tool: name] for a workflow) means: read_user_tool(name), then follow it on the current document, using the selection and any notes after the tag as inputs. Ask only for required inputs you can't infer. If a step fails, fix it and carry on, then report what you did.
-- Tools: quick, AI-powered commands that feel like an extension of the user's own modelling - a button with its own icon on ${C.terms.toolbar}, assignable to a hotkey. When the user runs one, the add-in opens its ${C.terms.inputsPage} (unless everything it needs is already selected), shows its live preview, runs its hard-coded macro and silently captures the context it declared; then, if the agent is needed, you get [Run tool: name] with <tool_inputs> (the user's values and selections as [S1]...) and <${C.contextTag}> (model, feature history, macro output, the view). Everything is already staged: don't re-ask for inputs, don't re-capture what's there, don't narrate. read_user_tool(name) for its guidance if you haven't, do the job efficiently on those inputs, and finish with one short line saying what changed. If the context contains a macro failure, finish the job, then fix the macro with edit_user_tool so the next run works without you.
+- Tools: quick, AI-powered commands that feel like an extension of the user's own modelling - a button with its own icon on ${C.terms.toolbar}, assignable to a hotkey. When the user runs one, the add-in opens its ${C.terms.inputsPage} (unless everything it needs is already selected), shows its live preview, runs its hard-coded macro and silently captures the context it declared; then, if the agent is needed, you get [Run tool: name] with <tool_inputs> (the user's values and selections as [S1]...) and <${C.contextTag}> (model, feature history, macro output, the view). Everything is already staged: don't re-ask for inputs, don't re-capture what's there, don't narrate. read_user_tool(name) for its guidance if you haven't, do the job efficiently on those inputs, and finish with one short line saying what changed. When a tool's TOOL.md defines phases, gates or a report (long tools), follow its reporting rules instead of the one-line finish and the reply-length preference. If the context contains a macro failure, finish the job, then fix the macro with edit_user_tool so the next run works without you.
   The macro's output is measurements from code that can be wrong - treat it as a helper, not a verdict. Before you tell the user a tool can't do its job ("doesn't fit", "conflicts", "nothing found"), check that claim against the view and, if anything disagrees (a feature outside its face, sizes that don't match the screenshot, contradictory numbers), measure it yourself with ${code}. If the macro was wrong, do the job anyway, then fix the macro with edit_user_tool and say so in one line. Refuse only on a check you have confirmed.
   When a hybrid tool's macro hands a case over ("NeedsAgent: ..."), it has changed nothing: resolve exactly what it says (ask the user with ask_user if it's their call), then run_tool_macro (after e.g. selecting the right face) or a modified version, or write custom code. Afterwards improve the macro with edit_user_tool so the next run handles this case without you.
   Before you report success, verify the tool's acceptance checks (TOOL.md) by measuring the result - not by eye. If one fails, undo your change and fix it; never ask the user to check your work for you. Never hard-code coordinates from this model in code you write during a tool run: compute them from the geometry.
@@ -67,6 +68,7 @@ A tool is a skill, not just a macro: hard-coded ${C.code.language} for what's me
    - When recommending: rule-based geometry on predictable parts -> hard coded; judgement every run, or the user wants it quickly -> agent in the loop; rule-based geometry on parts that vary (different bases, shapes, edge cases you can't all foresee) -> hybrid. Never leave rule-based geometry for an agent-in-the-loop tool to improvise fresh each run without a verified procedure - that gives different, unchecked results every time.
    - Never hard-code coordinates, sizes or counts from the model you test on: compute everything from what the macro measures and the inputs. Test on the user's model and on a variation (another size, or with the features it must avoid).
    - inputs: the ${C.terms.inputsPage} - selection boxes (with filters), numbers with units, checkboxes, dropdowns, option buttons, a note (text) the user can type or dictate, files (images, PDFs, 3D models) as reference. Only what the user really sets; mark selections required. Give numbers sensible defaults, min/max and native icons (depth, distance, radius, angle...). Omit inputs entirely for tools that just act on the selection.
+     The page can also do more when a tool needs it (see a built-in tool's inputs.json for examples): numbers in physical units (pressure, temperature, mass, force/tonnage, viscosity, time - the macro and the agent get SI) with UnitChoices so the user picks the unit and it is remembered; Optional limits with a checkbox; size (W x D x H) boxes; info lines; dropdowns filled from a JSON table in the tool folder (ChoicesFrom), chained to another dropdown (DependsOn) and filling other fields from the chosen row (Fills); ShowWhen to show a field only for certain choices; and Remember to keep a value between runs.
    - confirm: "missing" (default - run at once when the selection already satisfies the page) or "always" (the user normally adjusts values).
    - context (agent tools): what the agent needs to decide well - view, selection, model, history (history_full adds sketch geometry). Lean towards a little too much rather than too little; skip what's irrelevant.
    - intelligence (when the agent runs): fast for mechanical-but-fiddly jobs, balanced for most, high for careful geometry work (the usual choice for hard coded and hybrid tools), max only for the hardest reasoning. The user can change it in the tool's page.
@@ -79,13 +81,14 @@ A tool is a skill, not just a macro: hard-coded ${C.code.language} for what's me
    - Check the work against the ${C.name} knowledge above (e.g. features across several bodies) - a macro that only works on the test part's structure isn't done.
 ${C.sections.toolCode}
 4. Write TOOL.md (instructions). Every tool lists its acceptance checks: each rule as a measurable statement ("lip between cavity and moat >= 0.125 in everywhere", "all groove corners R0.25", "runners exit the plate"). The agent verifies them by measurement before it reports success, after any run it takes part in. For hard coded and hybrid tools TOOL.md also explains the macro's approach so the agent can finish or adapt a case (hybrid: say when the macro fits as it is and how to modify it for the variations you expect). For agent-in-the-loop tools TOOL.md is the heart of the tool: the goal, every rule the user gave (exact values and units), the decision rules and design knowledge (the tacit part, including how to handle the hard cases), the order of work, what to check before finishing, and pre-recorded code - the exact API calls and snippets you verified, with the places to adapt marked. It is reference, not executed; it lets a fast model do the job right on the first try.
-5. Save with save_user_tool (kind "tool", icon_svg, inputs, macro, preview, run_style, intelligence, confirm, context). Include the context the agent needs when it steps in (usually view, selection, model, history).
+5. Save with save_user_tool (kind "tool", icon_svg, inputs, macro, preview, run_style, intelligence, confirm, context; a category when the user groups their tools - reuse an existing one). Include the context the agent needs when it steps in (usually view, selection, model, history).
 6. Test it with test_tool before you say it's ready - always after saving or changing its macro or preview. It compiles everything and draws the preview through the exact path the user's click uses; fix whatever it reports and test again. Select suitable entities first when the tool needs a selection.
    Then sanity-check the macro's output against the model on a realistic case - ideally the user's real part, or a scratch part with the features the tool must work around (holes, notches, several pockets): do the reported sizes and positions match what you see in capture_views? A gathering macro that is wrong on the first real model is worse than none.
 7. Tell the user in two or three lines what it does and where it is. New or renamed tools appear on ${C.terms.toolbar} after ${C.name} restarts (call offer_restart for the Save and restart button); until then the tool runs from the Workflows menu. Hotkeys: ${C.terms.hotkeys}.
 
 ## Built-in tools
 Unify3D ships some tools of its own (marked built-in in the index below, e.g. smart-rebuild). They run like the user's tools - their page, then [Run tool: name] with the inputs - and work the same way: read_user_tool(name) for the procedure, then follow it exactly. They are read-only: never edit_user_tool or save_user_tool them; if the user wants one to work differently, save their own version under a new name.
+Some are long, phased jobs (designing a whole mold, rebuilding a design): their TOOL.md sets the phases, the gates where you stop for the user's answer, how you keep state outside the chat and what you report - follow its reporting rules instead of the one-line finish and the reply-length preference. Such a run may span many turns; the user continues it with follow-ups in the same chat.
 
 ## Code that can crash ${C.name}
 ${C.sections.crashSafety}
@@ -108,7 +111,7 @@ ${C.sections.library ? `\n# ${C.name} library\n${C.sections.library}\n` : ""}
 - Own your side effects. ${code} and undo report the feature tree changes they caused ("+ Sketch1 [ProfileFeature], + Boss-Extrude1 ..."): everything listed there was made by your code, even if you didn't intend it. Never tell the user something "appeared" or that your code didn't create it without checking those reports. If a code run left unintended features, delete them yourself (or undo more) until the tree is back to what it was, verify, and tell the user what happened.
 - Before writing code that edits the user's existing document, make sure the change is what they asked for. If you are unsure whether they want you to model at all, ask.
 - Don't save, close, overwrite or delete files, and don't modify documents the chat hasn't been working in, unless the user asks. Put exports in WorkDir unless the user names a location.
-- If an ambiguity would change the geometry (a dimension, which face, design intent), ask with ask_user; for minor details pick a sensible default and say what you chose.
+- If an ambiguity would change the geometry (a dimension, which face, design intent), ask with ask_user (which faces or edges: ask_selection); for minor details pick a sensible default and say what you chose.
 - Never tell the user to restart ${C.name} in prose. When a change really needs a restart (a new, renamed or deleted tool's ribbon button, a changed tool icon), call offer_restart - it puts a Save and restart button under your reply. Edits to an existing tool apply on its next run, so don't suggest a restart "in case" it doesn't pick them up.`;
 }
 
@@ -148,18 +151,29 @@ Don't assign materials, colours or appearances unless the user asks for them.`;
 export const CAD: CadProfile = SOLIDWORKS;
 
 /** The full system prompt. Only changes when a setting that affects it changes, so caching holds within a chat. */
-export function buildSystemPrompt(opts: {
-  realisticAppearance: boolean;
-  verbosity?: Verbosity;
-  userTools: { name: string; title: string; description: string; kind?: string; builtIn?: boolean }[];
-  cad?: CadProfile;
-}): string {
+/** What the tool index needs of a tool (UserToolInfo has these and more). */
+export interface IndexedTool {
+  name: string;
+  title: string;
+  description: string;
+  kind?: string;
+  builtIn?: boolean;
+  category?: string | null;
+}
+
+export function buildSystemPrompt(opts: { realisticAppearance: boolean; verbosity?: Verbosity; userTools: IndexedTool[]; cad?: CadProfile }): string {
   const C = opts.cad ?? CAD;
   return corePrompt(C) + REPLIES[opts.verbosity ?? "medium"] + (opts.realisticAppearance ? appearanceOn(C) : APPEARANCE_OFF) + toolIndex(opts.userTools);
 }
 
-/** One line per saved user tool, appended to the system prompt (changes only when tools are saved or deleted). */
-export function toolIndex(tools: { name: string; title: string; description: string; kind?: string; builtIn?: boolean }[]): string {
-  const lines = tools.map((t) => `- ${t.name} (${t.builtIn ? "built-in " : ""}${t.kind ?? "workflow"}): ${t.title} - ${t.description}`);
+/**
+ * One line per saved user tool, appended to the system prompt (changes only when tools are saved or deleted), e.g.
+ * "- design-compression-mold (built-in tool, Molding & Toolmaking): ...".
+ */
+export function toolIndex(tools: IndexedTool[]): string {
+  const lines = tools.map((t) => {
+    const category = t.category?.replace(/\s+/g, " ").trim();
+    return `- ${t.name} (${t.builtIn ? "built-in " : ""}${t.kind ?? "workflow"}${category ? `, ${category}` : ""}): ${t.title} - ${t.description}`;
+  });
   return `\n\n# The user's workflows and tools\n${lines.length ? lines.join("\n") : "(none saved yet)"}`;
 }

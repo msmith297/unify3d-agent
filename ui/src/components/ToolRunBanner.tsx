@@ -1,7 +1,49 @@
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { IconError, IconOk, IconToolbox, Spinner } from "./SwIcons";
-import { useStore, type RunState } from "../store";
+import { currentThread, useStore, type RunState } from "../store";
+import { stickyState } from "../lib/toolRun";
+import { EFFORTS, modelOption } from "../lib/models";
+
+/**
+ * A long tool run that is still open in this chat (lib/toolRun.ts): follow-ups typed here keep the tool's model,
+ * effort, step limit and auto-approval. Shows that - or that it is paused while another document is active - with an
+ * X to end it, so auto-approval never carries on unseen.
+ */
+function LongRunChip() {
+  const thread = useStore(currentThread);
+  const tr = thread?.toolRun ?? null;
+  const active = useStore((s) => s.docs[s.activeDocKey ?? ""]);
+  const endToolRun = useStore((s) => s.endToolRun);
+  if (!thread || !tr) return null;
+  const state = stickyState(tr, Date.now(), active);
+  if (state === "expired") return null;
+  const effort = EFFORTS.find((e) => e.id === tr.effort)?.label.toLowerCase() ?? tr.effort;
+  return (
+    <div className="flex shrink-0 items-center gap-2 border-b border-line bg-card px-2 py-1 text-[11.5px] shadow-[inset_0_1px_0_var(--bevel-hi)]">
+      <IconToolbox size={13} />
+      <span
+        className="min-w-0 flex-1 truncate text-text-2"
+        title={
+          state === "active"
+            ? "Messages you send in this chat continue the tool run with its own settings and without asking before running code. " +
+              "This ends when the tool reports it is done, after 2 hours without activity, when another tool runs here, or when you close it."
+            : "Follow-ups use this chat's own model and approval while another document is active. Switch back to continue the tool run."
+        }
+      >
+        <span className="font-semibold text-text">{tr.label}</span>
+        {state === "active" ? (
+          <> - follow-ups continue it: {modelOption(tr.model).label} · {effort} effort · auto-approve · {tr.maxSteps} steps</>
+        ) : (
+          <> - paused: {tr.doc?.title ?? "its document"} isn't the active document</>
+        )}
+      </span>
+      <button className="text-text-3 hover:text-text" onClick={() => endToolRun(thread.id)} title="End the tool run: follow-ups use this chat's own model and approval">
+        <X size={12} />
+      </button>
+    </div>
+  );
+}
 
 /**
  * While a ribbon tool runs with the agent, the chat panel shows one quiet line - "Smart fillet executing..." with
@@ -33,7 +75,7 @@ export function ToolRunBanner() {
   };
 
   if (run) return <Running run={run} onOpen={() => open(run.docKey, run.threadId)} />;
-  if (!outcome) return null;
+  if (!outcome) return <LongRunChip />;
   return (
     <div className="flex shrink-0 items-center gap-2 border-b border-line bg-card px-2 py-1.5 text-[11.5px] shadow-[inset_0_1px_0_var(--bevel-hi)]">
       {outcome.ok ? <IconOk size={12} /> : <IconError size={13} />}

@@ -42,6 +42,8 @@ export function Composer() {
     const q = thread ? s.runs[thread.id]?.question : null;
     return !!q && !q.form;
   });
+  // ...a selection (ask_selection): a message here is a note and counts as Done.
+  const selecting = useStore((s) => !!(thread && s.runs[thread.id]?.question?.selection));
   const settings = useStore((s) => s.settings);
   const hasDoc = useStore((s) => !!s.docs[s.activeDocKey ?? ""]);
   const markupActive = useStore((s) => s.markup.active);
@@ -170,7 +172,9 @@ export function Composer() {
             }
           }}
           placeholder={
-            asking
+            selecting
+              ? "Select in SolidWorks and press Done above - or type a note (sends as Done)…"
+              : asking
               ? talkKey
                 ? `Answer the agent's question above… or hold ${talkKey} and say it`
                 : "Answer the agent's question above…"

@@ -2,7 +2,7 @@
  * Stand-in for the SolidWorks add-in when the UI runs in a normal browser (npm run dev).
  * Lets the chat UI be designed and exercised without SolidWorks. Add ?demo to the URL to seed a sample chat.
  */
-import type { ChatData, FileEntry, HostState, ToolDef, ToolRunResult, WatchEntry, WatchResult } from "./types";
+import type { ChatData, FileEntry, HostState, ToolDef, ToolRunResult, UserToolInfo, WatchEntry, WatchResult } from "./types";
 import { emitLocal } from "./bridge";
 
 const DOC = { key: "mock-doc", title: "Mounting Bracket.SLDPRT", path: "C:\\Work\\Mounting Bracket.SLDPRT", type: "part" as const };
@@ -111,10 +111,37 @@ export async function mockRpc(method: string, params: any): Promise<unknown> {
     case "voice.deleteModel":
       return null;
     case "userTools.list":
-      return [
-        { name: "add-mounting-holes", title: "Add mounting holes", description: "Select a planar face; adds a 4-hole M6 clearance pattern 10 mm in from the face edges.", icon: "select", updated: new Date().toISOString(), kind: "tool", hasMacro: true },
-        { name: "compression-mold", title: "Create compression mold", description: "From the active part: split-line, cavity/core plates with 1.5 deg draft, flash land, alignment pins and vents.", icon: "assembly", updated: new Date().toISOString(), kind: "workflow", iconSvg: "<svg viewBox=\"0 0 16 16\"><defs><linearGradient id=\"g\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#D8DCE1\"/><stop offset=\"1\" stop-color=\"#9AA3AD\"/></linearGradient></defs><rect x=\"1.5\" y=\"8.5\" width=\"13\" height=\"5\" rx=\"0.5\" fill=\"url(#g)\" stroke=\"#59626C\"/><rect x=\"1.5\" y=\"2.5\" width=\"13\" height=\"5\" rx=\"0.5\" fill=\"url(#g)\" stroke=\"#59626C\"/><path d=\"M5 8.5h6v2.2a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z\" fill=\"#E8912D\" stroke=\"#A35F14\" stroke-width=\"0.75\"/></svg>", hasPng: false },
-      ];
+      return mockUserTools();
+    case "userTools.run": {
+      // The add-in would show the tool's page, then hand the run to the panel (ToolRunner): do the hand-over.
+      const t = mockUserTools().find((x) => x.name === params?.name);
+      if (t?.kind === "tool")
+        setTimeout(
+          () =>
+            emitLocal("command", {
+              name: "runTool",
+              args: {
+                tool: t.name,
+                title: t.title,
+                intelligence: t.intelligence ?? "balanced",
+                maxSteps: t.maxSteps ?? undefined,
+                longRun: t.longRun,
+                inputs: [{ id: "notes", label: "Notes", type: "text", value: "(mock run from the browser)" }],
+                context: { model: "Mounting Bracket.SLDPRT (mock): part, 1 body, mm" },
+              },
+            }),
+          200,
+        );
+      return null;
+    }
+    case "userTools.setValue": {
+      // The Workflows menu's category button (and the tool page's intelligence): kept for this browser session.
+      const all = store.get<Record<string, Record<string, string>>>("toolSettings", {});
+      all[params.name] = { ...(all[params.name] ?? {}), [params.key]: params.value };
+      store.set("toolSettings", all);
+      setTimeout(() => emitLocal("userTools.changed", mockUserTools()), 50);
+      return null;
+    }
     case "update.status":
     case "update.check":
       return MOCK_UPDATE;
@@ -159,6 +186,44 @@ export async function mockRpc(method: string, params: any): Promise<unknown> {
     default:
       return null;
   }
+}
+
+// ---- tools: a categorised built-in, an uncategorised one, and the user's own in a category and without ----
+
+const MOLD_SVG =
+  "<svg viewBox=\"0 0 16 16\"><defs><linearGradient id=\"g\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0\" stop-color=\"#D8DCE1\"/><stop offset=\"1\" stop-color=\"#9AA3AD\"/></linearGradient></defs><rect x=\"1.5\" y=\"8.5\" width=\"13\" height=\"5\" rx=\"0.5\" fill=\"url(#g)\" stroke=\"#59626C\"/><rect x=\"1.5\" y=\"2.5\" width=\"13\" height=\"5\" rx=\"0.5\" fill=\"url(#g)\" stroke=\"#59626C\"/><path d=\"M5 8.5h6v2.2a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1z\" fill=\"#E8912D\" stroke=\"#A35F14\" stroke-width=\"0.75\"/></svg>";
+
+function mockUserTools(): UserToolInfo[] {
+  const updated = new Date().toISOString();
+  const tools: UserToolInfo[] = [
+    {
+      name: "design-compression-mold",
+      builtIn: true,
+      title: "Design compression mold for plastics and resins",
+      ribbonTitle: "Compression Mold",
+      category: "Molding & Toolmaking",
+      description: "Designs a heat-press compression mold for a PU, resin, rubber or thermoset part, with every plate, insert and pad as a body in this part.",
+      icon: "part",
+      updated,
+      kind: "tool",
+      intelligence: "max",
+      longRun: true,
+      maxSteps: 600,
+      requires: ["mold_calc", "mold_part", "mold_bodies", "mold_record"],
+      hasInputs: true,
+    },
+    { name: "smart-rebuild", builtIn: true, title: "Smart Rebuild", description: "Rebuild the whole design around a change far back in its history.", icon: "rebuild", updated, kind: "tool", intelligence: "max", hasInputs: true },
+    { name: "add-mounting-holes", title: "Add mounting holes", description: "Select a planar face; adds a 4-hole M6 clearance pattern 10 mm in from the face edges.", icon: "select", updated, kind: "tool", hasMacro: true },
+    { name: "flash-grooves", title: "Flash grooves", description: "Cuts the shop's flash-groove pattern around the selected cavity face.", icon: "macro", updated, kind: "tool", hasMacro: true, category: "molding & toolmaking" },
+    { name: "compression-mold", title: "Create compression mold", description: "From the active part: split-line, cavity/core plates with 1.5 deg draft, flash land, alignment pins and vents.", icon: "assembly", updated, kind: "workflow", iconSvg: MOLD_SVG, hasPng: false, category: "Molding & Toolmaking" },
+    { name: "export-drawings", title: "Export drawings", description: "Saves every open drawing as PDF and DXF next to its file.", icon: "drawing", updated, kind: "workflow" },
+  ];
+  const settings = store.get<Record<string, Record<string, string>>>("toolSettings", {});
+  return tools.map((t) => {
+    const s = settings[t.name];
+    if (!s) return t;
+    return { ...t, ...("category" in s ? { category: s.category || null } : {}), ...(s.intelligence ? { intelligence: s.intelligence as UserToolInfo["intelligence"] } : {}) };
+  });
 }
 
 // ---- files (3D model context) ----
