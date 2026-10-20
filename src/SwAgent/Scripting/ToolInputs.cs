@@ -51,7 +51,7 @@ namespace SwAgent.Scripting
             /// <summary>The unit the user saw, for converted numbers ("psi").</summary>
             public string Unit;
 
-            /// <summary>The selected data row of a choice with ChoicesFrom; RowUnique when the entry names exactly one row.</summary>
+            /// <summary>The selected data row of a choice with ChoicesFrom - only when the entry names exactly one row (RowUnique; a family entry has none).</summary>
             public JObject Row;
             public bool RowUnique;
         }
@@ -78,7 +78,7 @@ namespace SwAgent.Scripting
         /// <summary>A size input: its 2 or 3 lengths in meters; null when it is off (Optional) or hidden.</summary>
         public double[] Size(string id) => _values.TryGetValue(id, out var v) && v is double[] d ? d.ToArray() : null;
 
-        /// <summary>The data row selected in a choice with ChoicesFrom (null otherwise).</summary>
+        /// <summary>The data row selected in a choice with ChoicesFrom (null otherwise, and for an entry several rows share, such as a family).</summary>
         public JObject Row(string id) => Meta(id)?.Row;
 
         /// <summary>The text the agent reads for the input ("2000 psi (13.79 MPa)"); the plain value when there is none.</summary>

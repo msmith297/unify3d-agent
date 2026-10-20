@@ -129,7 +129,7 @@ namespace SwAgent.Tests
             Assert.Equal("5 deg", Units.Legacy("angle", 5 * Math.PI / 180));
             Assert.Equal("3.25", Units.Legacy("none", 3.25));
             Assert.Equal("3.25", Units.Legacy("furlongs", 3.25));
-            Assert.Equal("1.5 %", Units.Legacy("percent", 1.5));
+            Assert.Equal("1.5", Units.Legacy("percent", 1.5)); // the page adds " %" only for fields using the newer options
         }
 
         [Fact]

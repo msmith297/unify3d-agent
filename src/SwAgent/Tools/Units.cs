@@ -263,14 +263,13 @@ namespace SwAgent.Tools
 
         /// <summary>
         /// The payload text number inputs have always had (length "12 mm (0.012 m)", angle "5 deg", others the plain
-        /// number), so existing tools' prompts stay as they were. Percent gains its "%".
+        /// number), so existing tools' prompts stay exactly as they were.
         /// </summary>
         public static string Legacy(string unit, double v)
         {
             var u = (unit ?? "length").ToLowerInvariant();
             if (u == "length") return $"{(v * 1000).ToString("0.###", CultureInfo.InvariantCulture)} mm ({v.ToString("0.######", CultureInfo.InvariantCulture)} m)";
             if (u == "angle") return $"{(v * 180 / Math.PI).ToString("0.###", CultureInfo.InvariantCulture)} deg";
-            if (u == "percent") return v.ToString("0.######", CultureInfo.InvariantCulture) + " %";
             return v.ToString("0.######", CultureInfo.InvariantCulture);
         }
 

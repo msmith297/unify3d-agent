@@ -412,14 +412,30 @@ namespace SwAgent.Tools
         public double? TableSi;
         public string FilledBy;
 
+        /// <summary>The filled-in entry of a choice/options target ("true"/"false" for a checkbox), and the filling row's id.</summary>
+        public string TableText;
+        public string FilledFrom;
+
         /// <summary>The filling row has no value for this field (null): hidden, "n/a" for the agent.</summary>
         public bool NotApplicable;
 
         /// <summary>ShowWhen isn't met.</summary>
         public bool ConditionHidden;
 
+        /// <summary>Something was restored from the last run (a value, or only an Optional's switch).</summary>
         public bool Remembered;
         public string RememberedChoice;
+
+        /// <summary>A value (not just the switch) was restored.</summary>
+        public bool RememberedValue;
+
+        /// <summary>
+        /// The restored value was the user's edit of a filled-in value (it differed from the table value stored with it), and
+        /// the row it was edited against. Only such a value outlives the table at start: an unedited one follows the table,
+        /// so a corrected or measured value saved to the data reaches the page.
+        /// </summary>
+        public bool RememberedEdit;
+        public string RememberedFrom;
 
         public string Caption;
         public FieldChange Changes = FieldChange.All;
@@ -436,7 +452,7 @@ namespace SwAgent.Tools
         public bool IsPlain =>
             (Type == "selection" || Type == "number" || Type == "integer" || Type == "checkbox" || Type == "choice" || Type == "options" || Type == "text" || Type == "files")
             && !Converted && !Optional && !Remembered && TableSi == null && !NotApplicable && FilledBy == null && !IsData && Spec.ShowWhen == null
-            && Spec.UnitChoices == null;
+            && Spec.UnitChoices == null && Spec.Remember != true; // the same on every run, whether or not a value was stored yet
     }
 
     /// <summary>
@@ -457,6 +473,9 @@ namespace SwAgent.Tools
         public readonly List<FormField> Fields = new List<FormField>();
         public readonly bool Imperial;
 
+        /// <summary>Inputs some choice fills (their remembered values carry the table value they were stored with).</summary>
+        private readonly HashSet<string> _fillTargets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         public ToolForm(ToolSpec spec, ToolData data, bool imperial, JObject remembered = null)
         {
             _spec = spec;
@@ -469,6 +488,7 @@ namespace SwAgent.Tools
                 var f = new FormField { Spec = s, Id = s.Id, Type = ToolSpec.Type(s), Order = order++ };
                 Fields.Add(f);
                 if (!_byId.ContainsKey(f.Id)) _byId[f.Id] = f;
+                foreach (var target in (s.Fills ?? new Dictionary<string, string>()).Keys) _fillTargets.Add(target.Trim());
             }
             foreach (var f in Fields) Init(f, remembered?[f.Id] as JObject);
             foreach (var f in Fields.Where(x => x.IsData))
@@ -494,6 +514,11 @@ namespace SwAgent.Tools
             var s = f.Spec;
             var remember = s.Remember == true && remembered != null;
             var value = remember ? remembered["value"] : null;
+            if (remember && _fillTargets.Contains(f.Id))
+            {
+                f.RememberedEdit = WasEdit(value, remembered["table"]);
+                f.RememberedFrom = ToolData.Text(remembered["from"] as JValue);
+            }
             switch (f.Type)
             {
                 case "number":
@@ -505,7 +530,9 @@ namespace SwAgent.Tools
                     {
                         f.UnitChoices = Units.Choices(s.Unit, s.UnitChoices);
                         var system = Units.For(s.Unit, Imperial);
-                        var chosen = f.UnitChoices.FirstOrDefault(u => u.Matches((string)remembered?["unit"]));
+                        // A hand-edited file may hold anything here: only a string names a unit.
+                        var stored = (remembered?["unit"] as JValue)?.Value as string;
+                        var chosen = stored == null ? null : f.UnitChoices.FirstOrDefault(u => u.Matches(stored));
                         f.Unit = chosen ?? (f.UnitChoices.Count == 0 || f.UnitChoices.Contains(system) ? system : f.UnitChoices[0]);
                     }
                     InitOptional(f, remember ? remembered : null);
@@ -514,7 +541,7 @@ namespace SwAgent.Tools
                     if (spec != null)
                     {
                         f.Si = SpecToSi(f, Clamp(spec.Value, s.Min, s.Max));
-                        f.Remembered = true;
+                        f.Remembered = f.RememberedValue = true;
                     }
                     break;
                 }
@@ -529,7 +556,7 @@ namespace SwAgent.Tools
                         if (dims.All(d => d != null))
                         {
                             f.SizeSi = dims.Select(d => Clamp(d.Value, s.Min, s.Max) / 1000.0).ToArray();
-                            f.Remembered = true;
+                            f.Remembered = f.RememberedValue = true;
                         }
                     }
                     break;
@@ -539,7 +566,7 @@ namespace SwAgent.Tools
                     if (value != null && value.Type == JTokenType.Boolean)
                     {
                         f.Checked = (bool)value;
-                        f.Remembered = true;
+                        f.Remembered = f.RememberedValue = true;
                     }
                     break;
                 case "options":
@@ -547,24 +574,24 @@ namespace SwAgent.Tools
                     f.Items = (s.Choices ?? new string[0]).ToList();
                     // As the page always did: the default, else the first one only when no default is given.
                     f.Value = f.Items.Contains(s.Default) ? s.Default : s.Default == null && f.Items.Count > 0 ? f.Items[0] : null;
-                    var r = (string)(value as JValue);
+                    var r = ToolData.Text(value as JValue);
                     if (r != null && f.Items.Contains(r))
                     {
                         f.Value = r;
-                        f.Remembered = true;
+                        f.Remembered = f.RememberedValue = true;
                     }
                     break;
                 }
                 case "choice":
                 {
-                    f.RememberedChoice = (string)(value as JValue);
+                    f.RememberedChoice = ToolData.Text(value as JValue);
                     if (f.IsData) break; // entries come from the data, once every field has its default
                     f.Items = (s.Choices ?? new string[0]).ToList();
                     f.Value = f.Items.Count == 0 ? null : f.Items[Math.Max(0, f.Items.IndexOf(s.Default))];
                     if (f.RememberedChoice != null && f.Items.Contains(f.RememberedChoice))
                     {
                         f.Value = f.RememberedChoice;
-                        f.Remembered = true;
+                        f.Remembered = f.RememberedValue = true;
                     }
                     break;
                 }
@@ -581,9 +608,20 @@ namespace SwAgent.Tools
             var on = remembered?["on"];
             if (f.Optional && on != null && on.Type == JTokenType.Boolean)
             {
+                // Only the switch: the value (if any) is restored separately and alone decides over a fill.
                 f.On = (bool)on;
                 f.Remembered = true;
             }
+        }
+
+        /// <summary>A remembered value that differs from the table value stored with it (numbers within 1e-4, text ignoring case).</summary>
+        internal static bool WasEdit(JToken value, JToken table)
+        {
+            if (value == null || value.Type == JTokenType.Null || table == null || table.Type == JTokenType.Null) return false;
+            var a = ToolData.Number(value);
+            var b = ToolData.Number(table);
+            if (a != null && b != null) return !Same(a.Value, b.Value, 1e-4);
+            return !string.Equals(ToolData.Text(value)?.Trim(), ToolData.Text(table)?.Trim(), StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>The default in SI. Shown in another unit it is rounded for display (13.79 MPa shows 2000 psi, 20.68 MPa 3000 psi).</summary>
@@ -602,7 +640,11 @@ namespace SwAgent.Tools
             // within 0.05 %, else keep 4 (45.36 t, not 45.4).
             var v = shown.FromSi(si);
             var three = Units.Nice(v, 3);
-            return shown.ToSiValue(Math.Abs(three - v) <= 5e-4 * Math.Abs(v) ? three : Units.Nice(v, 4));
+            var snapped = shown.ToSiValue(Math.Abs(three - v) <= 5e-4 * Math.Abs(v) ? three : Units.Nice(v, 4));
+            // ...but never past a limit: a default at Min or Max (0.1 MPa = 14.5038 psi) would snap outside and hold OK back.
+            var min = s.Min == null ? double.MinValue : Units.SpecToSi(s.Unit, s.Min.Value);
+            var max = s.Max == null ? double.MaxValue : Units.SpecToSi(s.Unit, s.Max.Value);
+            return snapped < Math.Min(min, max) || snapped > Math.Max(min, max) ? si : snapped;
         }
 
         internal static double[] DefaultSize(ToolInputSpec s)
@@ -687,7 +729,7 @@ namespace SwAgent.Tools
             if (items.Count == 0) return null;
             if (f.RememberedChoice != null && items.Contains(f.RememberedChoice))
             {
-                if (initial) f.Remembered = true;
+                if (initial) f.Remembered = f.RememberedValue = true;
                 return f.RememberedChoice;
             }
             if (f.Spec.Default != null && items.Contains(f.Spec.Default)) return f.Spec.Default;
@@ -744,11 +786,15 @@ namespace SwAgent.Tools
                     if (t.NotApplicable) t.Changes |= FieldChange.Visible;
                     t.NotApplicable = false;
                     t.TableSi = null;
+                    t.TableText = null;
                     t.FilledBy = null;
+                    t.FilledFrom = null;
                     continue;
                 }
                 var token = ToolData.ValueAt(f.Row, path);
                 t.FilledBy = f.Id;
+                t.FilledFrom = RowKey(f);
+                t.TableText = null;
                 if (token == null || token.Type == JTokenType.Null)
                 {
                     if (!t.NotApplicable) t.Changes |= FieldChange.Visible;
@@ -758,6 +804,9 @@ namespace SwAgent.Tools
                 }
                 if (t.NotApplicable) t.Changes |= FieldChange.Visible;
                 t.NotApplicable = false;
+                // At start the user's own edit from last time stays (when it was made against this same row); anything else
+                // remembered follows the table. A pick by the user (not initial) always overwrites.
+                var keep = initial && KeepsRememberedEdit(t, f);
                 switch (t.Type)
                 {
                     case "number":
@@ -774,7 +823,7 @@ namespace SwAgent.Tools
                         var si = from != null ? from.ToSiValue(n.Value) : SpecToSi(t, n.Value);
                         if (t.Type == "integer") si = Math.Round(si);
                         t.TableSi = si;
-                        if (initial && t.Remembered) break;
+                        if (keep) break;
                         if (!Same(t.Si, si))
                         {
                             t.Si = si;
@@ -786,7 +835,8 @@ namespace SwAgent.Tools
                     case "options":
                     {
                         var text = ToolData.Text(token);
-                        if (initial && t.Remembered) break;
+                        t.TableText = text;
+                        if (keep) break;
                         if (text != null && t.Items.Contains(text) && text != t.Value)
                         {
                             t.Value = text;
@@ -798,7 +848,9 @@ namespace SwAgent.Tools
                         break;
                     }
                     case "checkbox":
-                        if (token.Type == JTokenType.Boolean && !(initial && t.Remembered) && (bool)token != t.Checked)
+                        if (token.Type != JTokenType.Boolean) break;
+                        t.TableText = (bool)token ? "true" : "false";
+                        if (!keep && (bool)token != t.Checked)
                         {
                             t.Checked = (bool)token;
                             t.Changes |= FieldChange.Value;
@@ -815,6 +867,12 @@ namespace SwAgent.Tools
                 }
             }
         }
+
+        private static bool KeepsRememberedEdit(FormField t, FormField source) =>
+            t.RememberedValue && t.RememberedEdit && (t.RememberedFrom == null || string.Equals(t.RememberedFrom, RowKey(source), StringComparison.OrdinalIgnoreCase));
+
+        /// <summary>The selected row of a data choice by its id (else its entry text): what a remembered edit was made against.</summary>
+        private static string RowKey(FormField f) => f.Row == null ? null : ToolData.Text(f.Row["id"]) ?? ToolData.KeyText(f.Row, f.Spec.ChoiceKey);
 
         internal static (string Path, string Unit) SplitFill(string fill)
         {
@@ -943,6 +1001,19 @@ namespace SwAgent.Tools
             return f.Converted && !string.IsNullOrEmpty(f.Unit?.Symbol) ? $"{label} ({f.Unit.Symbol})" : label;
         }
 
+        /// <summary>
+        /// A control's tooltip: the spec's Tip, and for a data choice whose entries are short labels (ChoiceKey "short",
+        /// "familyLabel"...) the selected row's full name, so "6061-T651" can say what it is.
+        /// </summary>
+        public string TipOf(FormField f)
+        {
+            var tip = f.Spec.Tip ?? f.Spec.Label ?? "";
+            if (!f.IsData || f.Row == null || !f.RowUnique) return tip;
+            var name = ToolData.Text(ToolData.ValueAt(f.Row, "name"))?.Trim();
+            if (string.IsNullOrEmpty(name) || string.Equals(name, f.Value, StringComparison.OrdinalIgnoreCase)) return tip;
+            return tip.Length == 0 ? name : $"{tip} Selected: {name}";
+        }
+
         /// <summary>{id} and {id.a.b} for info lines.</summary>
         private object Resolve(string name)
         {
@@ -984,6 +1055,9 @@ namespace SwAgent.Tools
 
         // ---- reading out ----
 
+        /// <summary>Relative slack at Min/Max: about half a unit in the 4th digit the page shows.</summary>
+        internal const double LimitTolerance = 5e-4;
+
         /// <summary>Why OK is unavailable because of the newer options (null when nothing): the first such field and a message.</summary>
         public (FormField Field, string Message) Blocking()
         {
@@ -998,8 +1072,9 @@ namespace SwAgent.Tools
                 {
                     var min = f.Spec.Min == null ? (double?)null : Units.SpecToSi(f.Spec.Unit, f.Spec.Min.Value);
                     var max = f.Spec.Max == null ? (double?)null : Units.SpecToSi(f.Spec.Unit, f.Spec.Max.Value);
-                    var below = min != null && f.Si < min.Value && !Same(f.Si, min.Value, 1e-6);
-                    var above = max != null && f.Si > max.Value && !Same(f.Si, max.Value, 1e-6);
+                    // A value that shows as the limit is the limit: 14.5 psi passes a 0.1 MPa (14.5038 psi) minimum.
+                    var below = min != null && f.Si < min.Value && !Same(f.Si, min.Value, LimitTolerance);
+                    var above = max != null && f.Si > max.Value && !Same(f.Si, max.Value, LimitTolerance);
                     if (below || above)
                         return (f, $"Enter a value from {(min == null ? "-" : Units.Show(min.Value, f.Unit, 4))} to {(max == null ? "-" : Units.Show(max.Value, f.Unit, 4))}.");
                 }
@@ -1036,7 +1111,8 @@ namespace SwAgent.Tools
                         meta.Table = f.TableSi;
                         meta.Edited = f.Edited;
                         meta.Unit = f.Converted ? f.Unit?.Ascii : null;
-                        meta.Display = Describe(f);
+                        // A plain integer keeps its raw number in the payload, as it always had.
+                        meta.Display = f.Type == "integer" && f.IsPlain ? null : Describe(f);
                         break;
                     }
                     case "size":
@@ -1055,7 +1131,8 @@ namespace SwAgent.Tools
                         inputs.Set(f.Id, f.Value);
                         if (f.IsData)
                         {
-                            meta.Row = f.Row;
+                            // A family entry names several rows: none of them is "the" row, so none is handed on.
+                            meta.Row = f.RowUnique ? f.Row : null;
                             meta.RowUnique = f.RowUnique;
                             meta.Display = Describe(f);
                         }
@@ -1085,7 +1162,10 @@ namespace SwAgent.Tools
                     if (f.NotApplicable) return "n/a for this " + SourceName(f);
                     if (f.Optional && !f.On) return "not set";
                     var si = f.Type == "integer" ? Math.Round(f.Si) : f.Si;
-                    var text = f.Type == "integer" ? Units.Format(si, 15) : f.Converted ? Units.Describe(f.Spec.Unit, si, f.Unit) : Units.Legacy(f.Spec.Unit, si);
+                    // Percent gains " %" only on fields that use the newer options; original tools read exactly as before.
+                    var text = f.Type == "integer" ? Units.Format(si, 15)
+                        : f.Converted ? Units.Describe(f.Spec.Unit, si, f.Unit)
+                        : Units.Legacy(f.Spec.Unit, si) + (f.Quantity == "percent" && !f.IsPlain ? " %" : "");
                     // A table value the user kept reads as a plain value; an edited one says what the table had.
                     return f.TableSi != null && f.Edited ? $"{text} (table {Short(f, f.TableSi.Value)} - edited by the user)" : text;
                 }
@@ -1138,7 +1218,9 @@ namespace SwAgent.Tools
 
         /// <summary>
         /// What the page remembers on OK (spec units): { id: { value, on, unit } } for inputs with Remember, and the unit
-        /// choice of every field that offers one. Files, selections and text are never stored.
+        /// choice of every field that offers one. Files, selections and text are never stored. A value some choice fills
+        /// also stores the table value it had then and the row ("table", "from"; null when nothing filled it): next time
+        /// only a value the user had edited stays over the table.
         /// </summary>
         public JObject RememberJson()
         {
@@ -1152,7 +1234,11 @@ namespace SwAgent.Tools
                     {
                         case "number":
                         case "integer":
-                            if (!f.NotApplicable) entry["value"] = SiToSpec(f, f.Si);
+                            if (!f.NotApplicable)
+                            {
+                                entry["value"] = SiToSpec(f, f.Si);
+                                if (_fillTargets.Contains(f.Id)) StoreTable(entry, f.TableSi == null ? null : new JValue(SiToSpec(f, f.TableSi.Value)), f);
+                            }
                             if (f.Optional) entry["on"] = f.On;
                             break;
                         case "size":
@@ -1161,10 +1247,13 @@ namespace SwAgent.Tools
                             break;
                         case "checkbox":
                             entry["value"] = f.Checked;
+                            if (_fillTargets.Contains(f.Id)) StoreTable(entry, f.TableText == null ? null : new JValue(f.TableText == "true"), f);
                             break;
                         case "choice":
                         case "options":
-                            if (f.Value != null) entry["value"] = f.Value;
+                            if (f.Value == null) break;
+                            entry["value"] = f.Value;
+                            if (_fillTargets.Contains(f.Id)) StoreTable(entry, f.TableText == null ? null : new JValue(f.TableText), f);
                             break;
                     }
                 }
@@ -1174,44 +1263,66 @@ namespace SwAgent.Tools
             return result;
         }
 
-        /// <summary>
-        /// For pages that can't refill a dropdown once shown (spike S2): every entry list a data choice can have, by trying
-        /// each value its parents can take. Null when there are more than <paramref name="cap"/> combinations.
-        /// </summary>
-        public List<List<string>> PossibleEntryLists(FormField f, int cap = 200)
+        /// <summary>Explicit nulls, so a merge-save drops a table value from an earlier run.</summary>
+        private static void StoreTable(JObject entry, JToken table, FormField f)
         {
-            if (f == null || !f.IsData) return null;
-            var parents = f.Parents.Select(Get).Where(p => p != null).ToList();
-            var domains = new List<(string Id, List<string> Values)>();
-            foreach (var p in parents)
-            {
-                var values = PossibleValues(p, cap, 0);
-                if (values == null) return null;
-                domains.Add((p.Id, values));
-            }
-            long combos = 1;
-            foreach (var d in domains) combos *= Math.Max(1, d.Values.Count);
-            if (combos > cap) return null;
-            var lists = new List<List<string>>();
-            var seen = new HashSet<string>();
-            foreach (var combo in Product(domains, 0, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)))
-            {
-                var items = _data.Entries(f.Spec, id => combo.TryGetValue(id, out var v) ? v : ValueOf(id));
-                if (seen.Add(string.Join("\u0001", items))) lists.Add(items);
-            }
-            return lists;
+            entry["table"] = table ?? JValue.CreateNull();
+            entry["from"] = table == null || f.FilledFrom == null ? JValue.CreateNull() : new JValue(f.FilledFrom);
         }
 
-        private List<string> PossibleValues(FormField p, int cap, int depth)
+        /// <summary>
+        /// For pages that can't refill a dropdown once shown (spike S2): every entry list a data choice can have, by trying
+        /// each value its parents can take. Null when there are more than <paramref name="cap"/> combinations, or when the
+        /// choices depend on each other in a circle (a hand-written RowFilter can do that; CheckInputs warns about it).
+        /// </summary>
+        public List<List<string>> PossibleEntryLists(FormField f, int cap = 200) =>
+            EntryLists(f, cap, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+
+        private List<List<string>> EntryLists(FormField f, int cap, HashSet<string> visiting)
         {
-            if (depth > MaxDepth) return null;
+            if (f == null || !f.IsData) return null;
+            // A choice met again on its own parent chain is a cycle; a chain deeper than MaxDepth is treated as one.
+            if (visiting.Count > MaxDepth || !visiting.Add(f.Id)) return null;
+            try
+            {
+                var parents = f.Parents.Select(Get).Where(p => p != null).ToList();
+                var domains = new List<(string Id, List<string> Values)>();
+                foreach (var p in parents)
+                {
+                    var values = PossibleValues(p, cap, visiting);
+                    if (values == null) return null;
+                    domains.Add((p.Id, values));
+                }
+                long combos = 1;
+                foreach (var d in domains)
+                {
+                    combos *= Math.Max(1, d.Values.Count);
+                    if (combos > cap) return null;
+                }
+                var lists = new List<List<string>>();
+                var seen = new HashSet<string>();
+                foreach (var combo in Product(domains, 0, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)))
+                {
+                    var items = _data.Entries(f.Spec, id => combo.TryGetValue(id, out var v) ? v : ValueOf(id));
+                    if (seen.Add(string.Join("\u0001", items))) lists.Add(items);
+                }
+                return lists;
+            }
+            finally
+            {
+                visiting.Remove(f.Id);
+            }
+        }
+
+        private List<string> PossibleValues(FormField p, int cap, HashSet<string> visiting)
+        {
             switch (p.Type)
             {
                 case "options":
                     return p.Items.ToList();
                 case "choice":
                     if (!p.IsData) return p.Items.ToList();
-                    var lists = PossibleEntryLists(p, cap);
+                    var lists = EntryLists(p, cap, visiting);
                     return lists?.SelectMany(x => x).Distinct().ToList();
                 case "checkbox":
                     return new List<string> { "true", "false" };

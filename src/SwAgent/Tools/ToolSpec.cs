@@ -205,7 +205,10 @@ namespace SwAgent.Tools
         internal static void ApplyRunSettings(ToolSpec spec, IDictionary<string, string> fm)
         {
             string Get(string key) => fm != null && fm.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v) ? Unquote(v.Trim()) : null;
-            spec.Category = Get("category");
+            // One line, at most 48 characters - the same rule as the tool index (UserTools.CleanCategory).
+            var category = string.Join(" ", (Get("category") ?? "").Split(new[] { '\r', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries)).Trim();
+            if (category.Length > 48) category = category.Substring(0, 48).TrimEnd();
+            spec.Category = category.Length == 0 ? null : category;
             spec.RibbonTitle = Get("ribbon_title");
             var longRun = (Get("long_run") ?? "").ToLowerInvariant();
             spec.LongRun = longRun == "true" || longRun == "yes" || longRun == "1";
@@ -285,7 +288,11 @@ namespace SwAgent.Tools
                     if (!index.ContainsKey(key)) warnings.Add($"'{s.Id}' show_when names '{key}', which doesn't exist");
                 foreach (var pattern in (s.RowFilter ?? new Dictionary<string, string>()).Values)
                     foreach (var reference in ToolData.References(pattern))
-                        if (!index.ContainsKey(reference)) warnings.Add($"'{s.Id}' row_filter names '{{{reference}}}', which doesn't exist");
+                    {
+                        if (!index.TryGetValue(reference, out var p)) warnings.Add($"'{s.Id}' row_filter names '{{{reference}}}', which doesn't exist");
+                        else if (p == i) warnings.Add($"'{s.Id}' row_filter names itself ('{{{reference}}}')");
+                        else if (p > i) warnings.Add($"'{s.Id}' row_filter names '{{{reference}}}', which must be declared before it");
+                    }
                 if ((type == "number") && s.Unit != null && !Units.IsKnown(s.Unit))
                     warnings.Add($"'{s.Id}' has an unknown unit '{s.Unit}' (shown as a plain number)");
                 if (s.UnitChoices != null && Units.Choices(s.Unit, s.UnitChoices).Count != s.UnitChoices.Length)
@@ -293,7 +300,49 @@ namespace SwAgent.Tools
                 if (type == "size" && s.Dims != null && s.Dims != 2 && s.Dims != 3) warnings.Add($"'{s.Id}' dims must be 2 or 3");
                 if (type == "info" && string.IsNullOrWhiteSpace(s.Text)) warnings.Add($"'{s.Id}' is an info line without text");
             }
+            foreach (var cycle in DependencyCycles(inputs)) warnings.Add($"choices depend on each other in a circle: {cycle} (the page can't order them)");
             return warnings;
+        }
+
+        /// <summary>Circles among choices' DependsOn and RowFilter references ("a -> b -> a"), each reported once.</summary>
+        internal static List<string> DependencyCycles(IList<ToolInputSpec> inputs)
+        {
+            var parents = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var s in inputs ?? new List<ToolInputSpec>())
+            {
+                if (s == null || string.IsNullOrWhiteSpace(s.Id) || parents.ContainsKey(s.Id)) continue;
+                var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                if (!string.IsNullOrWhiteSpace(s.DependsOn)) set.Add(s.DependsOn.Trim());
+                foreach (var pattern in (s.RowFilter ?? new Dictionary<string, string>()).Values)
+                    foreach (var r in ToolData.References(pattern)) set.Add(r);
+                set.Remove(s.Id); // a self-reference is reported on its own
+                parents[s.Id] = set;
+            }
+            var cycles = new List<string>();
+            var reported = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var state = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase); // 1 on the path, 2 done
+            var path = new List<string>();
+            void Visit(string id)
+            {
+                state[id] = 1;
+                path.Add(id);
+                foreach (var p in parents[id])
+                {
+                    if (!parents.ContainsKey(p)) continue;
+                    state.TryGetValue(p, out var st);
+                    if (st == 0) Visit(p);
+                    else if (st == 1)
+                    {
+                        var loop = path.Skip(path.FindLastIndex(x => string.Equals(x, p, StringComparison.OrdinalIgnoreCase))).ToList();
+                        if (loop.Any(reported.Add)) cycles.Add(string.Join(" -> ", loop.Concat(new[] { p })));
+                    }
+                }
+                path.RemoveAt(path.Count - 1);
+                state[id] = 2;
+            }
+            foreach (var id in parents.Keys.ToList())
+                if (!state.ContainsKey(id)) Visit(id);
+            return cycles;
         }
 
         public static void SaveInputs(string dir, IEnumerable<ToolInputSpec> inputs)

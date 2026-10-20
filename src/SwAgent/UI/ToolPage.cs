@@ -28,6 +28,9 @@ namespace SwAgent.UI
     public sealed class ToolPage : IPropertyManagerPage2Handler9
     {
         private const int PreviewBudgetMs = 350;
+
+        /// <summary>The S2 fallback's limits: parent combinations tried, and dropdowns made for one choice.</summary>
+        private const int MaxVariantCombinations = 2000, MaxVariants = 80;
         private static readonly string[] TierNames = { "Fast", "Balanced", "High", "Max" };
 
         private readonly ISldWorks _sw;
@@ -126,6 +129,15 @@ namespace SwAgent.UI
 
             /// <summary>When the code last set this field's selection or check state (see IsLateEvent).</summary>
             public int? SetAt;
+
+            /// <summary>
+            /// The dropdown didn't take its new entries (spike S2): what it shows no longer matches the form, so it is disabled,
+            /// its events are ignored and OK waits until the page is opened again.
+            /// </summary>
+            public bool Stale;
+
+            /// <summary>The tooltip last given to the dropdown (data choices name their selected row).</summary>
+            public string Tip;
         }
 
         private sealed class Variant
@@ -225,8 +237,17 @@ namespace SwAgent.UI
             }
             catch (Exception ex)
             {
-                // Bad data must never stop the page: fall back to the plain defaults.
+                // Bad data must never stop the page. A damaged remembered file is the likely cause (it is only rewritten on
+                // OK): try again without it, keeping the data choices; then fall back to the plain defaults.
                 Log.Error($"Tool '{spec.Name}': reading its page data failed", ex);
+            }
+            try
+            {
+                return new ToolForm(spec, ToolData.For(spec), imperial);
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Tool '{spec.Name}': reading its data files failed", ex);
                 return new ToolForm(spec, ToolData.None, imperial);
             }
         }
@@ -454,6 +475,11 @@ namespace SwAgent.UI
                 {
                     f.Label = AddLabel(group, s.Label, OptionsFor(f));
                     f.Parts.Add(f.Label);
+                    if (m.IsData)
+                    {
+                        tip = _form.TipOf(m);
+                        f.Tip = tip;
+                    }
                     if (m.IsData && m.Parents.Count > 0 && _quirks.ComboVariants && AddVariants(group, f, tip)) break;
                     f.Id = _nextId++;
                     var box = (IPropertyManagerPageCombobox)Control(group, f.Id, (short)swPropertyManagerPageControlType_e.swControlType_Combobox,
@@ -530,13 +556,15 @@ namespace SwAgent.UI
 
         /// <summary>
         /// The S2 fallback: one dropdown for every entry list a dependent choice can have (all made before Show2), and only
-        /// the one for the current parents visible. False when there are too many lists - the field then refills one dropdown.
+        /// the one for the current parents visible. False when there are too many lists (or the choices depend on each other
+        /// in a circle) - the field then has one dropdown, which is disabled if it fails to refill (see ComboRefillFailed).
         /// </summary>
         private bool AddVariants(IPropertyManagerPageGroup group, Field f, string tip)
         {
             var m = f.Model;
-            var lists = _form.PossibleEntryLists(m, 60);
-            if (lists == null || lists.Count < 2) return false;
+            // Many parent combinations usually share few lists (one per family): the dropdowns made count, not the combinations.
+            var lists = _form.PossibleEntryLists(m, MaxVariantCombinations);
+            if (lists == null || lists.Count < 2 || lists.Count > MaxVariants) return false;
             if (!lists.Any(l => l.SequenceEqual(m.Items))) lists.Add(m.Items.ToList());
             f.Variants = new List<Variant>();
             foreach (var items in lists)
@@ -596,18 +624,44 @@ namespace SwAgent.UI
 
         /// <summary>
         /// A number box reporting back what the code wrote (spike S1: an event raised after the guard, or a box that keeps
-        /// fewer digits than were written) rather than an edit: within 0.5 % of the write, while the form still holds the
-        /// value written - and, for events, only just after the write. Only for numbers that use the newer options (filled
-        /// from a table or converted): there a phantom edit would read "edited by the user". Plain boxes read as they always did.
+        /// fewer digits than were written) rather than an edit, while the form still holds the value written. Events just
+        /// after the write (timed) allow 0.5 %; reading the boxes at OK allows only the box's display rounding, so a small
+        /// deliberate edit (2000 -> 2009 psi) that raised no event is still read. Only for numbers that use the newer
+        /// options (filled from a table or converted): there a phantom edit would read "edited by the user". Plain boxes
+        /// read as they always did.
         /// </summary>
         private static bool IsEcho(Field f, double boxValue, bool timed)
         {
             var m = f.Model;
             if (m == null || m.IsPlain || f.Written == null || !ToolForm.Same(m.Si, f.WrittenSi)) return false;
-            if (timed && unchecked(System.Environment.TickCount - f.WrittenAt) > 500) return false;
             var w = f.Written.Value;
-            return Math.Abs(boxValue - w) <= 0.005 * Math.Max(Math.Abs(w), 1e-12);
+            var diff = Math.Abs(boxValue - w);
+            if (timed) return unchecked(System.Environment.TickCount - f.WrittenAt) <= 500 && diff <= 0.005 * Math.Max(Math.Abs(w), 1e-12);
+            return diff <= RoundingSlack(f, w);
         }
+
+        /// <summary>
+        /// What a box's display rounding can change in its value: half a unit in the last digit SolidWorks shows (2 decimals
+        /// for unitless and converted boxes, 0.01 mm / 0.001 in for lengths, 0.01 deg for angles), half a step for integers.
+        /// </summary>
+        internal static double RoundingSlack(string type, string unit, bool converted, double written)
+        {
+            double slack;
+            if (type == "integer") slack = 0.49;
+            else if (converted) slack = 0.005;
+            else
+            {
+                switch ((unit ?? "length").Trim().ToLowerInvariant())
+                {
+                    case "length": slack = 0.0005 * 0.0254; break; // the coarser of 0.005 mm and 0.0005 in, in m
+                    case "angle": slack = 0.005 * Math.PI / 180.0; break;
+                    default: slack = 0.005; break;
+                }
+            }
+            return Math.Max(slack, 1e-9 * Math.Abs(written));
+        }
+
+        private static double RoundingSlack(Field f, double written) => RoundingSlack(f.Type, f.Spec.Unit, f.Model.Converted, written);
 
         /// <summary>
         /// A selection or check event raised for something the code just set (a refilled dropdown, a filled-in option): if
@@ -644,6 +698,7 @@ namespace SwAgent.UI
                             if ((c & FieldChange.Range) != 0) Rerange(f);
                             if ((c & FieldChange.Value) != 0) ShowValue(f);
                             if ((c & FieldChange.Caption) != 0) ShowCaption(f);
+                            if ((c & (FieldChange.Value | FieldChange.Items)) != 0 && m.IsData) ShowTip(f);
                             if ((c & (FieldChange.Visible | FieldChange.Enabled | FieldChange.Items)) != 0) ShowVisibility(f);
                         }
                         catch (Exception ex)
@@ -660,6 +715,7 @@ namespace SwAgent.UI
         private void Refill(Field f)
         {
             var items = f.Model.Items;
+            if (f.Stale) return; // known not to follow: disabled, the page has said so and OK waits
             if (f.Variants != null)
             {
                 var v = f.Variants.FirstOrDefault(x => x.Items.SequenceEqual(items));
@@ -669,6 +725,7 @@ namespace SwAgent.UI
                     f.Id = v.Id;
                     f.Control = v.Box;
                     f.Items = v.Items;
+                    f.Tip = null; // this dropdown still has the tip it was made with
                     return;
                 }
                 // A list the variants didn't foresee: refill the active one.
@@ -686,27 +743,92 @@ namespace SwAgent.UI
                 ComboRefillFailed(f, ex.Message);
                 return;
             }
+            var wrong = RefillMismatch(box, items);
+            if (wrong != null) ComboRefillFailed(f, wrong);
+        }
+
+        /// <summary>
+        /// The combobox has no item count, so a refill is checked by its entries: the first and the last must be the new
+        /// ones and nothing may follow the last (a Clear that did nothing leaves old entries next to the new ones, and a pick
+        /// would then map to the wrong entry). Null when it took, or when ItemText can't tell on this version.
+        /// </summary>
+        private static string RefillMismatch(IPropertyManagerPageCombobox box, List<string> items)
+        {
+            string Text(int i) => box.get_ItemText((short)i);
             try
             {
-                // The combobox has no item count; the last entry tells whether the refill took.
                 if (items.Count > 0)
                 {
-                    var last = box.get_ItemText((short)(items.Count - 1));
-                    if (!string.IsNullOrEmpty(last) && last != items[items.Count - 1]) ComboRefillFailed(f, $"entry {items.Count - 1} reads '{last}'");
+                    var first = Text(0);
+                    var last = Text(items.Count - 1);
+                    // Empty reads: ItemText doesn't report entries here, no conclusion.
+                    if (string.IsNullOrEmpty(first) && string.IsNullOrEmpty(last)) return null;
+                    if (first != items[0]) return $"entry 0 reads '{first}'";
+                    if (last != items[items.Count - 1]) return $"entry {items.Count - 1} reads '{last}'";
                 }
             }
             catch
             {
-                // ItemText isn't a reliable probe on every version; no conclusion.
+                return null; // ItemText isn't a reliable probe on every version
             }
+            try
+            {
+                var extra = Text(items.Count);
+                if (!string.IsNullOrEmpty(extra)) return $"an old entry '{extra}' is still listed";
+            }
+            catch
+            {
+                // Past the end: as it should be.
+            }
+            return null;
         }
 
+        private bool _refillReported;
+
+        /// <summary>
+        /// A dropdown that didn't take its new entries: disabled and marked stale (OK waits), and the page says so once.
+        /// The first time on this PC it switches the one-list-per-choice layout on for the next page; when that is already
+        /// on, this choice has too many lists to prepare, and opening the page again (its parents set) is what helps.
+        /// </summary>
         private void ComboRefillFailed(Field f, string why)
         {
-            Log.Warn($"Tool page '{_spec.Name}': refilling '{f.Spec.Id}' failed ({why}); the page will use one list per choice from now on.");
-            _quirks.ComboVariants = true;
-            _quirks.Save();
-            Message($"SolidWorks didn't update the '{f.Spec.Label}' list. Close this page and run the tool again - it will use a layout that works.");
+            Log.Warn($"Tool page '{_spec.Name}': refilling '{f.Spec.Id}' failed ({why}).");
+            f.Stale = true;
+            try
+            {
+                ((IPropertyManagerPageControl)f.Control).Enabled = false;
+            }
+            catch
+            {
+                // The page is closing.
+            }
+            var first = !_quirks.ComboVariants;
+            if (first)
+            {
+                _quirks.ComboVariants = true;
+                _quirks.Save();
+            }
+            if (_refillReported) return;
+            _refillReported = true;
+            Message(first
+                ? $"SolidWorks didn't update the '{f.Spec.Label}' list. Close this page and run the tool again - it will use a layout that works."
+                : $"SolidWorks can't update the '{f.Spec.Label}' list while this page is open, and it has too many variants to prepare. Close the page and run the tool again to pick from the list for these settings.");
+        }
+
+        /// <summary>A data choice's tooltip names its selected row (critique C5); a version that can't change tooltips keeps the first.</summary>
+        private void ShowTip(Field f)
+        {
+            var tip = _form.TipOf(f.Model);
+            if (tip == f.Tip || !(f.Control is IPropertyManagerPageControl ctl)) return;
+            try
+            {
+                ctl.Tip = tip;
+                f.Tip = tip;
+            }
+            catch
+            {
+                // Tooltips are a courtesy.
+            }
         }
 
         /// <summary>A unit change: the box's range in the new unit (spike S2), unless this PC can't re-range shown boxes.</summary>
@@ -777,6 +899,7 @@ namespace SwAgent.UI
                     f.SetAt = System.Environment.TickCount;
                     break;
                 case "choice":
+                    if (f.Stale) break; // its entries aren't the form's
                     ((IPropertyManagerPageCombobox)f.Control).CurrentSelection = (short)f.Items.IndexOf(m.Value);
                     f.SetAt = System.Environment.TickCount;
                     break;
@@ -835,6 +958,7 @@ namespace SwAgent.UI
                     if (byDisabling) ctl.Enabled = !hidden;
                 }
             }
+            if (f.Stale && f.Control is IPropertyManagerPageControl stale) stale.Enabled = false;
         }
 
         /// <summary>Put what the user had already selected into the matching selection boxes.</summary>
@@ -873,7 +997,9 @@ namespace SwAgent.UI
         /// <summary>Read every control. withRefs adds persistent references (needed for the agent, skipped for previews).</summary>
         private ToolInputs Collect(bool withRefs)
         {
-            Pull();
+            // At OK, catch changes SolidWorks raised no event for. Previews (from the preview timer) read the form as the
+            // events left it, so no new control reads run from a timer.
+            if (withRefs) Pull();
             var inputs = new ToolInputs();
             var sm = (ISelectionMgr)_model.SelectionManager;
             foreach (var f in _ordered)
@@ -955,6 +1081,7 @@ namespace SwAgent.UI
                             break;
                         case "choice":
                         {
+                            if (f.Stale) break; // its index no longer maps to the form's entries
                             var i = ((IPropertyManagerPageCombobox)f.Control).CurrentSelection;
                             // Plain dropdowns always read their entry like this (the default when nothing is picked).
                             if (i >= 0 && i < f.Items.Count) _form.SetChoice(m, f.Items[i]);
@@ -995,8 +1122,12 @@ namespace SwAgent.UI
                         return false;
                 }
             }
+            if (StaleField() != null) return false;
             return _form?.Blocking().Field == null;
         }
+
+        /// <summary>A shown dropdown that didn't take its new entries (see ComboRefillFailed): OK waits for the page to reopen.</summary>
+        private Field StaleField() => _ordered.FirstOrDefault(f => f.Stale && f.Model?.Hidden != true);
 
         private void UpdateOkButton()
         {
@@ -1016,6 +1147,12 @@ namespace SwAgent.UI
         private void ExplainBlocking()
         {
             var (field, message) = _form?.Blocking() ?? (null, null);
+            var stale = StaleField();
+            if (stale?.Model != null)
+            {
+                field = stale.Model;
+                message = "SolidWorks didn't update this list. Close the page and run the tool again.";
+            }
             var key = field == null ? null : field.Id + "|" + message;
             if (key == _bubbleFor) return;
             _bubbleFor = key;
@@ -1211,7 +1348,7 @@ namespace SwAgent.UI
                 if (item >= 0 && item < ToolSpec.Tiers.Length) TierChanged?.Invoke(ToolSpec.Tiers[item]);
                 return;
             }
-            if (_fields.TryGetValue(id, out var f) && f.Model != null && !IsLateEvent(f))
+            if (_fields.TryGetValue(id, out var f) && f.Model != null && !IsLateEvent(f) && !(f.Stale && id != f.UnitBoxId))
             {
                 if (id == f.UnitBoxId)
                 {

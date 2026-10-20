@@ -175,7 +175,8 @@ namespace SwAgent.Tests
             var remembered = JObject.Parse(@"{
                 ""part_family"": { ""value"": ""Cast PU - TDI polyether"" },
                 ""part_grade"": { ""value"": ""TDI-polyether / MBOCA 70A"" },
-                ""shrink_pct"": { ""value"": 1.8 },
+                ""shrink_pct"": { ""value"": 1.8, ""table"": 1.7, ""from"": ""pu-tdi-ether-70a"" },
+                ""sg"": { ""value"": 1.2 },
                 ""press_temp"": { ""value"": 140 },
                 ""mold_material"": { ""value"": ""Tool steel"" },
                 ""mold_grade"": { ""value"": ""H13 44-50 HRC"" },
@@ -185,8 +186,9 @@ namespace SwAgent.Tests
             }");
             var form = PageFixture.Form(remembered: remembered);
             Assert.Equal("TDI-polyether / MBOCA 70A", form.Get("part_grade").Value);
-            Near(1.8, form.Get("shrink_pct").Si); // remembered: not overwritten by the table
+            Near(1.8, form.Get("shrink_pct").Si); // the user's edit (1.7 in the table then): not overwritten by the table
             Assert.True(form.Get("shrink_pct").Edited); // ...and differs from the table (1.7)
+            Near(1.06, form.Get("sg").Si); // stored without its table value (no edit known): follows the table
             Near(100, form.Get("press_temp").Si); // not "Remember": follows the material
             Assert.Equal("Tool steel", form.Get("mold_material").Value);
             Assert.Equal("H13 44-50 HRC", form.Get("mold_grade").Value);
@@ -348,6 +350,8 @@ namespace SwAgent.Tests
             var inputs = new ToolInputs();
             form.Collect(inputs);
             Assert.Equal("pu-tdi-ether-90a", (string)inputs.Row("part_grade")["id"]);
+            Assert.Null(inputs.Row("part_family")); // a family names several rows: none is handed on as "the" row
+            Assert.Null(ToolRunner.InputEntry(form.Get("part_family").Spec, inputs)["row"]);
             Assert.Equal("TDI-polyether / MBOCA 90A", inputs.Text("part_grade"));
             var entry = ToolRunner.InputEntry(form.Get("part_grade").Spec, inputs);
             Assert.Equal("pu-tdi-ether-90a", (string)entry["row"]["id"]);
@@ -412,6 +416,9 @@ namespace SwAgent.Tests
             var json = form.RememberJson();
             Assert.Equal("TDI-polyether / MBOCA 70A", (string)json["part_grade"]["value"]);
             Assert.Equal(1.7, (double)json["shrink_pct"]["value"], 9);
+            Assert.Equal(1.7, (double)json["shrink_pct"]["table"], 9); // what the table had: next time this reads as unedited
+            Assert.Equal("pu-tdi-ether-70a", (string)json["shrink_pct"]["from"]);
+            Assert.Null(json["cycle_life"]["table"]); // not a fill target: no table stored
             Assert.Equal(300, (double)json["daylight"]["value"], 9); // mm
             Assert.True((bool)json["daylight"]["on"]);
             Assert.Equal(new[] { 610.0, 610.0 }, json["platen_size"]["value"].Select(x => Math.Round((double)x, 6)));
@@ -491,6 +498,185 @@ namespace SwAgent.Tests
             Assert.Null(form.Get("g").Value);
             Near(2e6, form.Get("x").Si);
             Assert.Equal("g", form.Blocking().Field?.Id);
+        }
+
+        /// <summary>A copy of the page-test tool whose materials.json a test can change (as mold_record save_default would).</summary>
+        private static string PageTestCopy()
+        {
+            var dir = PageFixture.Temp();
+            File.Copy(Path.Combine(PageFixture.Dir, "inputs.json"), Path.Combine(dir, "inputs.json"));
+            Directory.CreateDirectory(Path.Combine(dir, "data"));
+            foreach (var file in Directory.GetFiles(Path.Combine(PageFixture.Dir, "data")))
+                File.Copy(file, Path.Combine(dir, "data", Path.GetFileName(file)));
+            return dir;
+        }
+
+        private static void SetShrink(string dir, string id, double typ)
+        {
+            var path = Path.Combine(dir, "data", "materials.json");
+            var o = JObject.Parse(File.ReadAllText(path));
+            o["rows"].Single(r => (string)r["id"] == id)["shrinkPct"]["typ"] = typ;
+            File.WriteAllText(path, o.ToString());
+        }
+
+        private static ToolForm FormIn(string dir, JObject remembered, bool imperial = false) =>
+            new ToolForm(PageFixture.Spec(dir), new ToolData(dir), imperial, remembered);
+
+        [Fact]
+        public void An_unedited_remembered_value_follows_a_changed_table()
+        {
+            var dir = PageTestCopy();
+            var first = FormIn(dir, null);
+            Assert.False(first.Get("shrink_pct").Edited);
+            var remembered = first.RememberJson(); // OK without touching the shrinkage (1.5 from the table)
+
+            SetShrink(dir, "pu-tdi-ether-90a", 2.1); // the shop saves its measured shrinkage as the default
+            var second = FormIn(dir, remembered);
+            var shrink = second.Get("shrink_pct");
+            Near(2.1, shrink.Si); // the new table value wins
+            Assert.False(shrink.Edited);
+            Assert.Equal("2.1 %", PageFixture.Line(second, "shrink_pct"));
+        }
+
+        [Fact]
+        public void A_remembered_edit_stays_over_a_changed_table_and_says_so()
+        {
+            var dir = PageTestCopy();
+            var first = FormIn(dir, null);
+            first.SetNumber(first.Get("shrink_pct"), 1.8); // the user's own value
+            var remembered = first.RememberJson();
+            Assert.Equal(1.5, (double)remembered["shrink_pct"]["table"], 9);
+
+            SetShrink(dir, "pu-tdi-ether-90a", 2.1);
+            var second = FormIn(dir, remembered);
+            Near(1.8, second.Get("shrink_pct").Si);
+            Assert.True(second.Get("shrink_pct").Edited);
+            Assert.Equal("1.8 % (table 2.1 % - edited by the user)", PageFixture.Line(second, "shrink_pct"));
+
+            // An edit made against another grade doesn't carry over to this one.
+            remembered["part_grade"]["value"] = "TDI-polyether / MBOCA 70A";
+            var third = FormIn(dir, remembered);
+            Near(1.7, third.Get("shrink_pct").Si);
+            Assert.False(third.Get("shrink_pct").Edited);
+
+            // Files written before tables were stored: no edit is known, the table wins.
+            var old = JObject.Parse("{ \"shrink_pct\": { \"value\": 1.8 } }");
+            Near(2.1, FormIn(dir, old).Get("shrink_pct").Si);
+        }
+
+        [Fact]
+        public void An_optionals_remembered_switch_alone_does_not_hold_back_the_table()
+        {
+            var dir = PageFixture.Temp();
+            File.WriteAllText(Path.Combine(dir, "rows.json"), "[ {\"id\":\"r1\",\"name\":\"r1\",\"v\":7} ]");
+            var inputs = new List<ToolInputSpec>
+            {
+                new ToolInputSpec { Id = "c", Type = "choice", ChoicesFrom = "rows.json", Remember = true, Fills = new Dictionary<string, string> { ["n"] = "v" } },
+                new ToolInputSpec { Id = "n", Type = "number", Unit = "none", Optional = true, Enabled = false, Remember = true, Default = "1", Min = 0, Max = 100 },
+            };
+            // The last run's row had no value for n (n/a), so only its switch was stored.
+            var form = new ToolForm(PageFixture.Spec(dir, inputs), new ToolData(dir), false, JObject.Parse("{ \"n\": { \"on\": true } }"));
+            var n = form.Get("n");
+            Assert.True(n.On);
+            Near(7, n.Si);
+            Assert.False(n.Edited);
+            Assert.Equal("7", PageFixture.Line(form, "n"));
+        }
+
+        [Fact]
+        public void A_damaged_remembered_file_is_ignored_where_it_is_damaged()
+        {
+            var remembered = JObject.Parse(@"{
+                ""press_pressure"": { ""unit"": {}, ""value"": [1] },
+                ""part_grade"": { ""value"": { ""x"": 1 } },
+                ""shrink_pct"": { ""value"": ""abc"", ""table"": [], ""from"": {} },
+                ""mold_material"": { ""value"": 5 }
+            }");
+            var form = PageFixture.Form(imperial: true, remembered: remembered);
+            Assert.Equal("psi", form.Get("press_pressure").Unit.Ascii); // the document's unit
+            Assert.Equal("TDI-polyether / MBOCA 90A", form.Get("part_grade").Value);
+            Near(1.5, form.Get("shrink_pct").Si);
+            Assert.Equal("Aluminium + steel inserts", form.Get("mold_material").Value);
+        }
+
+        [Fact]
+        public void Choices_that_depend_on_each_other_in_a_circle_do_not_overflow()
+        {
+            var dir = PageFixture.Temp();
+            File.WriteAllText(Path.Combine(dir, "rows.json"), "[ {\"name\":\"a\",\"k\":\"a\"}, {\"name\":\"b\",\"k\":\"b\"} ]");
+            var inputs = new List<ToolInputSpec>
+            {
+                new ToolInputSpec { Id = "x", Type = "choice", ChoicesFrom = "rows.json", RowFilter = new Dictionary<string, string> { ["k"] = "{y}" } },
+                new ToolInputSpec { Id = "y", Type = "choice", ChoicesFrom = "rows.json", RowFilter = new Dictionary<string, string> { ["k"] = "{x}" } },
+                new ToolInputSpec { Id = "z", Type = "choice", ChoicesFrom = "rows.json", DependsOn = "x" },
+            };
+            var form = new ToolForm(PageFixture.Spec(dir, inputs), new ToolData(dir), false);
+            Assert.Null(form.PossibleEntryLists(form.Get("x")));
+            Assert.Null(form.PossibleEntryLists(form.Get("y")));
+            Assert.Null(form.PossibleEntryLists(form.Get("z"))); // its parent is in the circle
+            form.SetChoice(form.Get("x"), form.Get("x").Items.FirstOrDefault() ?? "a"); // cascades stay bounded too
+            var w = ToolSpec.CheckInputs(dir, inputs);
+            Assert.Contains(w, m => m.Contains("'x' row_filter names '{y}', which must be declared before it"));
+            Assert.Contains(w, m => m.Contains("in a circle") && m.Contains("x") && m.Contains("y"));
+            Assert.Single(w, m => m.Contains("in a circle"));
+        }
+
+        [Fact]
+        public void A_default_at_a_limit_stays_inside_it_in_either_system()
+        {
+            var inputs = new List<ToolInputSpec>
+            {
+                new ToolInputSpec { Id = "p", Type = "number", Unit = "pressure", Min = 0.1, Max = 100, Default = "0.1" },
+                new ToolInputSpec { Id = "m", Type = "number", Unit = "mass", Min = 0.1, Max = 1, Default = "1" },
+                new ToolInputSpec { Id = "t", Type = "number", Unit = "temperature", Min = 20, Max = 250, Default = "250" },
+            };
+            foreach (var imperial in new[] { false, true })
+            {
+                var form = new ToolForm(PageFixture.Spec(PageFixture.Temp(), inputs), ToolData.None, imperial);
+                Assert.Null(form.Blocking().Field);
+                Assert.True(form.Get("p").Si >= 0.1e6 && form.Get("p").Si <= 100e6);
+                Assert.True(form.Get("m").Si <= 1.0);
+                Assert.True(form.Get("t").Si <= 250);
+            }
+            // A value typed as the page shows the limit passes: 14.5 psi for a 0.1 MPa (14.5038 psi) minimum.
+            var ips = new ToolForm(PageFixture.Spec(PageFixture.Temp(), inputs), ToolData.None, true);
+            ips.SetNumber(ips.Get("p"), Units.FindAny("psi").ToSiValue(14.5));
+            Assert.Null(ips.Blocking().Field);
+            ips.SetNumber(ips.Get("p"), Units.FindAny("psi").ToSiValue(14.4));
+            Assert.Equal("p", ips.Blocking().Field?.Id);
+        }
+
+        [Fact]
+        public void A_short_labelled_choice_names_its_row_in_the_tooltip()
+        {
+            var form = PageFixture.Form();
+            var grade = form.Get("mold_grade");
+            Assert.Contains("6061-T6 / T651 rolled plate", form.TipOf(grade));
+            Assert.StartsWith(grade.Spec.Tip, form.TipOf(grade));
+            form.SetChoice(grade, "7075-T651");
+            Assert.Contains("7075-T6 / T651 plate", form.TipOf(grade));
+            // Entries that already are the full name, and families, keep the spec's tip.
+            Assert.Equal(form.Get("part_grade").Spec.Tip, form.TipOf(form.Get("part_grade")));
+            Assert.Equal("Part material", form.TipOf(form.Get("part_family")));
+        }
+
+        [Fact]
+        public void Percent_and_integers_read_as_before_unless_they_use_the_newer_options()
+        {
+            var inputs = new List<ToolInputSpec>
+            {
+                new ToolInputSpec { Id = "plain_pct", Type = "number", Unit = "percent", Default = "1.5" },
+                new ToolInputSpec { Id = "kept_pct", Type = "number", Unit = "percent", Default = "1.5", Remember = true },
+                new ToolInputSpec { Id = "count", Type = "integer", Default = "5" },
+            };
+            var form = new ToolForm(PageFixture.Spec(PageFixture.Temp(), inputs), ToolData.None, false);
+            Assert.Equal("1.5", PageFixture.Line(form, "plain_pct"));
+            Assert.Equal("1.5 %", PageFixture.Line(form, "kept_pct"));
+            var collected = new ToolInputs();
+            form.Collect(collected);
+            var count = ToolRunner.InputEntry(form.Get("count").Spec, collected)["value"];
+            Assert.Equal(JTokenType.Float, count.Type); // a JSON number, as the page always sent
+            Assert.Equal(5.0, (double)count);
         }
     }
 }

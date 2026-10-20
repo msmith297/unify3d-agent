@@ -126,11 +126,11 @@ namespace SwAgent.Tests
         }
 
         [Fact]
-        public void Page_test_macro_compiles_against_the_new_accessors()
+        public async System.Threading.Tasks.Task Page_test_macro_compiles_against_the_new_accessors()
         {
             AssemblyResolver.Install();
             var host = new ScriptHost(new ToolRegistry());
-            var (_, errors) = host.CompilePreviewAsync(File.ReadAllText(Path.Combine(PageFixture.Dir, "macro.cs"))).GetAwaiter().GetResult();
+            var (_, errors) = await host.CompilePreviewAsync(File.ReadAllText(Path.Combine(PageFixture.Dir, "macro.cs")));
             Assert.True(errors == null, errors);
         }
 
@@ -240,7 +240,33 @@ namespace SwAgent.Tests
             var item = registry.Definitions().Single(t => (string)t["name"] == "save_user_tool")["input_schema"]["properties"]["inputs"]["items"]["properties"];
             foreach (var name in new[] { "row_filter", "value_map", "fills", "show_when" })
                 Assert.Equal("object", (string)item[name]["type"]);
-            Assert.Equal("array", (string)item["show_when"]["additionalProperties"]["type"]);
+            // additionalProperties (string vs string[] values) helps the agent but is optional: when given, it must be right.
+            if (item["show_when"]["additionalProperties"] is JObject values) Assert.Equal("array", (string)values["type"]);
+            if (item["fills"]["additionalProperties"] is JObject fills) Assert.Equal("string", (string)fills["type"]);
+        }
+
+        [Fact]
+        public void Reading_the_boxes_at_ok_keeps_small_deliberate_edits()
+        {
+            // Only display rounding counts as the box echoing what the page wrote; a real edit is far larger.
+            Assert.True(ToolPage.RoundingSlack("number", "pressure", true, 2000) < 9); // 2000 -> 2009 psi is read
+            Assert.True(ToolPage.RoundingSlack("number", "temperature", true, 212) < 1); // 212 -> 213 degF
+            Assert.True(ToolPage.RoundingSlack("integer", null, false, 5000) < 1); // 5000 -> 5001
+            Assert.True(ToolPage.RoundingSlack("number", "pressure", true, 13.7895) >= 0.0045); // 13.79 shown for 13.7895
+            Assert.True(ToolPage.RoundingSlack("number", "length", false, 0.3) < 0.00002); // 0.02 mm
+            Assert.True(ToolPage.RoundingSlack("number", "angle", false, 0.1) < 0.2 * Math.PI / 180);
+        }
+
+        [Fact]
+        public void Category_is_one_line_of_at_most_48_characters_like_the_tool_index()
+        {
+            var spec = new ToolSpec();
+            ToolSpec.ApplyRunSettings(spec, new Dictionary<string, string> { ["category"] = "  Molding & Toolmaking  " });
+            Assert.Equal("Molding & Toolmaking", spec.Category);
+            ToolSpec.ApplyRunSettings(spec, new Dictionary<string, string> { ["category"] = new string('x', 60) });
+            Assert.Equal(48, spec.Category.Length);
+            ToolSpec.ApplyRunSettings(spec, new Dictionary<string, string> { ["category"] = "\"\"" });
+            Assert.Null(spec.Category);
         }
     }
 }

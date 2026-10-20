@@ -25,6 +25,8 @@ if (dict != null) return new JObject { ["type"] = "object", ["additionalProperti
 
 Then remove the `Skip` from `ToolSpecTests.Dictionary_options_are_objects_in_the_agents_schema`. Until then, nothing crashes: `The_agents_tool_schema_still_builds_with_the_new_options` passes, and hand-written inputs.json files load correctly.
 
+Track D's branch (worktree-wf_71b3d5bb-873-5) maps dictionaries to a plain `{"type":"object"}`. The un-skipped test accepts that: it checks `additionalProperties` only when present (`show_when` values must then be arrays, `fills` values strings). Adding `additionalProperties` as above is still better for the agent, which then knows `show_when` takes lists.
+
 ### Track C - UI, UserTools, systemPrompt
 
 **1. Payload (`ui/src/lib/types.ts` `ToolRunPayload`).** The panel needs no change to work. `value` is still a pre-formatted string, which `stageToolPrompt` prints as it comes. New optional fields:
@@ -36,10 +38,21 @@ Then remove the `Skip` from `ToolSpecTests.Dictionary_options_are_objects_in_the
   - `edited?: true`;
   - `unit?: string`: the unit the user saw, ASCII, e.g. `"psi"`;
   - `notApplicable?: true`;
-  - `row?: object`: the selected data row of a `ChoicesFrom` choice.
+  - `row?: object`: the selected data row of a `ChoicesFrom` choice. Only when the entry names exactly one row: a family entry (several rows share it) has no `row`, and `Inputs.Row(id)` is null for it.
 - Inputs hidden by `ShowWhen`, and `info` lines, are not in `inputs`. Hidden inputs are not sent.
 
 **2. ListTools / ribbon / palette.** The front-matter keys are `category`, `ribbon_title`, `long_run` (true/yes/1), `max_steps` and `requires` (comma- or space-separated, or `[a, b]`). Parse them the same way as `ToolSpec`: `ToolSpec.ApplyRunSettings(spec, frontMatter)` is `internal static`, so you can reuse it.
+
+**One parser at integration (lead).** Track C's branch has its own helpers in `UserTools` (`CategoryOf`, `LongRunOf`, `MaxStepsOf`, `RequiresOf`), and says ToolSpec should call them. They agree with `ApplyRunSettings` on every value E's TOOL.md uses; the category rule is now the same here (one line, at most 48 characters). They differ on edge cases only: B also strips quotes, accepts `[a, b]` lists and `;` in `requires`, and returns 200 (not null) when `max_steps` is absent. After merging C, make `ApplyRunSettings` delegate so there is one rule:
+
+```csharp
+spec.Category = UserTools.CategoryOf(fm);
+spec.LongRun = UserTools.LongRunOf(fm);
+spec.MaxSteps = UserTools.MaxStepsOf(fm) ?? DefaultMaxSteps;
+spec.Requires = UserTools.RequiresOf(fm);   // or extend RequiresOf to strip [ ] and quotes first
+```
+
+`ToolSpecTests.Run_settings_come_from_the_front_matter` (it uses `requires: [a, b]` and a quoted ribbon title) and `Category_is_one_line_*` must still pass, so keep the `[ ]` and quote handling in whichever parser stays.
 - `ToolSpec` fields: `Category` (null when unset), `RibbonTitle` (null when unset), `LongRun`, `MaxSteps`, `Requires` (`string[]`), `Dir`.
 - `ToolRunner` already refuses a tool whose `requires` names an agent tool that isn't registered. The status reads "Unify3D ▸ {title}: needs a newer add-in (missing x, y)".
 
@@ -71,7 +84,7 @@ Then remove the `Skip` from `ToolSpecTests.Dictionary_options_are_objects_in_the
 
 Without `|`, the value is in the target's spec unit: mm, deg, %, MPa, degC, kg, kN (also for tonnage), cP, min.
 
-**A null row value.** A whole field that is null (`"mooney": null`) and a null leaf (`"viscosityCp": {"typ": null}`) both hide the target. The payload line reads `n/a for this <label of the filling choice, lower case>`. With part_grade's Label "Grade" it reads "n/a for this grade" (design 2.1.5 wrote "for this material").
+**A null row value.** A whole field that is null (`"mooney": null`) and a null leaf (`"viscosityCp": {"typ": null}`) both hide the target. The payload line reads `n/a for this <label of the filling choice, lower case>`. With part_grade's Label "Grade" it reads "n/a for this grade" (design 2.1.5 wrote "for this material"). **Request to E / the lead:** E's TOOL.md (inputs table, the `sg`, `viscosity_cp`... row) says `"n/a for this material"`; change it to `"n/a for this grade"` (or "n/a for this ..." generally) so the agent recognises the line it actually gets.
 
 **`UnitChoices`.**
 - Entries are symbols of the field's quantity: pressure `["psi","bar","MPa","kgf/cm2"]`, tonnage `["US ton","t","kN"]`.
@@ -80,7 +93,7 @@ Without `|`, the value is in the target's spec unit: mm, deg, %, MPa, degC, kg, 
 - A one-entry list fixes the unit: e.g. `["bar"]` shows bar with no dropdown.
 - Put `"Max": 100` on gauge fields and `"Max": 150` on-part pressure (C1). Ranges are in spec units.
 
-**Percent.** The page draws percent exactly as before: a plain box with no "(%)" added, so existing tools look the same. Put the unit in the label ("Shrinkage (%)"). The payload adds " %".
+**Percent.** The page draws percent exactly as before: a plain box with no "(%)" added, so existing tools look the same. Put the unit in the label ("Shrinkage (%)"). The payload adds " %" for fields that use any newer option (Remember, Fills target, Optional, ShowWhen...); a percent field using only the original options reads exactly as before ("1.5"). All of E's percent fields are remembered or filled, so they read "1.5 %".
 
 **Defaults in another system** are rounded for display: 3 significant digits when that is within 0.05 %, otherwise 4. 13.79 MPa shows 2000 psi, 20.68 MPa shows 3000 psi, 444.8 kN shows 50 US ton, 23 kg shows 50.7 lb.
 
@@ -105,7 +118,12 @@ Without `|`, the value is in the target's spec unit: mm, deg, %, MPa, degC, kg, 
 - `{...|temperature}` gives a value in that quantity's spec unit (degC). `{...|psi}` gives a value stored in psi. Both are shown in the document's system.
 - Unknown ids are left as written. Null values read "n/a".
 
-**Remember.** Values are stored in spec units in `%APPDATA%\SwAgent\tools\last-inputs\design-compression-mold.json` on OK. Cancel stores nothing; files, selections and text are never stored. At start a remembered value isn't overwritten by a fill; a grade the user picks does overwrite. `press_temp` without `Remember` follows the material, as designed.
+**Remember.** Values are stored in spec units in `%APPDATA%\SwAgent\tools\last-inputs\design-compression-mold.json` on OK. Cancel stores nothing; files, selections and text are never stored. `press_temp` without `Remember` follows the material, as designed.
+
+A remembered field that a choice fills (shrink_pct, molding_pressure, cure_min...) also stores the table value it had and the filling row's id: `{ "value": 1.8, "table": 1.5, "from": "pu-tdi-ether-90a" }`. At start:
+- a value the user had **edited** (value differs from its stored table value) made against the **same row** stays, and reads `1.8 % (table 2.1 % - edited by the user)` against today's table;
+- anything else follows today's table: an unedited value, an edit made for another grade, or a file written before tables were stored. So a value `mold_record save_default` writes to the data reaches the page on the next run, and an unedited value is never reported as "edited by the user".
+A grade the user picks on the page always overwrites the filled fields.
 
 **Required.**
 - A `Required` choice needs an entry.
@@ -119,8 +137,9 @@ Without `|`, the value is in the target's spec unit: mm, deg, %, MPa, degC, kg, 
 - Merge rules:
   - arrays of rows with `id`: same id replaces the row, new ids are appended;
   - objects: key by key, recursively;
-  - top-level scalars and arrays without ids: kept from the shipped file.
-- `ToolData.MergeOverride(JToken shipped, JToken over)` is `internal static` and pure. `MoldData.Load(toolDir, overrideDir)` should use it, or the same rules, so the page and the calculator see the same rows.
+  - top-level scalars and arrays without ids: kept from the shipped file (an override can't change `schema` or a generated list);
+  - **inside** an object (at any depth below the top): objects merge key by key, arrays of rows with `id` merge by id, and every other value (scalars, arrays without ids) is **replaced** by the override's. Example: an override row `{ "id": "x", "shrinkPct": { "typ": 2.1 } }` replaces row x as a whole (rows by id are replaced, not merged), while an override `{ "defaults": { "lift": { "kg": 20 } } }` changes only `defaults.lift.kg`.
+- `ToolData.MergeOverride(JToken shipped, JToken over)` is `internal static` and pure. `MoldData.Load(toolDir, overrideDir)` should call it (preferred: one rule for page and calculator), or follow exactly these rules.
 
 ## For the lead (integration)
 
@@ -133,4 +152,8 @@ Without `|`, the value is in the target's spec unit: mm, deg, %, MPa, degC, kg, 
   - `rangeAfterShow: false`: wide ranges for unit-choice boxes;
   - `hidden: disable`: hidden inputs are greyed out instead of hidden.
   The page sets the first two itself when it detects the failure.
-- Existing tools take the original code paths. Their controls, captions and defaults are unchanged. Their payload text is unchanged too, except that a `percent` number gains " %". Group ids now come from the control-id counter (C4).
+- Existing tools take the original code paths. Their controls, captions, defaults and payload text are unchanged (plain `percent` numbers read "1.5" and plain integers are sent as JSON numbers, as before). Group ids now come from the control-id counter (C4). For the release / nightly notes, the visible differences are:
+  - unit names that used to be unknown (and so plain numbers) now convert: `time` (min in the spec, s in macros), `mass`, `pressure`, `temperature`, `force`, `tonnage`, `viscosity`. A user tool that happened to use one of these names now gets SI values in its macro;
+  - an input in inputs.json without an `Id` is no longer drawn. Before, such an input was drawn but reading it on OK threw (a null dictionary key), so the page behaved like Cancel; now it is skipped (save_user_tool never writes one).
+- Page reads from the preview timer: `Collect(withRefs: false)` (previews) no longer reads the controls into the form first (`Pull` runs only on OK), so the preview timer reaches no new SolidWorks control reads; the selection reads it always did are unchanged.
+- A dropdown whose refill is detected as failed (S2) is disabled and marked stale: its events are ignored, OK waits with a bubble, and the page asks for a reopen once. The first failure on a PC also switches `comboRefill: variants` on.
