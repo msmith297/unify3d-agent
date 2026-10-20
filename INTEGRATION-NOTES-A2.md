@@ -136,7 +136,17 @@ Vdi2230.PlateResilience(Vdi2230.Joint.Tapped, E, lK, dW, dh, DA, out tanPhi, out
 
 - `coefficients.csv` is an add/add conflict: take A2's file. Then refresh `examples.json` with
   `python -I tools/dev/mold-data/examples_check.py` (it records the table version from line 3, now `version: a2-2`).
-- See the merge test result in the A2 handover (lead's report): which A1 tests pass on the merged tree.
+- **Merge test** (scratch clone: A1 at 1486b1c, then this branch, the CSV conflict taken from A2): builds clean; 213 of 217 tests
+  pass after `examples_check.py` refreshes examples.json (E1-E11 and the generator check pass; before the refresh the generator
+  check fails as expected). The 4 that fail are A1 test or reader tolerances, not table errors (A1 must change them):
+  1. `MoldFormulaTests.Plate_coefficients_..._hit_the_thin_plate_values`: compares `Get` (which includes the 1.01 allowance) with
+     Roark 0.0444 to 3 decimals; the raw row is 0.04443. Divide by `Coefficients.Allowance` first.
+  2-3. `MoldFormulaTests.Wall_coefficients_never_fall_..._never_pass_the_strip` (Wall-C, Wall-S), the line
+     `far.Alpha >= strip.Alpha * k - 1e-9`: the reader interpolates the strip linearly between nu 0.29 and 0.33, which reads 0.033%
+     under the exact strip at 0.30. Evaluate the strip at the requested nu in the reader (above the last row), or allow 1e-3.
+  4. `MoldFormulaTests.Long_plates_..._never_fall_below_the_last_row` (C4): thick clamped plates' alpha falls 0.3% from aspect 3.5
+     to 6 (a real Mindlin effect: the clamped short edges' boundary layer), so `Get(10) >= Get(4)` fails. Use the running maximum
+     over aspect for plates as the reader already does for walls, or compare with a 0.5% tolerance.
 - `T17` and `T18` in FeTests check the hand arithmetic of structural.md 6.3 and the press example (member and bolt stiffness from
   production code); retarget them to A1's bolt and press functions, or retire them for A1's E1/E4 tests.
 
