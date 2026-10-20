@@ -1,0 +1,73 @@
+[
+  {
+    "Id": "change",
+    "Type": "options",
+    "Label": "What changed?",
+    "Tip": "New customer part: swap the inserted part for a revised file. Describe it: the agent makes the change, then rebuilds. I'll make it: the agent records the design, you change it, it rebuilds. Already made: you changed it but haven't saved since. Continue: pick up the last Smart Rebuild of this design from its journal.",
+    "Default": "New customer part",
+    "Choices": [
+      "New customer part",
+      "Describe the change",
+      "I'll make the change",
+      "Already made (not saved)",
+      "Continue the last rebuild"
+    ],
+    "Group": "Change"
+  },
+  {
+    "Id": "new_part",
+    "Type": "files",
+    "Label": "Revised customer part",
+    "Tip": "For 'New customer part': the new version of the inserted part (SLDPRT, STEP, IGES, Parasolid...).",
+    "Accept": [ "model" ],
+    "Multiple": false,
+    "Required": false,
+    "Group": "Change"
+  },
+  {
+    "Id": "notes",
+    "Type": "text",
+    "Label": "The change / notes",
+    "Tip": "For 'Describe the change': what to change, e.g. 'Make the cavity 2 mm deeper and move the gate to the other end'. Otherwise anything the agent should know: what changed in the new part, what must stay, what can move.",
+    "Required": false,
+    "Group": "Change"
+  },
+  {
+    "Id": "copy",
+    "Type": "checkbox",
+    "Label": "Work on a copy (Save As first - the original stays as it is)",
+    "Default": "true",
+    "Group": "Where"
+  },
+  {
+    "Id": "copy_name",
+    "Type": "text",
+    "Label": "Name of the copy",
+    "Tip": "Leave empty for '<file name> - rebuilt'. Saved in the same folder as the original.",
+    "Required": false,
+    "Group": "Where"
+  },
+  {
+    "Id": "decisions",
+    "Type": "options",
+    "Label": "Big decisions",
+    "Tip": "Ask on big ones: decides routine repairs, asks before anything that changes function, cost or other parts. Ask about all: asks before every judgement call. Decide everything: makes the engineering calls itself and reports them.",
+    "Default": "Ask on big ones",
+    "Choices": [
+      "Ask on big ones",
+      "Ask about all",
+      "Decide everything"
+    ],
+    "Group": "Decisions"
+  },
+  {
+    "Id": "references",
+    "Type": "files",
+    "Label": "References (optional)",
+    "Tip": "Drawings, images, PDFs or models that show what the result should be.",
+    "Accept": [ "image", "pdf", "model" ],
+    "Multiple": true,
+    "Required": false,
+    "Group": "References"
+  }
+]
