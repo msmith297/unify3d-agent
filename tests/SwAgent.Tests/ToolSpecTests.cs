@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Newtonsoft.Json.Linq;
+using SwAgent.Infrastructure;
 using SwAgent.Scripting;
 using SwAgent.Tools;
 using SwAgent.UI;
@@ -122,6 +123,15 @@ namespace SwAgent.Tests
                     if (unit != null) Assert.NotNull(Units.FindAny(unit));
                 }
             }
+        }
+
+        [Fact]
+        public void Page_test_macro_compiles_against_the_new_accessors()
+        {
+            AssemblyResolver.Install();
+            var host = new ScriptHost(new ToolRegistry());
+            var (_, errors) = host.CompilePreviewAsync(File.ReadAllText(Path.Combine(PageFixture.Dir, "macro.cs"))).GetAwaiter().GetResult();
+            Assert.True(errors == null, errors);
         }
 
         [Fact]
