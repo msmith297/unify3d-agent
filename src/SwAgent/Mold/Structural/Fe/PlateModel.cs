@@ -57,12 +57,17 @@ namespace SwAgent.Mold.Structural.Fe
         { X1 = x1; X2 = x2; Y1 = y1; Y2 = y2; K = k; Unilateral = unilateral; }
     }
 
-    /// <summary>Region where every node is held at w = 0 (a pillar head, a stop pad on a rigid platen).</summary>
+    /// <summary>
+    /// Region where every node is held at w = 0 (a stop pad on a rigid platen). Clamped also holds the rotations: a rigid head
+    /// the plate cannot slide on (a pillar under molding pressure, where friction holds the plate's face), and the normal moment
+    /// on each face of the region is then recovered from the nodal rotation reactions, as on clamped edges.
+    /// </summary>
     public sealed class FixedRegion
     {
         public double X1, X2, Y1, Y2;
+        public bool Clamped;
         public FixedRegion() { }
-        public FixedRegion(double x1, double x2, double y1, double y2) { X1 = x1; X2 = x2; Y1 = y1; Y2 = y2; }
+        public FixedRegion(double x1, double x2, double y1, double y2, bool clamped = false) { X1 = x1; X2 = x2; Y1 = y1; Y2 = y2; Clamped = clamped; }
     }
 
     /// <summary>

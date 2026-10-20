@@ -94,6 +94,31 @@ namespace SwAgent.Mold.Structural.Fe.Solid
 
         /// <summary>Displacement component c at the grid node nearest (x, y, z).</summary>
         public double Nearest(double x, double y, double z, int c) => U[Index(Xs, x), Index(Ys, y), Index(Zs, z), c];
+
+        public double E, Nu;
+
+        /// <summary>Stress [sxx, syy, szz, txy, tyz, tzx] in cell (i, j, k) at its local (xi, eta, zeta) in [-1, 1] (a material cell).</summary>
+        public double[] Stress(int i, int j, int k, double xi, double et, double ze)
+        {
+            double hx = Xs[i + 1] - Xs[i], hy = Ys[j + 1] - Ys[j], hz = Zs[k + 1] - Zs[k];
+            Hex8.Stiffness(hx, hy, hz, E, Nu, out var recover);
+            var ue = new double[24];
+            for (int c = 0; c < 8; c++)
+                for (int d = 0; d < 3; d++)
+                {
+                    double v = U[i + (Hex8.Xi[c] + 1) / 2, j + (Hex8.Et[c] + 1) / 2, k + (Hex8.Ze[c] + 1) / 2, d];
+                    if (double.IsNaN(v)) throw new InvalidOperationException("Cell " + i + "," + j + "," + k + " is not material.");
+                    ue[3 * c + d] = v;
+                }
+            return Hex8.Stress(hx, hy, hz, E, Nu, recover, ue, xi, et, ze);
+        }
+
+        /// <summary>The cell containing (x, y, z) (on a grid line: the cell on the + side unless at the far end).</summary>
+        public (int I, int J, int K) Cell(double x, double y, double z)
+        {
+            int C(double[] g, double v) { int i = 0; while (i < g.Length - 2 && g[i + 1] <= v + 1e-12 * (g[g.Length - 1] - g[0])) i++; return i; }
+            return (C(Xs, x), C(Ys, y), C(Zs, z));
+        }
     }
 
     public static class SolidSolver
@@ -219,7 +244,7 @@ namespace SwAgent.Mold.Structural.Fe.Solid
             var res = new SolidResult
             {
                 Xs = xs, Ys = ys, Zs = zs, U = new double[NX, NY, NZ, 3], Dofs = neq, Iterations = sol.Iterations,
-                RelativeResidual = sol.RelativeResidual, Converged = sol.Converged, Preconditioner = sol.Preconditioner,
+                RelativeResidual = sol.RelativeResidual, Converged = sol.Converged, Preconditioner = sol.Preconditioner, E = m.E, Nu = m.Nu,
             };
             var uFull = new double[3 * nNodes];
             for (int n = 0; n < nNodes; n++)

@@ -67,7 +67,11 @@ namespace SwAgent.Mold.Structural.Fe
                     for (int i = 0; i < nxN; i++)
                         for (int j = 0; j < nyN; j++)
                             if (xs[i] >= r.X1 - tol && xs[i] <= r.X2 + tol && ys[j] >= r.Y1 - tol && ys[j] <= r.Y2 + tol)
-                                fixedDof[3 * Node(i, j)] = true;
+                            {
+                                int n = Node(i, j);
+                                fixedDof[3 * n] = true;
+                                if (r.Clamped) fixedDof[3 * n + 1] = fixedDof[3 * n + 2] = true;
+                            }
                 }
 
                 eq = new int[ndof];
@@ -420,6 +424,7 @@ namespace SwAgent.Mold.Structural.Fe
                 // clamped edges: the normal moment from the nodal rotation reactions (Gauss extrapolation under-reads it by 12-40%)
                 ClampedEdge(m.X0, true, 0, +1, rr, res); ClampedEdge(m.XA, true, nxN - 1, -1, rr, res);
                 ClampedEdge(m.Y0, false, 0, +1, rr, res); ClampedEdge(m.YB, false, nyN - 1, -1, rr, res);
+                foreach (var reg in m.Fixed) if (reg.Clamped) ClampedRegion(reg, rr, res);
 
                 res.EdgeMoments["x0"] = Enumerable.Range(0, nyN).Select(j => res.Mx[0, j]).ToArray();
                 res.EdgeMoments["xa"] = Enumerable.Range(0, nyN).Select(j => res.Mx[nxN - 1, j]).ToArray();
@@ -453,6 +458,40 @@ namespace SwAgent.Mold.Structural.Fe
                     if (xEdge) res.Mx[i, j] = 0; else res.My[i, j] = 0;
                     if (bc != EdgeBc.SimpleHard) res.Mxy[i, j] = 0;
                 }
+            }
+
+            // A clamped region's faces carry the moment like clamped edges: Mn = rotation reaction / tributary length along the face
+            // (only the plate outside the region moves, so the reaction is the outside plate's alone). On a corner node the two
+            // faces meet; its value mixes them and is singular in plate theory anyway (callers leave the corners out).
+            void ClampedRegion(FixedRegion reg, double[] rr, PlateResult res)
+            {
+                double tol = 1e-9 * Math.Max(m.A, m.B);
+                bool InX(double x) => x >= reg.X1 - tol && x <= reg.X2 + tol;
+                bool InY(double y) => y >= reg.Y1 - tol && y <= reg.Y2 + tol;
+                for (int i = 0; i < nxN; i++)
+                    for (int j = 0; j < nyN; j++)
+                    {
+                        if (!InX(xs[i]) || !InY(ys[j])) continue;
+                        int n = Node(i, j);
+                        bool x1 = i > 0 && Math.Abs(xs[i] - reg.X1) <= tol, x2 = i < nxN - 1 && Math.Abs(xs[i] - reg.X2) <= tol;
+                        bool y1 = j > 0 && Math.Abs(ys[j] - reg.Y1) <= tol, y2 = j < nyN - 1 && Math.Abs(ys[j] - reg.Y2) <= tol;
+                        if (!(x1 || x2 || y1 || y2)) continue;
+                        double mx = 0, my = 0;
+                        if (x1 || x2)
+                        {
+                            double trib = ((j > 0 && InY(ys[j - 1]) ? ys[j] - ys[j - 1] : 0) + (j < nyN - 1 && InY(ys[j + 1]) ? ys[j + 1] - ys[j] : 0)) / 2;
+                            if (trib > 0) mx = (x2 ? 1 : -1) * rr[3 * n + 1] / trib;
+                        }
+                        if (y1 || y2)
+                        {
+                            double trib = ((i > 0 && InX(xs[i - 1]) ? xs[i] - xs[i - 1] : 0) + (i < nxN - 1 && InX(xs[i + 1]) ? xs[i + 1] - xs[i] : 0)) / 2;
+                            if (trib > 0) my = (y2 ? 1 : -1) * rr[3 * n + 2] / trib;
+                        }
+                        bool onX = x1 || x2, onY = y1 || y2;
+                        res.Mx[i, j] = onX ? mx : m.Nu * my;
+                        res.My[i, j] = onY ? my : m.Nu * mx;
+                        res.Mxy[i, j] = 0;
+                    }
             }
 
             void ClampedEdge(EdgeBc bc, bool xEdge, int index, int sign, double[] rr, PlateResult res)
