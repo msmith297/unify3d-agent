@@ -6,7 +6,26 @@ namespace SwAgent.Infrastructure
     /// <summary>Well-known folders. Everything per-user; nothing is written next to the dll.</summary>
     internal static class Paths
     {
-        public static string AddInDir { get; } = Path.GetDirectoryName(typeof(Paths).Assembly.Location);
+        /// <summary>
+        /// The folder SwAgent.dll was installed in (wwwroot, speech, builtin-tools live next to it). From the code base, not
+        /// Location: when the assembly is shadow-copied (test runners, some hosts) Location is a temporary copy without them.
+        /// </summary>
+        public static string AddInDir { get; } = InstallDir();
+
+        private static string InstallDir()
+        {
+            var asm = typeof(Paths).Assembly;
+            try
+            {
+                var uri = new Uri(asm.CodeBase);
+                if (uri.IsFile) return Path.GetDirectoryName(uri.LocalPath);
+            }
+            catch
+            {
+                // Fall back to Location.
+            }
+            return Path.GetDirectoryName(asm.Location);
+        }
 
         public static string WebRoot => Path.Combine(AddInDir, "wwwroot");
 
