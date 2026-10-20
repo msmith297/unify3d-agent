@@ -1,0 +1,227 @@
+{
+  "schema": "unify3d.mold/1",
+  "id": "5b0c6f0e-3d1a-4c55-9a77-2f0d8e41c9b2",
+  "tool": { "name": "design-compression-mold", "version": "1.0.0", "addin": "0.2.0", "calc": "1.0.0" },
+  "status": "done",
+  "scope": "build",
+  "createdAt": "2026-10-19T20:00:00Z",
+  "updatedAt": "2026-10-19T22:41:10Z",
+  "units": { "length": "mm", "angle": "deg", "pressure": "MPa", "temperature": "degC", "mass": "kg", "force": "kN",
+             "viscosity": "cP", "time": "min", "display": "imperial" },
+  "identity": { "moldNumber": "HC-70", "revision": "A", "partNumber": "BUSH-6040", "partName": "bushing", "customer": "" },
+  "files": {
+    "moldPart": "C:/Molds/HC-70/bushing mold.SLDPRT",
+    "moldedPart": { "path": "C:/Parts/bushing.STEP", "converted": "part/bushing.SLDPRT", "feature": "MOLD Part bushing",
+                    "fromDrawing": false, "sourceVolume_mm3": 393290 },
+    "drawings": [ { "path": "C:/Parts/bushing-revB.pdf", "pages": 2 } ]
+  },
+  "inputs": {
+    "press_pressure_is": { "value": "Gauge reading", "display": "Gauge reading" },
+    "press_pressure": { "value": 13.79, "unit": "MPa", "display": "2000 psi" },
+    "press_rated_force": { "value": 444.8, "unit": "kN", "display": "50 US ton" },
+    "press_rated_gauge": { "value": 20.68, "unit": "MPa", "display": "3000 psi" },
+    "press_temp": { "value": 100, "unit": "degC", "display": "212 degF" },
+    "shrink_pct": { "value": 1.5, "unit": "%", "table": 1.5, "edited": false },
+    "shrink_basis": { "value": "Supplier datasheet (steel mold)", "table": "Supplier datasheet (steel mold)" },
+    "cavities": { "value": 2 },
+    "cycle_life": { "value": 5000 },
+    "max_lid_mass": { "value": null, "notSet": true, "display": "not set (lifting equation)" },
+    "lid_lift_where": { "value": "At the slide-out table" },
+    "lid_reach": { "value": 400, "unit": "mm", "display": "15.75 in" },
+    "lifts_per_hour": { "value": 12 },
+    "mold_handling": { "value": "Slides in and out each cycle" },
+    "mold_support": { "value": "Flat on the platen" },
+    "decisions": { "value": "Ask on big ones" }
+  },
+  "materials": {
+    "part": { "id": "pu-tdi-ether-90a", "name": "TDI-polyether / MBOCA 90A", "processType": "liquid_cast_hot",
+              "used": { "shrinkPct": 1.5, "sg": 1.10, "viscosityCp": 1200, "potLifeMin": 6, "cureMin": 30, "draftMinDeg": 0.5,
+                        "moldingPressure_MPa": 0.345, "chargeExcessPct": 5 },
+              "confidence": "medium", "sources": [ "S19", "S20", "S3", "K-PU" ], "shrinkBasis": "cold_mold_cold_part_steel_ref",
+              "hazards": "MBOCA (MOCA) is a suspected human carcinogen; molten curative at 110-120 C; TDI vapour. Use ventilation, gloves, low-free (LF) prepolymers where possible.",
+              "rheology": { "status": "unknown", "source": null }, "kinetics": { "status": "unknown", "source": null },
+              "thermal": { "status": "unknown", "source": null }, "mechanical": { "status": "unknown", "source": null } },
+    "plates": { "id": "al_6061_t651", "name": "6061-T651", "atTemp": { "tempC": 100, "E_GPa": 66.8, "Sy_MPa": 262.2, "Su_MPa": 291.4, "service": "ok" } },
+    "inserts": { "id": "st_p20", "name": "P20 pre-hard", "atTemp": { "tempC": 100, "E_GPa": 203.0, "Sy_MPa": 855, "Su_MPa": 979, "service": "ok" } }
+  },
+  "process": {
+    "class": "A", "processType": "liquid_cast_hot", "moldType": "flash_full_land", "pressTempC": 100,
+    "pour": { "side": "base", "tiltDeg": 0, "time_s": 141, "rate_g_s": 10, "handling_s": 25,
+              "points": [ { "cavity": "C1", "at": [ -150.0, -40.0, 0.0 ] }, { "cavity": "C2", "at": [ 27.8, -40.0, 0.0 ] } ] },
+    "charge": { "perCavity_g": 454.2, "shot_g": 954, "tolerancePct": 2, "preform": "" },
+    "overflowRequired_mm3": 39330,
+    "cureMin": 30,
+    "cureNote": "Demold after 30 min at 100 C (datasheet demold time). Below 90 C (the material's minimum mold temperature) the cure is incomplete: raise the platen temperature, do not just wait longer.",
+    "postCure": { "tempC": 100, "hours": 16, "notes": "Full properties after about 7 days at room temperature." },
+    "press": { "ramArea_mm2": 21505, "rated_kN": 444.8, "ratedGauge_MPa": 20.68, "force_kN": 296.5, "required_kN": 66.3,
+               "platen_mm": [ 610, 610 ], "daylight_mm": null, "stroke_mm": null },
+    "gauge": { "recommended_MPa": 3.08, "max_MPa": 20.68, "maxBasis": "press rating (bearing allows 188.8 MPa, joints n/a: one-piece base)",
+               "basis": "S7: F_req = 1.25 x p_LC1 x A_proj = 66.3 kN", "conversion": "F = gauge x ram area; ram area 21,505 mm2 (33.3 in2) from 50 US ton at 3000 psi",
+               "unitShown": "psi" },
+    "closedHeight_mm": 66.68,
+    "loadCentre": "On the platen centre: both cavities are symmetric about the mold centre; the base rear edge stops against the locating bar 305 mm behind the ram axis.",
+    "minActiveCavities": 2,
+    "partialLoading": [
+      { "id": "PL-2", "active": 2, "pattern": "C1 + C2", "gauge_MPa": 3.08, "pressureOnPart_MPa": 1.94, "allowed": true, "note": "normal" },
+      { "id": "PL-1", "active": 1, "pattern": "C1 or C2", "gauge_MPa": 1.54, "pressureOnPart_MPa": 1.94, "allowed": false,
+        "note": "load centre 88.9 mm off the ram axis (limit 30.5 mm): pour both cavities" }
+    ]
+  },
+  "frame": { "origin": [ 0, 0, 0 ], "u": [ 1, 0, 0 ], "v": [ 0, 1, 0 ], "w": [ 0, 0, 1 ], "coordinateSystem": "MOLD CS",
+             "orient": { "axisAngle": [ 0, 0, 1, 0 ], "move": [ 0, 0, 0 ] } },
+  "shrink": { "pct": 1.5, "basis": "cold_mold_cold_part_steel_ref", "formula": "s = 1/(1-S) x (1 + a_ref dT)/(1 + a_cav dT)",
+              "alphaRef": 1.2e-5, "alphaCavity": 2.36e-5, "deltaT_K": 80, "scale": [ 1.014288, 1.014288, 1.014288 ],
+              "about": "MOLD CS", "feature": "MOLD Shrink s=1.014288 (datasheet basis, 6061 at 100 C)" },
+  "part": {
+    "volume_mm3": 393290, "area_mm2": 82000, "box_mm": [ 152.4, 101.6, 25.4 ], "projectedArea_mm2": 15484, "perimeter_mm": 508, "mass_kg": 0.4326,
+    "draft": { "minDeg": 0.5, "faces": [ { "id": "F12", "persist": "<b64>", "class": "needs_draft", "minDeg": 0.0, "area_mm2": 120 } ] },
+    "undercuts": [],
+    "fragile": [],
+    "criticalFaces": [ { "id": "S7", "persist": "<b64>", "point": [ 0, 0, 25.4 ], "source": "drawing note 3", "area_mm2": 812 } ],
+    "drawing": { "flashClass": "F2", "finish": "SPI B-2",
+                 "tolerances": [ { "id": "T1", "what": "thickness 25.4", "tol_mm": 0.10, "closure": true, "sheet": "1/B3" } ],
+                 "notes": [ { "id": "N3", "text": "No parting line on the top face", "sheet": "1/A4" } ], "keyDims": [] }
+  },
+  "partingLine": { "type": "planar", "planes": [ { "id": "PL1", "w_mm": 25.4, "feature": "MOLD PL1" } ],
+                   "candidates": [ { "id": "PLC1", "w_mm": 25.4, "score": 0.92 } ], "score": 0.92 },
+  "airTraps": [ { "id": "AT1", "at": [ 40, 0, 31.0 ], "volume_mm3": 85, "fill": "base", "tiltDeg": 0, "vent": "V3" } ],
+  "vents": [ { "id": "V3", "kind": "pl_vent", "at": [ 40, 50.8, 25.4 ], "depth_mm": 0.05, "width_mm": 5, "feature": "MOLD Vents" } ],
+  "layout": { "pattern": "grid 2x1", "footprint_mm": [ 406.4, 203.2 ],
+              "cavities": [ { "id": "C1", "origin": [ -88.9, 0, 0 ], "rotationDeg": 0 }, { "id": "C2", "origin": [ 88.9, 0, 0 ], "rotationDeg": 0 } ],
+              "moats": "separate" },
+  "bodies": [
+    {
+      "id": "BASE-1", "role": "base", "folder": "Mold - Base", "createdBy": "MOLD Plate BASE-1", "swName": "Chamfer BASE-1",
+      "material": "al_6061_t651", "materialName": "6061-T651", "swMaterial": "6061-T6 (SS)",
+      "volume_mm3": 2884000, "mass_kg": 7.79, "box_mm": [ 406.4, 203.2, 44.45 ], "centroid": [ 0, 0, 3.2 ],
+      "limits": { "mass": "pass", "box": "pass" }, "cavities": [ "C1", "C2" ], "lift": "one person, 2 pull handles (slides on the platen)",
+      "machining": {
+        "stock": { "grade": "6061-T651 plate", "finished_mm": [ 406.4, 203.2, 44.45 ], "blank_mm": [ 412.4, 209.2, 50.8 ],
+                   "stockThickness": "2.000 in plate", "allowance": "3 mm per side on L and W, skim 1.5 mm per face" },
+        "setups": [ [ 0, 0, 1 ], [ 0, 0, -1 ] ], "setupsText": "2 setups: parting face (+W), then the bottom (-W)",
+        "minInsideRadius_mm": 3.0, "maxDepth_mm": 25.4,
+        "holes": [
+          { "id": "H1", "kind": "dowel bushing bore (round)", "size": "0.750 in bushing for 0.500 in dowel", "qty": 1, "depth": "1.000 in", "drill": "", "fit": "FIT2", "from": "+W", "note": "datum dowel at the thermal centre side" },
+          { "id": "H2", "kind": "dowel bushing bore (slotted radially)", "size": "0.750 in bushing, slot 0.500 x 0.560 in", "qty": 3, "depth": "1.000 in", "drill": "", "fit": "FIT3", "from": "+W", "note": "slot axis on the line to H1" },
+          { "id": "H3", "kind": "thermocouple well", "size": "0.250 in", "qty": 1, "depth": "2.000 in", "drill": "F (0.257 in)", "fit": "", "from": "+U side", "note": "ends 9 mm from cavity C2" },
+          { "id": "H4", "kind": "tapped for thread insert (handle)", "size": "M8 helical 2D", "qty": 4, "depth": "20 mm thread + 4 mm relief", "drill": "STI 8.3 mm", "fit": "", "from": "+/-V sides", "note": "pull handles" }
+        ],
+        "fits": [
+          { "id": "FIT2", "feature": "bushing bore H1", "nominal_mm": 19.05, "upper_mm": 19.025, "lower_mm": 19.012, "fit": "press (aluminium, 100 C)", "note": "steel bushing, Loctite 620" },
+          { "id": "FIT3", "feature": "bushing bores H2", "nominal_mm": 19.05, "upper_mm": 19.025, "lower_mm": 19.012, "fit": "press (aluminium, 100 C)", "note": "slotted bushing, slot along the radial line" }
+        ],
+        "tolerances": [
+          { "id": "TOL1", "what": "parting face (land) flatness", "value_mm": 0.015, "datum": "", "note": "lap after machining; gap budget 0.020 mm" },
+          { "id": "TOL2", "what": "bottom face parallel to parting face", "value_mm": 0.02, "datum": "A = parting face", "note": "" }
+        ],
+        "finish": [ { "id": "FIN1", "faces": "cavity faces C1, C2", "spec": "SPI B-2", "ra_um": 0.2 }, { "id": "FIN2", "faces": "other faces", "spec": "as machined", "ra_um": 3.2 } ],
+        "reliefs": [],
+        "notes": [ "Flash moat 0.500 x 0.125 in, lip 0.125 in, runners at 2.0 in pitch to 0.1 in past the edge; R0.25 in corners", "Vents V3 0.05 mm deep x 5 mm wide, 2 mm land, relieved 0.5 mm to the edge" ]
+      },
+      "step": "exports/bodies/BASE-1.step"
+    },
+    {
+      "id": "LID-1", "role": "lid", "folder": "Mold - Lid", "createdBy": "MOLD Plate LID-1", "swName": "Chamfer LID-1",
+      "material": "al_6061_t651", "materialName": "6061-T651", "swMaterial": "6061-T6 (SS)",
+      "volume_mm3": 1835000, "mass_kg": 4.95, "box_mm": [ 406.4, 203.2, 22.23 ], "centroid": [ 0, 0, 36.9 ],
+      "limits": { "mass": "pass", "box": "pass" }, "cavities": [], "lift": "one person, 2 handles (lifting index 0.42)",
+      "machining": {
+        "stock": { "grade": "6061-T651 plate", "finished_mm": [ 406.4, 203.2, 22.23 ], "blank_mm": [ 412.4, 209.2, 25.4 ],
+                   "stockThickness": "1.000 in plate", "allowance": "3 mm per side on L and W, skim 1.5 mm per face" },
+        "setups": [ [ 0, 0, -1 ], [ 0, 0, 1 ] ], "setupsText": "2 setups: parting face (-W), then the top", "minInsideRadius_mm": 0, "maxDepth_mm": 0,
+        "holes": [
+          { "id": "H1", "kind": "dowel press hole", "size": "0.500 in dowel", "qty": 4, "depth": "through", "drill": "", "fit": "FIT1", "from": "-W", "note": "pins stand 0.75 in proud of the lid face" },
+          { "id": "H2", "kind": "tapped for thread insert (handle)", "size": "M8 helical 2D", "qty": 4, "depth": "20 mm thread + 4 mm relief", "drill": "STI 8.3 mm", "fit": "", "from": "+/-U ends", "note": "lid handles" }
+        ],
+        "fits": [ { "id": "FIT1", "feature": "dowel press holes", "nominal_mm": 12.7, "upper_mm": 12.672, "lower_mm": 12.667, "fit": "press (aluminium, 150 C column)", "note": "dowel table press_hole_aluminium_150C" } ],
+        "tolerances": [ { "id": "TOL1", "what": "parting face flatness", "value_mm": 0.015, "datum": "", "note": "lap with the base" } ],
+        "finish": [ { "id": "FIN1", "faces": "parting face", "spec": "lapped", "ra_um": 0.8 } ],
+        "reliefs": [],
+        "notes": [ "Chamfer 0.06 in x 45 deg on the top outer edges" ]
+      },
+      "step": "exports/bodies/LID-1.step"
+    }
+  ],
+  "hardware": {
+    "bolts": [],
+    "dowels": [
+      { "id": "D1", "d_mm": 12.7, "kind": "round", "at": [ -184, -82, 0 ], "fit": "press in lid, bushing in base" },
+      { "id": "D2", "d_mm": 12.7, "kind": "slotted (radial)", "at": [ 184, 82, 0 ], "fit": "press in lid, slotted bushing in base" },
+      { "id": "D3", "d_mm": 12.7, "kind": "slotted (radial)", "at": [ 190.35, -82, 0 ], "fit": "keyed position (+0.25 in)" },
+      { "id": "D4", "d_mm": 12.7, "kind": "slotted (radial)", "at": [ -184, 82, 0 ], "fit": "press in lid, slotted bushing in base" }
+    ],
+    "fits": [],
+    "stops": [],
+    "tcWells": [ { "id": "TC-B1", "body": "BASE-1", "d_mm": 6.35, "depth_mm": 50.8 }, { "id": "TC-L1", "body": "LID-1", "d_mm": 6.35, "depth_mm": 50.8 } ],
+    "jackScrews": [],
+    "lift": [ { "body": "LID-1", "kind": "handles" }, { "body": "BASE-1", "kind": "pull handles" } ],
+    "bom": [
+      { "id": "BOM1", "item": "Dowel pin, hardened and ground", "spec": "ASME B18.8.2", "size": "0.500 in", "length": "2.000 in", "qty": 4, "partNumber": null, "use": "lid alignment", "note": "" },
+      { "id": "BOM2", "item": "Dowel bushing, steel", "spec": "press fit, Loctite 620", "size": "0.500 in ID x 0.750 in OD", "length": "1.000 in", "qty": 1, "partNumber": null, "use": "base, round dowel D1", "note": "" },
+      { "id": "BOM3", "item": "Dowel bushing, steel, slotted", "spec": "slot 0.560 in along the radial line", "size": "0.500 in ID x 0.750 in OD", "length": "1.000 in", "qty": 3, "partNumber": null, "use": "base, D2-D4", "note": "machine slot or buy relieved bushing" },
+      { "id": "BOM4", "item": "Helical thread insert", "spec": "free-running, 304 SS", "size": "M8 x 1.25, 2D", "length": "16 mm", "qty": 8, "partNumber": null, "use": "handles", "note": "STI tap M8 x 1.25" },
+      { "id": "BOM5", "item": "Pull handle, insulated", "spec": "M8 studs", "size": "120 mm centres", "length": "", "qty": 4, "partNumber": null, "use": "2 on the lid, 2 on the base", "note": "below the lid's platen face / outside the platen outline" }
+    ]
+  },
+  "handling": {
+    "lid": { "mass_kg": 4.95, "limit_kg": 11.7, "limitSource": "NIOSH RWL (table, reach 400 mm, 12 lifts/h)", "rwl_kg": 11.7, "liftingIndex": 0.42,
+             "where": "At the slide-out table", "reach_mm": 400, "liftsPerHour": 12, "method": "one person, 2 handles" },
+    "slideIn": [ "Base rear edge stops against a locating bar on the bottom platen so the mold lands centred under the ram",
+                 "Pull handles on the base sides, outside the platen outline",
+                 "Nothing stands proud of the base underside; bottom outer edges chamfered 0.06 in" ]
+  },
+  "structural": {
+    "inputs": { "support": "A", "deltaAllow_mm": 0.020, "cycles": 5000, "tier": "T2", "tempC": 100 },
+    "loadCases": { "LC1": { "p_MPa": 1.551, "pressureField": null }, "LC1x": { "p_MPa": 8.67 }, "LC2": { "F_kN": 296.5 }, "LC3": { "deltaT_K": 80, "lidBase_K": 30 } },
+    "results": { "walls": [ { "id": "W-C1-U+", "w_struct_mm": 9.26, "w_drawn_mm": 40.2, "governs": "flash system" } ],
+                 "floors": [ { "id": "F-BASE-1", "body": "BASE-1", "t_mm": 19.05, "governs": "TC well" } ] },
+    "coefficients": { "file": "coefficients.csv", "version": "1.0.0", "sha256": "<hash>" }
+  },
+  "checks": [
+    { "id": "STR-WALL-C1", "source": "mold_calc@1.0.0", "type": "fatigue", "body": "BASE-1", "loadCase": "LC1", "demand": 40.0, "capacity": 68.9, "unit": "MPa",
+      "margin": 0.72, "status": "pass", "method": "S18", "stage": "3", "note": "", "waivedBy": null,
+      "location": { "bodyId": "BASE-1", "point": [ -13.0, 0, 10.0 ], "normal": [ -1, 0, 0 ], "stepFaceId": null } },
+    { "id": "STR-BEAR-PL1", "source": "mold_calc@1.0.0", "type": "bearing", "body": "BASE-1", "loadCase": "LC2", "demand": 9.58, "capacity": 131.1, "unit": "MPa",
+      "margin": 12.68, "status": "pass", "method": "S34, D_b = 2 (N < 1e5)", "stage": "3", "note": "", "waivedBy": null },
+    { "id": "HND-LID", "source": "mold_calc@1.0.0", "type": "lifting", "body": "LID-1", "loadCase": "LC4", "demand": 4.95, "capacity": 11.7, "unit": "kg",
+      "margin": 1.36, "status": "pass", "method": "NIOSH RWL", "stage": "3", "note": "", "waivedBy": null }
+  ],
+  "simulations": [
+    { "id": "SIM-1", "hook": "H1", "kind": "process", "server": null, "tool": "sim_process", "status": "not_run",
+      "reason": "no process simulator configured", "requestedAt": null, "finishedAt": null,
+      "inputs": { "files": [ "exports/part/shrunk-part.step" ], "record": "mold.json" },
+      "summary": null, "artifacts": [], "findings": [], "checks": [], "overrides": {} },
+    { "id": "SIM-2", "hook": "H2", "kind": "machinability", "server": null, "tool": "sim_machinability", "status": "not_run",
+      "reason": "no machinability simulator configured", "requestedAt": null, "finishedAt": null,
+      "inputs": { "files": [ "exports/bodies/BASE-1.step", "exports/bodies/LID-1.step" ], "record": "mold.json" },
+      "summary": null, "artifacts": [], "findings": [], "checks": [], "overrides": {} }
+  ],
+  "stages": [
+    { "id": "4.1", "name": "Frame and reference", "status": "done", "checkpoint": "20261019-210212-stage-4.1", "features": [ "MOLD CS", "MOLD PL1", "MOLD Shrink s=1.014288 (datasheet basis, 6061 at 100 C)", "MOLD Cavity copies" ], "at": "2026-10-19T21:04:00Z" },
+    { "id": "4.3", "name": "Cavities", "status": "done", "checkpoint": "20261019-211530-stage-4.3", "features": [ "MOLD Cavity BASE-1" ], "at": "2026-10-19T21:17:00Z" }
+  ],
+  "decisions": [
+    { "id": "DEC-3", "at": "2026-10-19T20:31:00Z", "topic": "parting line", "choice": "PL1 at the top face", "options": [ "PL1 top face", "PL2 mid-height" ], "by": "user", "why": "" },
+    { "id": "DEC-4", "at": "2026-10-19T20:31:00Z", "topic": "dowel scheme", "choice": "one round + three slotted radially", "options": [ "keep 4 round (shop)", "one round + three slotted radially" ], "by": "user", "why": "lid and base differ by about 30 K when the lid sits on the table" }
+  ],
+  "setup": {
+    "assembly": [ "Press the four dowels into the lid (D1 round position marked)", "Fit the bushings into the base with Loctite 620; slotted bushings with the slot on the line to D1", "Fit the M8 thread inserts and the handles" ],
+    "preheat": "Slide the closed mold in and heat until TC-B1 and TC-L1 read within 3 C of 100 C, then 10 min more (about 45 min from cold).",
+    "material": [ "TDI-polyether prepolymer at 80 C, MBOCA at 115 C; mix ratio per the datasheet", "Degas the prepolymer at 1-5 mbar before mixing; keep it under dry nitrogen" ],
+    "pourSequence": [ "Slide the mold out, lift the lid onto the table", "Pour C1 then C2 into the lowest corner of each cavity, thin stream", "Close within 3 min of mixing (half the 6 min pot life); slide in and press" ],
+    "demold": [ "Slide out, lift the lid with both handles", "Pry only at the pry slots, never on the land", "Lift the parts out by hand while hot; place flat" ],
+    "release": "Semi-permanent urethane release on every cavity and land face; re-apply every 20 cycles or when parts drag.",
+    "cleaning": "Blow out the moat, runners and vents every cycle; clean the land before closing.",
+    "firstArticle": [ "Measure thickness 25.4 +/-0.10 mm (closure dimension) on both cavities", "Check flash at the parting line: class F2", "Record the measured shrink and save it as your shop value" ],
+    "safety": [ "Hot surfaces (100 C): heat-resistant gloves", "MBOCA: ventilation, gloves, no skin contact", "Keep hands out of the press while closing" ],
+    "maintenance": [ "Every 500 cycles: check dowel and bushing wear, re-lap the land if flash grows", "Re-torque the handle screws after the first 3 heat cycles", "Cycle counter: design life 5,000 cycles (tier T2)" ]
+  },
+  "views": { "assembly": "views/assembly.bmp", "cavityMap": "views/cavity-map.bmp" },
+  "report": {
+    "lowestMargins": [ { "id": "STR-WALL-C1", "type": "fatigue", "margin": 0.72, "status": "pass" }, { "id": "HND-LID", "type": "lifting", "margin": 1.36, "status": "pass" } ],
+    "openItems": [ "Hot-cast PU shrink is an estimate (confidence medium): measure the first article", "Simulators not configured: H1 and H2 not run" ],
+    "summary": "2-cavity 6061 pour mold, base 7.79 kg + lid 4.95 kg, gauge 447 psi."
+  },
+  "setupSheet": "setup-sheet.html",
+  "machiningSheet": "machining-sheet.html"
+}

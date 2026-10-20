@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<!--
+  Operator setup sheet template for the design-compression-mold tool, filled by SwAgent.Mold.SetupSheet from mold.json.
+  The placeholder syntax (values, unit filters, each-blocks) is described in data/README.md. Keep placeholders out of comments.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Setup sheet {{identity.moldNumber}} rev {{identity.revision}}</title>
+<style>
+  :root { --ink: #1f2328; --muted: #59636e; --line: #d0d7de; --band: #f3f5f7; --warn: #9a3412; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px; font: 13px/1.45 "Segoe UI", Arial, sans-serif; color: var(--ink); background: #fff; }
+  header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 3px solid var(--ink); padding-bottom: 8px; margin-bottom: 16px; }
+  header h1 { margin: 0; font-size: 22px; letter-spacing: 0.2px; }
+  header .ids { text-align: right; color: var(--muted); font-size: 12px; }
+  h2 { font-size: 15px; margin: 22px 0 8px; padding: 4px 8px; background: var(--band); border-left: 4px solid var(--ink); break-after: avoid; }
+  table { width: 100%; border-collapse: collapse; margin: 4px 0 8px; }
+  th, td { border: 1px solid var(--line); padding: 4px 6px; text-align: left; vertical-align: top; }
+  th { background: var(--band); font-weight: 600; }
+  td.num { white-space: nowrap; }
+  .kv th { width: 34%; }
+  .note { color: var(--muted); font-size: 12px; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .views { display: flex; gap: 12px; flex-wrap: wrap; }
+  .views figure { margin: 0; flex: 1 1 300px; border: 1px solid var(--line); padding: 6px; }
+  .views img { width: 100%; height: auto; display: block; }
+  .views figcaption { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  ol, ul { margin: 4px 0 8px 20px; padding: 0; }
+  li { margin: 2px 0; }
+  .sign { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 18px; }
+  .sign div { border-top: 1px solid var(--ink); padding-top: 4px; color: var(--muted); font-size: 12px; }
+  footer { margin-top: 24px; color: var(--muted); font-size: 11px; border-top: 1px solid var(--line); padding-top: 6px; }
+  @media print { body { padding: 0; font-size: 11px; } h2 { margin-top: 14px; } section { break-inside: avoid-page; } }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Setup sheet - mold {{identity.moldNumber}}</h1>
+    <div>{{identity.partName}} ({{identity.partNumber}}) in {{materials.part.name}}</div>
+  </div>
+  <div class="ids">
+    Revision {{identity.revision}}<br>
+    Record {{id}}<br>
+    Updated {{updatedAt}}
+  </div>
+</header>
+
+<section>
+<h2>1. Mold</h2>
+<table class="kv">
+  <tr><th>Mold file</th><td>{{files.moldPart}}</td></tr>
+  <tr><th>Molded part</th><td>{{files.moldedPart.path}}</td></tr>
+  <tr><th>Process</th><td>Class {{process.class}} ({{process.processType}}), {{process.moldType}}</td></tr>
+  <tr><th>Mold material</th><td>{{materials.plates.name}} plates; inserts {{materials.inserts.name}}</td></tr>
+  <tr><th>Cavities</th><td>{{layout.pattern}}, moats {{layout.moats}}</td></tr>
+  <tr><th>Shrink applied</th><td>{{shrink.pct}} % ({{shrink.basis}}); scale {{shrink.scale.0}} x {{shrink.scale.1}} x {{shrink.scale.2}} about {{shrink.about}}</td></tr>
+  <tr><th>Design life</th><td>{{structural.inputs.cycles}} cycles per cavity (tier {{structural.inputs.tier}})</td></tr>
+</table>
+<div class="views">
+  <figure><img src="{{views.assembly}}" alt="Assembled mold"><figcaption>Assembled mold</figcaption></figure>
+  <figure><img src="{{views.cavityMap}}" alt="Cavity map"><figcaption>Cavity map (numbers are engraved next to each cavity)</figcaption></figure>
+</div>
+<table>
+  <tr><th>Cavity</th><th>Origin U</th><th>Origin V</th><th>Rotation</th></tr>
+  {{#each layout.cavities}}
+  <tr><td>{{id}}</td><td class="num">{{origin.0|mm}}</td><td class="num">{{origin.1|mm}}</td><td class="num">{{rotationDeg}} deg</td></tr>
+  {{/each}}
+</table>
+</section>
+
+<section>
+<h2>2. Pieces and lifting</h2>
+<table>
+  <tr><th>Piece</th><th>Role</th><th>Material</th><th>Weight</th><th>Size L x W x T</th><th>How it is lifted</th></tr>
+  {{#each bodies}}
+  <tr><td>{{id}}</td><td>{{role}}</td><td>{{materialName}}</td><td class="num">{{mass_kg|kg}}</td>
+      <td class="num">{{box_mm.0|mm}} x {{box_mm.1|mm}} x {{box_mm.2|mm}}</td><td>{{lift}}</td></tr>
+  {{/each}}
+</table>
+<table class="kv">
+  <tr><th>Lid weight / limit</th><td>{{handling.lid.mass_kg|kg}} of {{handling.lid.limit_kg|kg}} ({{handling.lid.limitSource}})</td></tr>
+  <tr><th>Lifting index (lid)</th><td>{{handling.lid.liftingIndex}} - must stay at 1.0 or below. Where it is lifted: {{handling.lid.where}}; reach {{handling.lid.reach_mm|mm}}, {{handling.lid.liftsPerHour}} lifts per hour; {{handling.lid.method}}</td></tr>
+</table>
+<p class="note">Weights are engraved on every piece. Handles stay outside the platen outline or below the lid's platen face so the press can't crush them.</p>
+</section>
+
+<section>
+<h2>3. Assembly</h2>
+<ol>
+  {{#each setup.assembly}}<li>{{this}}</li>{{/each}}
+</ol>
+<table>
+  <tr><th>Dowel</th><th>Diameter</th><th>Kind</th><th>Fit</th></tr>
+  {{#each hardware.dowels}}
+  <tr><td>{{id}}</td><td class="num">{{d_mm|mm}}</td><td>{{kind}}</td><td>{{fit}}</td></tr>
+  {{/each}}
+</table>
+<table>
+  <tr><th>Bolts</th><th>Joint</th><th>Size and grade</th><th>Count</th><th>Length</th><th>Torque dry</th><th>Torque lubricated</th><th>Preload band</th><th>Washer / insert</th></tr>
+  {{#each hardware.bolts}}
+  <tr><td>{{id}}</td><td>{{joint}}</td><td>{{size}} {{spec}}</td><td class="num">{{count}}</td><td>{{length}}</td>
+      <td class="num">{{torqueDry_Nm|Nm}}</td><td class="num">{{torqueLubed_Nm|Nm}}</td>
+      <td class="num">{{preloadMin_kN|kN}} to {{preloadMax_kN|kN}}</td><td>{{washer}} / {{insert}}</td></tr>
+  {{/each}}
+</table>
+<p class="note">Torque scatter gives the preload band shown. Re-torque hot after the first 2-3 heat cycles. Hardened washers under every screw head on aluminium.</p>
+<table>
+  <tr><th>Stop pad</th><th>Piece</th><th>Size</th><th>Shim</th></tr>
+  {{#each hardware.stops}}
+  <tr><td>{{id}}</td><td>{{body}}</td><td>{{size}}</td><td>{{shim}}</td></tr>
+  {{/each}}
+</table>
+</section>
+
+<section>
+<h2>4. Press</h2>
+<table class="kv">
+  <tr><th>Platen set point</th><td>{{process.pressTempC|degC}}</td></tr>
+  <tr><th>Gauge setting (recommended)</th><td><strong>{{process.gauge.recommended_MPa|gauge}}</strong> - {{process.gauge.basis}}</td></tr>
+  <tr><th>Maximum gauge</th><td class="warn">{{process.gauge.max_MPa|gauge}} - {{process.gauge.maxBasis}}</td></tr>
+  <tr><th>How the gauge converts</th><td>{{process.gauge.conversion}}</td></tr>
+  <tr><th>Press rating</th><td>{{process.press.rated_kN|kN}} at {{process.press.ratedGauge_MPa|gauge}}; ram area {{process.press.ramArea_mm2|mm2}}</td></tr>
+  <tr><th>Force at the setting / needed</th><td>{{process.press.force_kN|kN}} / {{process.press.required_kN|kN}}</td></tr>
+  <tr><th>Closed mold height</th><td>{{process.closedHeight_mm|mm}} (daylight {{process.press.daylight_mm|mm}}, stroke {{process.press.stroke_mm|mm}})</td></tr>
+  <tr><th>Load centre</th><td>{{process.loadCentre}}</td></tr>
+</table>
+<h3 style="font-size:13px;margin:10px 0 4px">Running fewer cavities</h3>
+<table>
+  <tr><th>Active cavities</th><th>Pattern</th><th>Gauge</th><th>Pressure on the part</th><th>Allowed</th><th>Note</th></tr>
+  {{#each process.partialLoading}}
+  <tr><td class="num">{{active}}</td><td>{{pattern}}</td><td class="num">{{gauge_MPa|gauge}}</td><td class="num">{{pressureOnPart_MPa|MPa}}</td><td>{{allowed}}</td><td>{{note}}</td></tr>
+  {{/each}}
+</table>
+<p class="warn">Never run fewer than {{process.minActiveCavities}} cavities.</p>
+<h3 style="font-size:13px;margin:10px 0 4px">Sliding in and out</h3>
+<ul>
+  {{#each handling.slideIn}}<li>{{this}}</li>{{/each}}
+</ul>
+</section>
+
+<section>
+<h2>5. Preheat</h2>
+<p>{{setup.preheat}}</p>
+<table>
+  <tr><th>Thermocouple well</th><th>Piece</th><th>Diameter</th><th>Depth</th></tr>
+  {{#each hardware.tcWells}}
+  <tr><td>{{id}}</td><td>{{body}}</td><td class="num">{{d_mm|mm}}</td><td class="num">{{depth_mm|mm}}</td></tr>
+  {{/each}}
+</table>
+</section>
+
+<section>
+<h2>6. Material and charge</h2>
+<table class="kv">
+  <tr><th>Material</th><td>{{materials.part.name}} (data confidence {{materials.part.confidence}})</td></tr>
+  <tr><th>Charge per cavity</th><td><strong>{{process.charge.perCavity_g|g}}</strong> +/- {{process.charge.tolerancePct}} %</td></tr>
+  <tr><th>Charge per shot</th><td>{{process.charge.shot_g|g}}</td></tr>
+  <tr><th>Pot life</th><td>{{materials.part.used.potLifeMin|min}}</td></tr>
+  <tr><th>Preform (compression)</th><td>{{process.charge.preform}}</td></tr>
+</table>
+<ul>
+  {{#each setup.material}}<li>{{this}}</li>{{/each}}
+</ul>
+</section>
+
+<section>
+<h2>7. Pour or charge sequence</h2>
+<table class="kv">
+  <tr><th>Pour into</th><td>{{process.pour.side}}, tilt {{process.pour.tiltDeg}} deg</td></tr>
+  <tr><th>Pour time (all cavities)</th><td>{{process.pour.time_s|s}} - must stay under half the pot life</td></tr>
+</table>
+<table>
+  <tr><th>Cavity</th><th>Pour point U</th><th>Pour point V</th></tr>
+  {{#each process.pour.points}}
+  <tr><td>{{cavity}}</td><td class="num">{{at.0|mm}}</td><td class="num">{{at.1|mm}}</td></tr>
+  {{/each}}
+</table>
+<ol>
+  {{#each setup.pourSequence}}<li>{{this}}</li>{{/each}}
+</ol>
+</section>
+
+<section>
+<h2>8. Cure</h2>
+<p><strong>{{process.cureMin|min}}</strong> at {{process.pressTempC|degC}}. {{process.cureNote}}</p>
+</section>
+
+<section>
+<h2>9. Demold</h2>
+<ol>
+  {{#each setup.demold}}<li>{{this}}</li>{{/each}}
+</ol>
+</section>
+
+<section>
+<h2>10. Release and cleaning</h2>
+<p>{{setup.release}}</p>
+<p>{{setup.cleaning}}</p>
+</section>
+
+<section>
+<h2>11. Post-cure</h2>
+<p>{{process.postCure.hours}} h at {{process.postCure.tempC|degC}}. {{process.postCure.notes}}</p>
+</section>
+
+<section>
+<h2>12. First article</h2>
+<ol>
+  {{#each setup.firstArticle}}<li>{{this}}</li>{{/each}}
+</ol>
+<table>
+  <tr><th>Tolerance</th><th>What</th><th>+/-</th><th>Across the parting line</th><th>Sheet / zone</th></tr>
+  {{#each part.drawing.tolerances}}
+  <tr><td>{{id}}</td><td>{{what}}</td><td class="num">{{tol_mm|mm}}</td><td>{{closure}}</td><td>{{sheet}}</td></tr>
+  {{/each}}
+</table>
+</section>
+
+<section>
+<h2>13. Safety</h2>
+<ul>
+  {{#each setup.safety}}<li>{{this}}</li>{{/each}}
+  <li>Material hazards: {{materials.part.hazards}}</li>
+</ul>
+</section>
+
+<section>
+<h2>14. Maintenance</h2>
+<ul>
+  {{#each setup.maintenance}}<li>{{this}}</li>{{/each}}
+</ul>
+</section>
+
+<section>
+<h2>Checks and open items</h2>
+<table>
+  <tr><th>Lowest margins</th><th>Type</th><th>Margin</th><th>Status</th></tr>
+  {{#each report.lowestMargins}}
+  <tr><td>{{id}}</td><td>{{type}}</td><td class="num">{{margin}}</td><td>{{status}}</td></tr>
+  {{/each}}
+</table>
+<ul>
+  {{#each report.openItems}}<li>{{this}}</li>{{/each}}
+</ul>
+<table>
+  <tr><th>External check</th><th>Hook</th><th>Status</th><th>Why / summary</th></tr>
+  {{#each simulations}}
+  <tr><td>{{id}} {{tool}}</td><td>{{hook}}</td><td>{{status}}</td><td>{{reason}} {{summary}}</td></tr>
+  {{/each}}
+</table>
+</section>
+
+<div class="sign"><div>Set up by</div><div>Checked by</div><div>Date</div></div>
+
+<footer>Generated by Unify3D Agent - design-compression-mold {{tool.version}} (calculator {{tool.calc}}). Machining data: {{machiningSheet}}. Design record: mold.json.</footer>
+</body>
+</html>

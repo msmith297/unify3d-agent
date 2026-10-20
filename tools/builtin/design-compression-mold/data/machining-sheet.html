@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<!--
+  Machining sheet template for the design-compression-mold tool (one section per mold body, then the purchased hardware),
+  filled by SwAgent.Mold.MachiningSheet from mold.json. The placeholder syntax is described in data/README.md.
+  STEP files carry no tolerances, fits, flatness or finish: this sheet carries them to the machine shop.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Machining sheet {{identity.moldNumber}} rev {{identity.revision}}</title>
+<style>
+  :root { --ink: #1f2328; --muted: #59636e; --line: #d0d7de; --band: #f3f5f7; --warn: #9a3412; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px; font: 13px/1.45 "Segoe UI", Arial, sans-serif; color: var(--ink); background: #fff; }
+  header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 3px solid var(--ink); padding-bottom: 8px; margin-bottom: 16px; }
+  header h1 { margin: 0; font-size: 22px; }
+  header .ids { text-align: right; color: var(--muted); font-size: 12px; }
+  h2 { font-size: 16px; margin: 26px 0 6px; padding: 5px 8px; background: var(--ink); color: #fff; }
+  h3 { font-size: 13px; margin: 12px 0 4px; }
+  table { width: 100%; border-collapse: collapse; margin: 4px 0 8px; }
+  th, td { border: 1px solid var(--line); padding: 4px 6px; text-align: left; vertical-align: top; }
+  th { background: var(--band); font-weight: 600; }
+  td.num { white-space: nowrap; }
+  .kv th { width: 30%; }
+  .note { color: var(--muted); font-size: 12px; }
+  .warn { color: var(--warn); font-weight: 600; }
+  ul { margin: 4px 0 8px 20px; padding: 0; }
+  .body { break-before: page; }
+  .body:first-of-type { break-before: auto; }
+  footer { margin-top: 24px; color: var(--muted); font-size: 11px; border-top: 1px solid var(--line); padding-top: 6px; }
+  @media print { body { padding: 0; font-size: 11px; } }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Machining sheet - mold {{identity.moldNumber}}</h1>
+    <div>{{identity.partName}} ({{identity.partNumber}}); shrink {{shrink.pct}} % already applied to the cavities ({{shrink.feature}})</div>
+  </div>
+  <div class="ids">Revision {{identity.revision}}<br>Record {{id}}<br>Updated {{updatedAt}}</div>
+</header>
+
+<p class="note">Coordinates are in the mold frame: W is the press and pull direction (+W toward the lid). One STEP file per body is in exports/bodies/.
+Dimensions not toleranced here: +/-0.125 mm (0.005 in). Break sharp edges 0.2-0.5 mm except on the parting line, the land and seam edges.</p>
+
+{{#each bodies}}
+<div class="body">
+<h2>{{id}} - {{role}} ({{materialName}})</h2>
+<table class="kv">
+  <tr><th>STEP file</th><td>{{step}}</td></tr>
+  <tr><th>Material</th><td>{{machining.stock.grade}} ({{swMaterial}})</td></tr>
+  <tr><th>Finished size L x W x T</th><td class="num">{{machining.stock.finished_mm.0|mm}} x {{machining.stock.finished_mm.1|mm}} x {{machining.stock.finished_mm.2|mm}}</td></tr>
+  <tr><th>Blank</th><td class="num">{{machining.stock.blank_mm.0|mm}} x {{machining.stock.blank_mm.1|mm}} x {{machining.stock.blank_mm.2|mm}} from {{machining.stock.stockThickness}}; {{machining.stock.allowance}}</td></tr>
+  <tr><th>Weight finished</th><td>{{mass_kg|kg}}</td></tr>
+  <tr><th>Setups</th><td>{{machining.setupsText}}</td></tr>
+  <tr><th>Smallest inside radius / deepest pocket</th><td class="num">{{machining.minInsideRadius_mm|mm}} / {{machining.maxDepth_mm|mm}}</td></tr>
+</table>
+
+<h3>Holes</h3>
+<table>
+  <tr><th>Id</th><th>Kind</th><th>Size</th><th>Qty</th><th>Depth</th><th>Drill / tap</th><th>Fit</th><th>From</th><th>Note</th></tr>
+  {{#each machining.holes}}
+  <tr><td>{{id}}</td><td>{{kind}}</td><td>{{size}}</td><td class="num">{{qty}}</td><td>{{depth}}</td><td>{{drill}}</td><td>{{fit}}</td><td>{{from}}</td><td>{{note}}</td></tr>
+  {{/each}}
+</table>
+
+<h3>Fits (limits)</h3>
+<table>
+  <tr><th>Id</th><th>Feature</th><th>Nominal</th><th>Upper limit</th><th>Lower limit</th><th>Fit</th><th>Note</th></tr>
+  {{#each machining.fits}}
+  <tr><td>{{id}}</td><td>{{feature}}</td><td class="num">{{nominal_mm|mm}}</td><td class="num">{{upper_mm|mm}}</td><td class="num">{{lower_mm|mm}}</td><td>{{fit}}</td><td>{{note}}</td></tr>
+  {{/each}}
+</table>
+
+<h3>Flatness, parallelism and heights</h3>
+<table>
+  <tr><th>Id</th><th>What</th><th>Tolerance</th><th>Datum</th><th>Note</th></tr>
+  {{#each machining.tolerances}}
+  <tr><td>{{id}}</td><td>{{what}}</td><td class="num">{{value_mm|mm}}</td><td>{{datum}}</td><td>{{note}}</td></tr>
+  {{/each}}
+</table>
+
+<h3>Surface finish</h3>
+<table>
+  <tr><th>Id</th><th>Faces</th><th>Finish</th><th>Ra (um)</th></tr>
+  {{#each machining.finish}}
+  <tr><td>{{id}}</td><td>{{faces}}</td><td>{{spec}}</td><td class="num">{{ra_um}}</td></tr>
+  {{/each}}
+</table>
+
+<h3>Pocket corner reliefs</h3>
+<table>
+  <tr><th>Id</th><th>Pocket</th><th>Relief</th><th>Corner radius</th><th>Largest cutter</th></tr>
+  {{#each machining.reliefs}}
+  <tr><td>{{id}}</td><td>{{pocket}}</td><td>{{kind}}</td><td class="num">{{radius_mm|mm}}</td><td class="num">{{cutter_mm|mm}}</td></tr>
+  {{/each}}
+</table>
+
+<h3>Notes</h3>
+<ul>
+  {{#each machining.notes}}<li>{{this}}</li>{{/each}}
+</ul>
+</div>
+{{/each}}
+
+<h2>Purchased hardware</h2>
+<table>
+  <tr><th>Id</th><th>Item</th><th>Standard / spec</th><th>Size</th><th>Length</th><th>Qty</th><th>Part number</th><th>Used for</th><th>Note</th></tr>
+  {{#each hardware.bom}}
+  <tr><td>{{id}}</td><td>{{item}}</td><td>{{spec}}</td><td>{{size}}</td><td>{{length}}</td><td class="num">{{qty}}</td><td>{{partNumber}}</td><td>{{use}}</td><td>{{note}}</td></tr>
+  {{/each}}
+</table>
+<p class="note">Counterbores are sized for the hardened washer (washer OD + 0.5 mm). Tapped depth is at least the engagement length plus 0.5 x d of relief; thread inserts need an STI tap.</p>
+
+<h2>Screws and torques</h2>
+<table>
+  <tr><th>Id</th><th>Joint</th><th>Size and grade</th><th>Count</th><th>Length</th><th>Counterbore</th><th>Torque dry</th><th>Torque lubricated</th><th>Washer / insert</th></tr>
+  {{#each hardware.bolts}}
+  <tr><td>{{id}}</td><td>{{joint}}</td><td>{{size}} {{spec}}</td><td class="num">{{count}}</td><td>{{length}}</td><td>{{cbore}}</td>
+      <td class="num">{{torqueDry_Nm|Nm}}</td><td class="num">{{torqueLubed_Nm|Nm}}</td><td>{{washer}} / {{insert}}</td></tr>
+  {{/each}}
+</table>
+
+<footer>Generated by Unify3D Agent - design-compression-mold {{tool.version}}. Operator data: {{setupSheet}}. Design record: mold.json.</footer>
+</body>
+</html>
