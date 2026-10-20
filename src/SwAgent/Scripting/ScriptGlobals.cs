@@ -121,6 +121,18 @@ namespace SwAgent.Scripting
 
         private OverlayApi _overlay;
 
+        /// <summary>
+        /// The design-compression-mold building blocks (meters, radians), each checked by measurement: Mold.Frame(),
+        /// Mold.InsertPart(path), Mold.Orient(body, {ax,ay,az,angle}, move), Mold.ScaleForShrink(body, su, sv, sw, plW),
+        /// Mold.CopyBody(body, d, n), Mold.Plate(id, u0, v0, u1, v1, w0, w1), Mold.Subtract(target, tools, name),
+        /// Mold.SplitByPlane(body, plane, name), Mold.Folder(name, bodies), Mold.SetBodyMaterial(body, name), Mold.Bodies(),
+        /// Mold.Body("BASE-1"), Mold.PartBody(), Mold.FlashGrooves(face), Mold.CboreHoles/TappedHoles(...),
+        /// Mold.PocketCornerReliefs(opening, floor, cutterRadius), Mold.Analyze(); Mold.LastBodies after each.
+        /// </summary>
+        public SwAgent.Mold.Geometry.MoldApi Mold => _mold ?? (_mold = new SwAgent.Mold.Geometry.MoldApi(this));
+
+        private SwAgent.Mold.Geometry.MoldApi _mold;
+
         /// <summary>Millimeters to meters (the API's length unit).</summary>
         public double mm(double value) => value / 1000.0;
 

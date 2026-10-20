@@ -23,7 +23,7 @@ namespace SwAgent.UI
     {
         public sealed class Item
         {
-            /// <summary>line | arrow | polygon | circle | marker | dimension | label</summary>
+            /// <summary>line | arrow | polygon | circle | marker | dimension | label | tris</summary>
             public string Type;
             /// <summary>Model coordinates in meters.</summary>
             public List<double[]> Points = new List<double[]>();
@@ -34,9 +34,72 @@ namespace SwAgent.UI
             /// <summary>circle: radius (meters) and plane normal; marker: radius in pixels.</summary>
             public double Radius;
             public double[] Normal;
+            /// <summary>tris: model-space triangles (meters, 9 floats each) - a face highlight or a translucent box.</summary>
+            public float[] Tris;
+            /// <summary>tris: fill opacity 0..1.</summary>
+            public double Alpha = 0.3;
+            /// <summary>tris: the boundary of the triangle set (pairs of points), drawn always - alone while the camera moves.</summary>
+            public List<double[]> Outline;
+            /// <summary>tris: over the triangle budget - drawn as the outline only.</summary>
+            public bool OutlineOnly;
         }
 
         public static readonly Color DefaultColor = Color.FromArgb(0xFF, 0x8C, 0x1A);
+
+        /// <summary>
+        /// Filled triangles across all face items (critique G3): GDI fills each one on every redraw, so beyond this the
+        /// remaining items are drawn as outlines only, and while the camera moves every item is (filled again when it stops).
+        /// </summary>
+        public const int MaxFilledTriangles = 3000;
+
+        /// <summary>
+        /// The boundary edges of a triangle set (edges used by one triangle only, vertices matched within 1 micron), as
+        /// pairs of points: the outline of a face highlight. Pure (GeometryOverlayTests).
+        /// </summary>
+        internal static List<double[]> TriangleOutline(float[] tris)
+        {
+            var count = new Dictionary<(long, long, long, long, long, long), int>();
+            var ends = new Dictionary<(long, long, long, long, long, long), (double[] A, double[] B)>();
+            (long, long, long) Key(int k) => ((long)Math.Round(tris[k] * 1e6), (long)Math.Round(tris[k + 1] * 1e6), (long)Math.Round(tris[k + 2] * 1e6));
+            for (var t = 0; t + 8 < tris.Length; t += 9)
+            {
+                for (var e = 0; e < 3; e++)
+                {
+                    int a = t + e * 3, b = t + (e + 1) % 3 * 3;
+                    var ka = Key(a);
+                    var kb = Key(b);
+                    if (ka.Equals(kb)) continue;
+                    var key = ka.CompareTo(kb) < 0 ? (ka.Item1, ka.Item2, ka.Item3, kb.Item1, kb.Item2, kb.Item3) : (kb.Item1, kb.Item2, kb.Item3, ka.Item1, ka.Item2, ka.Item3);
+                    count[key] = count.TryGetValue(key, out var c) ? c + 1 : 1;
+                    if (!ends.ContainsKey(key)) ends[key] = (new double[] { tris[a], tris[a + 1], tris[a + 2] }, new double[] { tris[b], tris[b + 1], tris[b + 2] });
+                }
+            }
+            var result = new List<double[]>();
+            foreach (var kv in count)
+            {
+                if (kv.Value != 1) continue;
+                var (a, b) = ends[kv.Key];
+                result.Add(a);
+                result.Add(b);
+            }
+            return result;
+        }
+
+        /// <summary>The 12 triangles of a box given by its 8 corners (bit 0 = +x, bit 1 = +y, bit 2 = +z, any frame).</summary>
+        internal static float[] BoxTriangles(double[][] c)
+        {
+            int[][] quads = { new[] { 0, 1, 3, 2 }, new[] { 4, 6, 7, 5 }, new[] { 0, 4, 5, 1 }, new[] { 2, 3, 7, 6 }, new[] { 0, 2, 6, 4 }, new[] { 1, 5, 7, 3 } };
+            var t = new List<float>();
+            foreach (var q in quads)
+                foreach (var tri in new[] { new[] { q[0], q[1], q[2] }, new[] { q[0], q[2], q[3] } })
+                    foreach (var v in tri)
+                    {
+                        t.Add((float)c[v][0]);
+                        t.Add((float)c[v][1]);
+                        t.Add((float)c[v][2]);
+                    }
+            return t.ToArray();
+        }
 
         private static SceneOverlay _current;
         private static readonly List<IBody2> Bodies = new List<IBody2>();
@@ -63,10 +126,26 @@ namespace SwAgent.UI
                 _current.Start();
             }
             _current._items.AddRange(items);
+            BudgetTriangles(_current._items);
             _current.CaptureMesh(); // a safe moment: the agent is drawing, SolidWorks isn't in the middle of a command
             _current._dirty = true;
             _current.Tick();
             Changed?.Invoke(Count);
+        }
+
+        /// <summary>Triangle items in order: filled while the running total stays within MaxFilledTriangles, outline only after that.</summary>
+        internal static int BudgetTriangles(IEnumerable<Item> items)
+        {
+            var filled = 0;
+            foreach (var it in items)
+            {
+                if (it.Type != "tris" || it.Tris == null) continue;
+                if (it.Outline == null) it.Outline = TriangleOutline(it.Tris);
+                var n = it.Tris.Length / 9;
+                it.OutlineOnly = filled + n > MaxFilledTriangles;
+                if (!it.OutlineOnly) filled += n;
+            }
+            return filled;
         }
 
         /// <summary>Show a temporary body in the scene (part documents). It belongs to no part and changes nothing.</summary>
@@ -112,6 +191,8 @@ namespace SwAgent.UI
         private double[] _lastTransform;
         private bool _dirty;
         private bool _shown;
+        /// <summary>The camera moved since the last frame (face fills are skipped), and the last frame was drawn that way.</summary>
+        private bool _moving, _movingFrame;
         private DateTime _hiddenSince = DateTime.MaxValue;
         private string _hideReason;
 
@@ -205,7 +286,9 @@ namespace SwAgent.UI
             var depthStale = _depthTransform == null || !t.SequenceEqual(_depthTransform);
             var depthDue = depthStale && (DateTime.UtcNow - _depthAt).TotalMilliseconds > 100;
             if (depthDue) UpdateDepth(t);
-            var changed = _dirty || depthDue || !_shown || rect != _screenRect || moved;
+            // Face fills only once the camera rests; a frame drawn while it moved (outlines only) is redrawn when it stops.
+            var changed = _dirty || depthDue || !_shown || rect != _screenRect || moved || (_movingFrame && !moved);
+            _moving = moved && !_dirty && _shown;
             if (!changed)
             {
                 KeepOnTop();
@@ -260,6 +343,15 @@ namespace SwAgent.UI
                 case "marker":
                 case "label":
                     return item.Points.Take(1).ToList();
+                case "tris":
+                {
+                    // One depth sample per triangle (its centroid): a filled triangle is bright or faded as a whole.
+                    var r = new List<double[]>();
+                    var tr = item.Tris ?? new float[0];
+                    for (var k = 0; k + 8 < tr.Length; k += 9)
+                        r.Add(new double[] { (tr[k] + tr[k + 3] + tr[k + 6]) / 3.0, (tr[k + 1] + tr[k + 4] + tr[k + 7]) / 3.0, (tr[k + 2] + tr[k + 5] + tr[k + 8]) / 3.0 });
+                    return r;
+                }
                 default:
                 {
                     // Paths: a point every ~2 mm (at most 40 per segment), so the depth changes along the path show.
@@ -405,6 +497,7 @@ namespace SwAgent.UI
 
         private void Render(double[] t)
         {
+            _movingFrame = _moving;
             if (_screenRect.Width < 2 || _screenRect.Height < 2) return;
             using (var bmp = new Bitmap(_screenRect.Width, _screenRect.Height, PixelFormat.Format32bppArgb))
             {
@@ -478,6 +571,11 @@ namespace SwAgent.UI
         private void DrawShape(Graphics g, double[] t, Item item, float dpi)
         {
             var w = 2.5f * dpi;
+            if (item.Type == "tris")
+            {
+                DrawTriangles(g, t, item, dpi);
+                return;
+            }
             var samples = Samples(item);
             var pts = samples.Select(p => Project(t, p)).ToArray();
             var hidden = HiddenOf(item);
@@ -530,6 +628,47 @@ namespace SwAgent.UI
                         DrawTag(g, item.Text, new PointF((a.X + b.X) / 2, (a.Y + b.Y) / 2), item.Color, dpi, center: true, faded: mostlyHidden);
                     }
                     break;
+                }
+            }
+        }
+
+        /// <summary>
+        /// A translucent face highlight or box: triangles filled at the item's alpha (a third of it where the model hides
+        /// them), then the outline. While the camera moves - or past the triangle budget - only the outline is drawn.
+        /// </summary>
+        private void DrawTriangles(Graphics g, double[] t, Item item, float dpi)
+        {
+            var tr = item.Tris;
+            if (tr == null || tr.Length < 9) return;
+            var hidden = HiddenOf(item);
+            if (hidden != null && hidden.Length != tr.Length / 9) hidden = null;
+            var alpha = Math.Max(0, Math.Min(1, item.Alpha));
+            if (!_movingFrame && !item.OutlineOnly && alpha > 0)
+            {
+                var front = (int)Math.Round(255 * alpha);
+                var back = Math.Max(1, front / 3);
+                g.SmoothingMode = SmoothingMode.None; // anti-aliased edges would show seams between the triangles
+                using (var brushFront = new SolidBrush(Color.FromArgb(front, item.Color)))
+                using (var brushBack = new SolidBrush(Color.FromArgb(back, item.Color)))
+                {
+                    var p = new PointF[3];
+                    for (int k = 0, n = 0; k + 8 < tr.Length; k += 9, n++)
+                    {
+                        p[0] = Project(t, new double[] { tr[k], tr[k + 1], tr[k + 2] });
+                        p[1] = Project(t, new double[] { tr[k + 3], tr[k + 4], tr[k + 5] });
+                        p[2] = Project(t, new double[] { tr[k + 6], tr[k + 7], tr[k + 8] });
+                        g.FillPolygon(hidden != null && hidden[n] ? brushBack : brushFront, p);
+                    }
+                }
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+            }
+            if (item.Outline != null && item.Outline.Count >= 2)
+            {
+                var mostlyHidden = hidden != null && hidden.Count(h => h) * 2 > hidden.Length;
+                using (var pen = new Pen(Color.FromArgb(mostlyHidden ? 110 : 230, item.Color), 1.6f * dpi) { DashStyle = mostlyHidden ? DashStyle.Dash : DashStyle.Solid })
+                {
+                    for (var k = 0; k + 1 < item.Outline.Count; k += 2)
+                        g.DrawLine(pen, Project(t, item.Outline[k]), Project(t, item.Outline[k + 1]));
                 }
             }
         }

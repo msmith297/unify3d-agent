@@ -152,7 +152,7 @@ namespace SwAgent.Mold.Geometry
         /// Score candidates once their air traps are known: 1.0, minus the share of the surface needing draft, minus 0.1
         /// per air trap, plus 0.1 when the part sits on the pour side ("base" or "lid"); 0 when vetoed. Highest first.
         /// </summary>
-        public static void Score(Result r, string pourSide)
+        public static void Score(Result r, string pourSide, double partVolume = 0)
         {
             var height = Math.Max(1e-12, r.WMax - r.WMin);
             foreach (var c in r.Candidates)
@@ -175,6 +175,13 @@ namespace SwAgent.Mold.Geometry
                 {
                     s -= 0.1 * c.AirTraps;
                     c.ScoreNotes.Add($"-{0.1 * c.AirTraps:0.0} air traps");
+                    if (partVolume > 0 && c.AirTrapVolume > 0)
+                    {
+                        // A pour side that can't hold the part (everything above the plane) traps most of it.
+                        var share = Math.Min(0.5, c.AirTrapVolume / partVolume);
+                        s -= share;
+                        c.ScoreNotes.Add($"-{share:0.00} trapped volume");
+                    }
                 }
                 var inBase = c.BaseDepth / height;
                 var onPourSide = pourSide == "base" ? inBase : pourSide == "lid" ? 1 - inBase : 0;
