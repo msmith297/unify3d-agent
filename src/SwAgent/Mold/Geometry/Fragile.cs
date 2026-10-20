@@ -82,7 +82,9 @@ namespace SwAgent.Mold.Geometry
                     var core = enclosed ? comp : comp.Where(c => (inFrom[c.I, c.J] - 0.5) * g.H > o.MinD).ToList();
                     if (core.Count == 0) continue;
                     var maxDist = core.Max(c => width[c.I, c.J]);
-                    var dEdt = Math.Max(1, 2 * maxDist - 1) * g.H;
+                    // From the cell nearest the inscribed circle's centre (up to 0.7 cell off it) to the nearest part cell centre
+                    // (0 to 1 cell past the boundary): twice that is the width give or take two cells, centred on it.
+                    var dEdt = Math.Max(1, 2 * maxDist) * g.H;
                     var area = comp.Count * g.H * g.H;
                     // A round pin: the area-equivalent diameter beats the distance transform at a few cells per radius.
                     var round = enclosed && area <= 1.2 * Math.PI * dEdt * dEdt / 4;
@@ -111,8 +113,10 @@ namespace SwAgent.Mold.Geometry
                             f.Reason = $"{(f.Kind == "steel_wall" ? "wall" : "core")} {d * 1000:0.##} mm wide < {o.MinD * 1000:0.#} mm";
                         }
                     }
-                    else if (enclosed && h / d > o.MaxHOverD + 1e-9)
+                    else if (enclosed && h / (d + g.H) > o.MaxHOverD + 1e-9)
                     {
+                        // D is measured to about a cell: a pin flagged for H/D must be over the limit by more than that
+                        // (the design's D 20 x H 40 bushing core, exactly 2.0, is not flagged).
                         f.Flagged = true;
                         f.Reason = $"H/D {h / d:0.##} > {o.MaxHOverD:0.#}";
                     }

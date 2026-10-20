@@ -465,15 +465,17 @@ namespace SwAgent.Mold.Geometry
             var frame = Frame();
             var expected = new[] { u0, v0, w0, u1, v1, w1 };
             var before = SwGeo.Solids(model).Select(SwGeo.Signature).ToList();
-            foreach (var flip in new[] { false, true })
+            foreach (var reverse in new[] { false, true }) // the verified v1 direction first; reversed (Dir) if the box says otherwise
             {
                 var sketch = SketchRectangle(frame, u0, v0, u1, v1);
                 model.ClearSelection2(true);
                 sketch.Select2(false, 0);
-                var off = Math.Abs(w0) > 1e-9;
-                var f = model.FeatureManager.FeatureExtrusion3(true, flip, false, (int)swEndConditions_e.swEndCondBlind, 0, w1 - w0, 0, false, false, false, false, 0, 0,
+                // Forward: start at w0 and extrude +W. Reversed: start at w1 and extrude back down to w0.
+                var start = reverse ? w1 : w0;
+                var off = Math.Abs(start) > 1e-9;
+                var f = model.FeatureManager.FeatureExtrusion3(true, false, reverse, (int)swEndConditions_e.swEndCondBlind, 0, w1 - w0, 0, false, false, false, false, 0, 0,
                     false, false, false, false, false, true, true,
-                    off ? (int)swStartConditions_e.swStartOffset : (int)swStartConditions_e.swStartSketchPlane, Math.Abs(w0), w0 < 0);
+                    off ? (int)swStartConditions_e.swStartOffset : (int)swStartConditions_e.swStartSketchPlane, Math.Abs(start), start < 0);
                 model.ClearSelection2(true);
                 if (f == null)
                 {
@@ -490,7 +492,7 @@ namespace SwAgent.Mold.Geometry
                     return f;
                 }
                 SwGeo.DeleteFeatures(model, f, sketch);
-                if (flip) throw new MoldApiException($"Plate {id}: made {made.Count} bodies" + (box != null ? $" at {SwGeo.BoxText(box)}, expected {SwGeo.BoxText(expected)}" : "") + "; removed.");
+                if (reverse) throw new MoldApiException($"Plate {id}: made {made.Count} bodies" + (box != null ? $" at {SwGeo.BoxText(box)}, expected {SwGeo.BoxText(expected)}" : "") + "; removed.");
             }
             throw new MoldApiException($"Plate {id}: not built.");
         }

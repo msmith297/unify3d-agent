@@ -214,8 +214,9 @@ namespace SwAgent.Tools
             var sb = new StringBuilder(report.Text);
             if (input.Show == true && report.Overlay.Count > 0)
             {
-                SceneOverlay.ShowItems(ctx.Sw, model, report.Overlay, append: false);
-                sb.Append("\nShown on the model (red: draft/undercut, cyan: best parting line, magenta: air traps, orange: fragile steel).");
+                sb.Append(Show(ctx, model, report.Overlay)
+                    ? "\nShown on the model (red: draft/undercut, cyan: best parting line, magenta: air traps, orange: fragile steel)."
+                    : "\n(Couldn't draw on the view: the document has no active view.)");
             }
             if (input.Record != false)
             {
@@ -235,6 +236,20 @@ namespace SwAgent.Tools
             }
             sb.Append("\n```json\n").Append(Json(Compact(report.Json), 4000)).Append("\n```");
             return ToolResult.Ok(sb.ToString());
+        }
+
+        private static bool Show(ToolContext ctx, IModelDoc2 model, List<SceneOverlay.Item> items)
+        {
+            try
+            {
+                SceneOverlay.ShowItems(ctx.Sw, model, items, append: false);
+                return true;
+            }
+            catch (InvalidOperationException ex)
+            {
+                Log.Warn("Mold overlay: " + ex.Message);
+                return false;
+            }
         }
 
         /// <summary>The JSON for the agent without persistent references (they are long; the record keeps them).</summary>
@@ -439,7 +454,7 @@ namespace SwAgent.Tools
                             break;
                         }
                     }
-                    if (input.Show == true && items.Count > 0) SceneOverlay.ShowItems(ctx.Sw, model, items, append: false);
+                    if (input.Show == true && items.Count > 0 && !Show(ctx, model, items)) sb.AppendLine("(Couldn't draw on the view: no active view.)");
                     if (input.Record != false && record != null && checks.Count > 0)
                     {
                         try

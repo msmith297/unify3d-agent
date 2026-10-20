@@ -43,6 +43,9 @@ namespace SwAgent.Mold.Geometry
         public JObject Json;
         public JObject RecordPatch;
         internal List<SceneOverlay.Item> Overlay = new List<SceneOverlay.Item>();
+        /// <summary>Faces (body face order) that need draft, span both halves, or are undercut.</summary>
+        public List<int> RedFaces = new List<int>();
+        public double Volume, Area, ProjectedArea, Perimeter;
         public PartingLine.Result PartingLine;
         public List<AirTraps.Trap> Traps;
         public List<Fragile.Feature> Fragile;
@@ -66,13 +69,28 @@ namespace SwAgent.Mold.Geometry
             public double Area;
         }
 
+        /// <summary>Analyze a body of the open part (SolidWorks), and add its face highlights to the report's overlay.</summary>
         public static PartReport Run(ISldWorks sw, IModelDoc2 model, IBody2 body, PartAnalysisOptions o, CancellationToken ct = default)
         {
             SwGeo.RequirePart(model);
             if (body == null) throw new MoldApiException("No body to analyze.");
             o = o ?? new PartAnalysisOptions();
+            var g = new SwPartGeometry(model, body);
+            var critical = o.Critical.Select(c => (c.Id, c.Face?.GetTessTriangles(true) as float[])).ToList();
+            var report = Analyze(g, SwGeo.Frame(model), o, critical, ct);
+            if (report.RedFaces.Count > 0)
+                report.Overlay.InsertRange(0, Tools.OverlayTools.FaceItems(report.RedFaces.Select(fi => g.Faces[fi]), Tools.OverlayTools.ParseColor("red"), "needs draft / undercut", 0.35));
+            return report;
+        }
+
+        /// <summary>
+        /// The analysis on any part geometry (SolidWorks body, or a test mesh): `top` is the mold frame, `critical` the
+        /// critical faces' triangles (model meters).
+        /// </summary>
+        internal static PartReport Analyze(IPartGeometry geo, MoldFrame top, PartAnalysisOptions o, IList<(string Id, float[] Tris)> critical, CancellationToken ct)
+        {
+            o = o ?? new PartAnalysisOptions();
             var notes = new List<string>();
-            var top = SwGeo.Frame(model);
             var frame = top;
             if (o.Pull != null && o.Pull.Length >= 3)
             {
@@ -82,15 +100,14 @@ namespace SwAgent.Mold.Geometry
             var sinMin = Math.Sin(o.MinDraftDeg * Math.PI / 180);
 
             // 1. Tessellation into the frame.
-            var faces = ((body.GetFaces() as object[]) ?? new object[0]).OfType<IFace2>().ToList();
-            if (faces.Count == 0) throw new MoldApiException("The body has no faces.");
+            if (geo.FaceCount == 0) throw new MoldApiException("The body has no faces.");
             var tris = new List<Tri>();
             var facesWithout = 0;
-            for (var fi = 0; fi < faces.Count; fi++)
+            for (var fi = 0; fi < geo.FaceCount; fi++)
             {
                 ct.ThrowIfCancellationRequested();
-                var t = faces[fi].GetTessTriangles(true) as float[];
-                var n = faces[fi].GetTessNorms() as float[];
+                var t = geo.FaceTriangles(fi);
+                var n = geo.FaceNormals(fi);
                 if (t == null || t.Length < 9)
                 {
                     facesWithout++;
@@ -120,9 +137,9 @@ namespace SwAgent.Mold.Geometry
             if (facesWithout > 0) notes.Add($"{facesWithout} face(s) had no display tessellation and were skipped (hidden or never drawn)");
 
             // Volume, area, box, mass.
-            var volume = SwGeo.Volume(body);
-            var area = faces.Sum(f => f.GetArea());
-            var box = SwGeo.Box(body, frame);
+            var volume = geo.Volume;
+            var area = geo.Area;
+            var box = geo.Box(frame);
             double wMin = box[2], wMax = box[5];
 
             // 2. Draft per face.
@@ -153,7 +170,7 @@ namespace SwAgent.Mold.Geometry
                 pts.Add(frame.ToModel(start));
                 dirs.Add(frame.DirToModel(new double[] { 0, 0, s.NW > 0 ? 1 : -1 }));
             }
-            var hitsPerRay = CastFirstHits(model, body, pts, dirs, o.Batch, ct);
+            var hitsPerRay = CastFirstHits(geo, pts, dirs, o.Batch, ct);
             for (var r = 0; r < rayIdx.Count; r++)
             {
                 var s = samples[rayIdx[r]];
@@ -184,18 +201,18 @@ namespace SwAgent.Mold.Geometry
                     var fj = (int)Math.Floor((cgrid.CV(j) - grid.V0) / h);
                     if (fi >= 0 && fj >= 0 && fi < grid.Nu && fj < grid.Nv && footprint[fi, fj]) cells.Add((i, j));
                 }
-            var colMode = FillColumns(model, body, frame, columns, cells, wMin, wMax, o.Batch, ct, notes);
+            var colMode = FillColumns(geo, frame, columns, cells, wMin, wMax, o.Batch, ct, notes);
 
             // 6. Parting-line candidates (per sample), with critical faces.
-            var critical = new List<(string Id, double WMin, double WMax)>();
-            foreach (var (id, face) in o.Critical)
+            var criticalRanges = new List<(string Id, double WMin, double WMax)>();
+            foreach (var (id, faceTris) in critical ?? new List<(string, float[])>())
             {
-                var ws = WRange(face, frame);
-                if (ws != null) critical.Add((id, ws.Value.Min, ws.Value.Max));
+                var ws = WRange(faceTris, frame);
+                if (ws != null) criticalRanges.Add((id, ws.Value.Min, ws.Value.Max));
                 else notes.Add($"critical face {id} has no tessellation; not checked against the parting line");
             }
             var tol = Math.Max(0.01 * SwGeo.Mm, 1e-6);
-            var pl = PartingLine.Analyze(samples, o.MinDraftDeg, tol, columns.SectionArea, critical);
+            var pl = PartingLine.Analyze(samples, o.MinDraftDeg, tol, columns.SectionArea, criticalRanges);
 
             // 7. Air traps per candidate.
             var fill = (o.Fill ?? "base").Trim().ToLowerInvariant();
@@ -223,18 +240,39 @@ namespace SwAgent.Mold.Geometry
             PartingLine.Score(pl, fill, volume);
             if (pl.Candidates.Count > 0) bestTraps = TrapsAt(pl.Candidates[0].W);
             var internalCeilings = fill == "none" ? new List<(int I, int J, double CeilingW)>() : columns.InternalCeilings(lidPour);
+            // High points (u, v, w in the frame): refined at the sample spacing when the columns were coarser (big parts),
+            // so a vent placed there is within the 2 mm the acceptance check allows.
+            var high = new Dictionary<AirTraps.Trap, double[]>();
+            foreach (var t in bestTraps ?? new List<AirTraps.Trap>())
+                high[t] = new[] { cgrid.CU(t.HighI), cgrid.CV(t.HighJ), lidPour ? -t.HighC : t.HighC };
+            var fine = o.SampleMm * SwGeo.Mm;
+            if (bestTraps != null && spacing > fine * 1.5)
+            {
+                foreach (var t in bestTraps.Take(8))
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var refined = RefineHighPoint(geo, frame, cgrid, t, fine, lidPour, wMin, wMax);
+                    if (refined != null) high[t] = refined;
+                }
+                notes.Add($"air-trap high points refined at {o.SampleMm:0.##} mm (columns at {spacing / SwGeo.Mm:0.##} mm)");
+            }
+            double[] HighOf(AirTraps.Trap t) => high.TryGetValue(t, out var hp) ? hp : new[] { cgrid.CU(t.HighI), cgrid.CV(t.HighJ), lidPour ? -t.HighC : t.HighC };
 
             // 8. Fragile steel.
             var fragile = Fragile.Find(columns, new Fragile.Options { MinD = o.MinCoreMm * SwGeo.Mm, MaxHOverD = o.MaxHOverD, MinHeight = Math.Max(0.5 * SwGeo.Mm, spacing / 2) });
 
             // ---------- report ----------
-            var report = new PartReport { Frame = frame, PartingLine = pl, Traps = bestTraps ?? new List<AirTraps.Trap>(), Fragile = fragile };
+            var report = new PartReport
+            {
+                Frame = frame, PartingLine = pl, Traps = bestTraps ?? new List<AirTraps.Trap>(), Fragile = fragile,
+                Volume = volume, Area = area, ProjectedArea = projectedArea, Perimeter = perimeter,
+            };
             string F(double x, string fmt = "0.##") => x.ToString(fmt, CultureInfo.InvariantCulture);
             double Mm(double m) => Math.Round(m / SwGeo.Mm, 3);
             var faceRefs = new Dictionary<int, string>();
             string Ref(int fi)
             {
-                if (!faceRefs.TryGetValue(fi, out var r)) faceRefs[fi] = r = SwGeo.PersistRef(model, faces[fi]);
+                if (!faceRefs.TryGetValue(fi, out var r)) faceRefs[fi] = r = geo.PersistRef(fi);
                 return r;
             }
             JArray P(double[] uvw) => new JArray(frame.ToModel(uvw).Select(x => Mm(x)));
@@ -278,7 +316,7 @@ namespace SwAgent.Mold.Geometry
             var traps = new JArray(report.Traps.Select(t => new JObject
             {
                 ["id"] = $"AT{t.Id}",
-                ["at"] = P(new[] { cgrid.CU(t.HighI), cgrid.CV(t.HighJ), lidPour ? -t.HighC : t.HighC }),
+                ["at"] = P(HighOf(t)),
                 ["volume_mm3"] = Math.Round(t.Volume / 1e-9, 1),
                 ["area_mm2"] = Math.Round(t.Area / 1e-6, 1),
                 ["depth_mm"] = Mm(t.Depth),
@@ -298,7 +336,7 @@ namespace SwAgent.Mold.Geometry
             }));
             var json = new JObject
             {
-                ["body"] = SwGeo.SafeName(body),
+                ["body"] = geo.Name,
                 ["frame"] = frame.ToJson(),
                 ["volume_mm3"] = Math.Round(volume / 1e-9, 1),
                 ["area_mm2"] = Math.Round(area / 1e-6, 1),
@@ -367,7 +405,7 @@ namespace SwAgent.Mold.Geometry
 
             // Text: the key numbers first, problems after.
             var sb = new StringBuilder();
-            sb.AppendLine($"Part '{SwGeo.SafeName(body)}': volume {F(volume / 1e-9, "0.#")} mm3, area {F(area / 1e-6, "0.#")} mm2, box {F(Mm(box[3] - box[0]))} x {F(Mm(box[4] - box[1]))} x {F(Mm(box[5] - box[2]))} mm (U x V x W)" +
+            sb.AppendLine($"Part '{geo.Name}': volume {F(volume / 1e-9, "0.#")} mm3, area {F(area / 1e-6, "0.#")} mm2, box {F(Mm(box[3] - box[0]))} x {F(Mm(box[4] - box[1]))} x {F(Mm(box[5] - box[2]))} mm (U x V x W)" +
                           (o.Sg.HasValue ? $", mass {F(volume * o.Sg.Value * 1000, "0.###")} kg at SG {F(o.Sg.Value, "0.###")}" : "") + ".");
             sb.AppendLine($"Pull +W = ({F(frame.W[0], "0.###")}, {F(frame.W[1], "0.###")}, {F(frame.W[2], "0.###")}); projected area {F(projectedArea / 1e-6, "0.#")} mm2, outline perimeter {F(perimeter / SwGeo.Mm, "0.#")} mm" +
                           (holes > 0 ? $", {holes} through-hole(s) in the outline" : "") + ".");
@@ -407,9 +445,9 @@ namespace SwAgent.Mold.Geometry
             report.Text = sb.ToString().TrimEnd();
 
             // Overlay: red = needs draft or undercut, cyan = parting line, magenta = air traps, orange = fragile steel.
-            var red = draftFaces.Select(x => int.Parse(((string)x["id"]).Substring(1), CultureInfo.InvariantCulture))
-                .Concat(pl.UndercutFaces).Distinct().Select(fi => faces[fi]).ToList();
-            if (red.Count > 0) report.Overlay.AddRange(Tools.OverlayTools.FaceItems(red, Tools.OverlayTools.ParseColor("red"), "needs draft / undercut", 0.35));
+            // (The red face highlights need the faces themselves: Run adds them from RedFaces.)
+            report.RedFaces = draftFaces.Select(x => int.Parse(((string)x["id"]).Substring(1), CultureInfo.InvariantCulture))
+                .Concat(pl.UndercutFaces).Distinct().OrderBy(x => x).ToList();
             if (pl.Candidates.Count > 0)
             {
                 var best = pl.Candidates[0];
@@ -425,7 +463,7 @@ namespace SwAgent.Mold.Geometry
             }
             foreach (var t in report.Traps.Take(12))
             {
-                var at = frame.ToModel(cgrid.CU(t.HighI), cgrid.CV(t.HighJ), lidPour ? -t.HighC : t.HighC);
+                var at = frame.ToModel(HighOf(t));
                 report.Overlay.Add(new SceneOverlay.Item { Type = "marker", Points = { at }, Color = Tools.OverlayTools.ParseColor("magenta"), Radius = 12 });
                 report.Overlay.Add(new SceneOverlay.Item { Type = "label", Points = { at }, Text = $"AT{t.Id} {F(t.Volume / 1e-9, "0")} mm3", Color = Tools.OverlayTools.ParseColor("magenta") });
             }
@@ -438,10 +476,44 @@ namespace SwAgent.Mold.Geometry
             return report;
         }
 
-        /// <summary>The W range (frame) of a face's display triangles, or null.</summary>
-        private static (double Min, double Max)? WRange(IFace2 face, MoldFrame frame)
+        /// <summary>
+        /// The highest ceiling point of a trap at a finer spacing: first-hit rays from above (base pour; from below for a
+        /// lid pour) on a grid over the trap's cells, at most 2,000 rays. Null if nothing came back.
+        /// </summary>
+        private static double[] RefineHighPoint(IPartGeometry geo, MoldFrame frame, Grid2 cgrid, AirTraps.Trap t, double fine,
+            bool lidPour, double wMin, double wMax)
         {
-            if (!(face?.GetTessTriangles(true) is float[] t) || t.Length < 9) return null;
+            double u0 = t.Cells.Min(c => cgrid.CU(c.I)) - cgrid.H / 2, u1 = t.Cells.Max(c => cgrid.CU(c.I)) + cgrid.H / 2;
+            double v0 = t.Cells.Min(c => cgrid.CV(c.J)) - cgrid.H / 2, v1 = t.Cells.Max(c => cgrid.CV(c.J)) + cgrid.H / 2;
+            var step = Math.Max(fine, Math.Sqrt((u1 - u0) * (v1 - v0) / 2000));
+            var inTrap = new HashSet<(int, int)>(t.Cells);
+            var pts = new List<double[]>();
+            var uv = new List<(double U, double V)>();
+            for (var u = u0 + step / 2; u < u1; u += step)
+                for (var v = v0 + step / 2; v < v1; v += step)
+                {
+                    if (!inTrap.Contains(((int)Math.Floor((u - cgrid.U0) / cgrid.H), (int)Math.Floor((v - cgrid.V0) / cgrid.H)))) continue;
+                    uv.Add((u, v));
+                    pts.Add(frame.ToModel(u, v, lidPour ? wMin - 0.002 : wMax + 0.002));
+                }
+            if (pts.Count == 0) return null;
+            var dir = frame.DirToModel(new double[] { 0, 0, lidPour ? 1 : -1 });
+            var dirs = pts.Select(_ => dir).ToList();
+            var best = (double[])null;
+            const int Opts = (int)(swRayPtsOpts_e.swRayPtsOptsTOPOLS | swRayPtsOpts_e.swRayPtsOptsNORMALS);
+            foreach (var h in geo.Cast(pts, dirs, 0, pts.Count, Opts))
+            {
+                var w = frame.ToFrame(h.Point)[2];
+                // Base pour: the highest first hit from above; lid pour: the lowest from below.
+                if (best == null || (lidPour ? w < best[2] : w > best[2])) best = new[] { uv[h.Ray].U, uv[h.Ray].V, w };
+            }
+            return best;
+        }
+
+        /// <summary>The W range (frame) of a face's triangles, or null.</summary>
+        private static (double Min, double Max)? WRange(float[] t, MoldFrame frame)
+        {
+            if (t == null || t.Length < 9) return null;
             double lo = double.MaxValue, hi = double.MinValue;
             for (var k = 0; k + 2 < t.Length; k += 3)
             {
@@ -456,7 +528,7 @@ namespace SwAgent.Mold.Geometry
         /// Rays that stop at their first hit (TOPOLS | NORMALS), in batches, the stop button checked between batches. True
         /// per ray = it hit the body.
         /// </summary>
-        internal static bool[] CastFirstHits(IModelDoc2 model, IBody2 body, IList<double[]> pts, IList<double[]> dirs, int batch, CancellationToken ct)
+        internal static bool[] CastFirstHits(IPartGeometry geo, IList<double[]> pts, IList<double[]> dirs, int batch, CancellationToken ct)
         {
             var result = new bool[pts.Count];
             const int Opts = (int)(swRayPtsOpts_e.swRayPtsOptsTOPOLS | swRayPtsOpts_e.swRayPtsOptsNORMALS);
@@ -464,24 +536,10 @@ namespace SwAgent.Mold.Geometry
             {
                 ct.ThrowIfCancellationRequested();
                 var n = Math.Min(batch, pts.Count - s);
-                var hits = Cast(model, body, pts, dirs, s, n, Opts);
+                var hits = geo.Cast(pts, dirs, s, n, Opts);
                 foreach (var h in hits) result[s + h.Ray] = true;
             }
             return result;
-        }
-
-        private static List<RayHit> Cast(IModelDoc2 model, IBody2 body, IList<double[]> pts, IList<double[]> dirs, int start, int n, int opts)
-        {
-            var bp = new double[n * 3];
-            var dv = new double[n * 3];
-            for (var k = 0; k < n; k++)
-            {
-                Array.Copy(pts[start + k], 0, bp, k * 3, 3);
-                Array.Copy(dirs[start + k], 0, dv, k * 3, 3);
-            }
-            var count = model.Extension.RayIntersections(new object[] { body }, bp, dv, opts, 1e-7, 0, true);
-            if (count <= 0) return new List<RayHit>();
-            return Columns.Parse(model.GetRayIntersectionsPoints() as double[], count, n, 1, (opts & (int)swRayPtsOpts_e.swRayPtsOptsNORMALS) != 0);
         }
 
         /// <summary>
@@ -490,7 +548,7 @@ namespace SwAgent.Mold.Geometry
         /// UNBLOCK not honoured), fall back to two first-hit rays per column - from above and from below - which give the
         /// part's envelope (no internal gaps). Returns how the columns were read.
         /// </summary>
-        private static string FillColumns(IModelDoc2 model, IBody2 body, MoldFrame frame, ColumnMap map, List<(int I, int J)> cells,
+        private static string FillColumns(IPartGeometry geo, MoldFrame frame, ColumnMap map, List<(int I, int J)> cells,
             double wMin, double wMax, int batch, CancellationToken ct, List<string> notes)
         {
             if (cells.Count == 0) return "none";
@@ -507,7 +565,7 @@ namespace SwAgent.Mold.Geometry
             {
                 ct.ThrowIfCancellationRequested();
                 var n = Math.Min(batch, cells.Count - s);
-                foreach (var h in Cast(model, body, pts, dirs, s, n, Multi))
+                foreach (var h in geo.Cast(pts, dirs, s, n, Multi))
                 {
                     var k = s + h.Ray;
                     (perRay[k] ?? (perRay[k] = new List<(double, int)>())).Add((frame.ToFrame(h.Point)[2], h.Type));
@@ -532,13 +590,13 @@ namespace SwAgent.Mold.Geometry
             {
                 ct.ThrowIfCancellationRequested();
                 var n = Math.Min(batch, cells.Count - s);
-                foreach (var h in Cast(model, body, pts, dirs, s, n, First))
+                foreach (var h in geo.Cast(pts, dirs, s, n, First))
                 {
                     var w = frame.ToFrame(h.Point)[2];
                     var k = s + h.Ray;
                     topHit[k] = topHit[k].HasValue ? Math.Max(topHit[k].Value, w) : w;
                 }
-                foreach (var h in Cast(model, body, upPts, cells.Select(c => up).ToList(), s, n, First))
+                foreach (var h in geo.Cast(upPts, cells.Select(c => up).ToList(), s, n, First))
                 {
                     var w = frame.ToFrame(h.Point)[2];
                     var k = s + h.Ray;
@@ -550,6 +608,67 @@ namespace SwAgent.Mold.Geometry
                     ? new List<(double, double)> { (bottomHit[k].Value, topHit[k].Value) }
                     : new List<(double, double)>();
             return "envelope (first hits from above and below)";
+        }
+    }
+
+    /// <summary>
+    /// What the part analysis needs from the part's geometry: per-face triangles and vertex normals (model meters), volume,
+    /// area, a tight box in a frame, ray casts, and a persistent reference per face. SwPartGeometry reads a SolidWorks body;
+    /// the tests use a triangle mesh with its own ray casting, so the whole analysis runs headless.
+    /// </summary>
+    internal interface IPartGeometry
+    {
+        string Name { get; }
+        int FaceCount { get; }
+        float[] FaceTriangles(int face);
+        /// <summary>Per-vertex outward normals in the same layout as FaceTriangles, or null.</summary>
+        float[] FaceNormals(int face);
+        double Volume { get; }
+        double Area { get; }
+        double[] Box(MoldFrame frame);
+        /// <summary>
+        /// Cast rays start..start+n-1 (model meters). opts as swRayPtsOpts_e: without ENTRY_EXIT|UNBLOCK each ray reports its
+        /// first hit only; with them, every crossing with ENTER/EXIT types. Hit.Ray is relative to start.
+        /// </summary>
+        List<RayHit> Cast(IList<double[]> pts, IList<double[]> dirs, int start, int n, int opts);
+        string PersistRef(int face);
+    }
+
+    /// <summary>A SolidWorks body as IPartGeometry: display tessellation, mass properties, extreme points, RayIntersections.</summary>
+    internal sealed class SwPartGeometry : IPartGeometry
+    {
+        private readonly IModelDoc2 _model;
+        private readonly IBody2 _body;
+
+        public SwPartGeometry(IModelDoc2 model, IBody2 body)
+        {
+            _model = model;
+            _body = body;
+            Faces = ((body.GetFaces() as object[]) ?? new object[0]).OfType<IFace2>().ToList();
+        }
+
+        public List<IFace2> Faces { get; }
+        public string Name => SwGeo.SafeName(_body);
+        public int FaceCount => Faces.Count;
+        public float[] FaceTriangles(int face) => Faces[face].GetTessTriangles(true) as float[];
+        public float[] FaceNormals(int face) => Faces[face].GetTessNorms() as float[];
+        public double Volume => SwGeo.Volume(_body);
+        public double Area => Faces.Sum(f => f.GetArea());
+        public double[] Box(MoldFrame frame) => SwGeo.Box(_body, frame);
+        public string PersistRef(int face) => SwGeo.PersistRef(_model, Faces[face]);
+
+        public List<RayHit> Cast(IList<double[]> pts, IList<double[]> dirs, int start, int n, int opts)
+        {
+            var bp = new double[n * 3];
+            var dv = new double[n * 3];
+            for (var k = 0; k < n; k++)
+            {
+                Array.Copy(pts[start + k], 0, bp, k * 3, 3);
+                Array.Copy(dirs[start + k], 0, dv, k * 3, 3);
+            }
+            var count = _model.Extension.RayIntersections(new object[] { _body }, bp, dv, opts, 1e-7, 0, true);
+            if (count <= 0) return new List<RayHit>();
+            return Columns.Parse(_model.GetRayIntersectionsPoints() as double[], count, n, 1, (opts & (int)swRayPtsOpts_e.swRayPtsOptsNORMALS) != 0);
         }
     }
 }
