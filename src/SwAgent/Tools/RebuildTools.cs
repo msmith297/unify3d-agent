@@ -307,21 +307,38 @@ namespace SwAgent.Tools
             }
         }
 
-        /// <summary>For the Smart Rebuild screen: is there an earlier attempt to continue? The journal's tail, or null.</summary>
-        internal static JObject Status(IModelDoc2 model)
+        // ---------- save_working_copy ----------
+
+        public sealed class WorkingCopyInput
         {
-            if (model == null) return new JObject { ["journal"] = false };
-            var workingCopy = OriginalOf(model.GetPathName()) != null;
-            var path = Path.Combine(DesignDir(model), "journal.md");
-            if (!File.Exists(path)) return new JObject { ["journal"] = false, ["workingCopy"] = workingCopy };
-            var text = File.ReadAllText(path);
-            return new JObject
-            {
-                ["journal"] = true,
-                ["workingCopy"] = workingCopy, // continuing on the original would edit it: the screen makes a copy first
-                ["updated"] = File.GetLastWriteTime(path).ToString("o"),
-                ["tail"] = text.Length > 1200 ? text.Substring(text.Length - 1200) : text,
-            };
+            [ToolParam("File name for the copy, without extension (default: \"<original name> - rebuilt\"). It goes in the original's folder.")]
+            public string Name { get; set; }
+        }
+
+        [AgentTool("save_working_copy",
+            "Smart Rebuild \"work on a copy\": Save As the active document under a new name in the same folder and keep working in the copy; the " +
+            "original file on disk stays as it was. Registers the copy as a working copy (checkpoint restore is only allowed on those). If the " +
+            "active document already is a working copy, nothing is saved and it says so - carry on in it. Never overwrites an existing file.")]
+        public ToolResult SaveWorkingCopy(ToolContext ctx, WorkingCopyInput input)
+        {
+            var model = ctx.RequireModel();
+            var current = model.GetPathName();
+            if (string.IsNullOrEmpty(current)) return ToolResult.Error("The document has never been saved, so the copy has no folder to go in. Ask the user to save it once first.");
+            var original = OriginalOf(current);
+            if (original != null) return ToolResult.Ok($"Already working in a copy: {current} (copy of {original}). Carry on in it.");
+
+            var name = (input.Name ?? "").Trim();
+            if (name.Length == 0) name = Path.GetFileNameWithoutExtension(current) + " - rebuilt";
+            name = string.Join("_", name.Split(Path.GetInvalidFileNameChars()));
+            var target = Path.Combine(Path.GetDirectoryName(current), name + Path.GetExtension(current));
+            for (var n = 2; File.Exists(target); n++) target = Path.Combine(Path.GetDirectoryName(current), $"{name} ({n}){Path.GetExtension(current)}");
+            int errors = 0, warnings = 0;
+            var ok = model.Extension.SaveAs3(target, (int)swSaveAsVersion_e.swSaveAsCurrentVersion, (int)swSaveAsOptions_e.swSaveAsOptions_Silent, null, null, ref errors, ref warnings);
+            if (!ok) return ToolResult.Error($"Save As failed ({(swFileSaveError_e)errors}).");
+            RegisterWorkingCopy(target, current);
+            Log.Info($"Smart Rebuild: working on a copy {target} (original {current} unchanged)");
+            return ToolResult.Ok($"Saved a working copy and switched to it: {target}. The original {current} stays as it was. " +
+                                 "The journal and checkpoints are shared with earlier attempts on the original.");
         }
     }
 }

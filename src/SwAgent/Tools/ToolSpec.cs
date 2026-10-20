@@ -99,10 +99,9 @@ namespace SwAgent.Tools
 
         public static ToolSpec Load(string name)
         {
-            var dir = Path.Combine(UserTools.Root, name);
-            var md = Path.Combine(dir, "TOOL.md");
-            if (!File.Exists(md)) return null;
-            var fm = UserTools.FrontMatter(File.ReadAllText(md));
+            var dir = UserTools.DirOf(name); // the user's tool, or a built-in one
+            if (dir == null) return null;
+            var fm = UserTools.EffectiveFrontMatter(name, dir);
             string Get(string key, string fallback = null) => fm.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v) ? v.Trim() : fallback;
 
             var spec = new ToolSpec

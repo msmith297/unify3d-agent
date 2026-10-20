@@ -60,6 +60,8 @@ Source: "redist\MicrosoftEdgeWebview2Setup.exe"; DestDir: "{tmp}"; Flags: delete
 [InstallDelete]
 ; Old UI bundles (file names change every build).
 Type: filesandordirs; Name: "{app}\wwwroot"
+; Built-in tools are replaced as a whole (a tool removed from the add-in must not linger).
+Type: filesandordirs; Name: "{app}\builtin-tools"
 
 [Registry]
 ; Load at SolidWorks start-up by default for every user (RegAsm adds the add-in entry itself).
