@@ -331,9 +331,10 @@ namespace SwAgent
             });
             bridge.Register("userTools.setValue", p =>
             {
-                // Only the settings the user may change from the panel.
+                // Only the settings the user may change from the panel. A built-in tool's go to builtin-settings.json
+                // (its folder is replaced on every install); a new category marks the ribbon stale until a restart.
                 var key = (string)p["key"];
-                if (key != "intelligence" && key != "confirm") throw new InvalidOperationException("Not a tool setting: " + key);
+                if (key != "intelligence" && key != "confirm" && key != "category") throw new InvalidOperationException("Not a tool setting: " + key);
                 UserTools.SetValue((string)p["name"], key, (string)p["value"]);
                 return null;
             });
