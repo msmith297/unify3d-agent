@@ -109,7 +109,7 @@ namespace SwAgent.Tools
                     Target = target,
                     Method = method,
                     InputType = ps[1].ParameterType,
-                    Schema = BuildSchema(ps[1].ParameterType),
+                    Schema = SchemaOf(ps[1].ParameterType),
                 };
             }
         }
@@ -185,14 +185,21 @@ namespace SwAgent.Tools
             }
         }
 
-        private static JObject BuildSchema(Type inputType)
+        /// <summary>The input schema of a tool's input type (also used by the test that builds every [AgentTool]'s schema).</summary>
+        internal static JObject SchemaOf(Type inputType) => BuildSchema(inputType, 0, new HashSet<Type> { inputType });
+
+        /// <summary>Nested input objects deeper than this are just {"type":"object"}: an unknown type fails soft instead of recursing.</summary>
+        private const int MaxDepth = 6;
+
+        private static JObject BuildSchema(Type inputType, int depth, HashSet<Type> path)
         {
             var props = new JObject();
             var required = new JArray();
             foreach (var p in inputType.GetProperties(BindingFlags.Public | BindingFlags.Instance))
             {
+                if (p.GetIndexParameters().Length > 0) continue; // indexers aren't inputs
                 var meta = p.GetCustomAttribute<ToolParamAttribute>();
-                var schema = SchemaFor(p.PropertyType);
+                var schema = SchemaFor(p.PropertyType, depth + 1, path);
                 if (meta != null) schema["description"] = meta.Description;
                 var name = SnakeCase(p.Name);
                 props[name] = schema;
@@ -203,7 +210,7 @@ namespace SwAgent.Tools
             return result;
         }
 
-        private static JObject SchemaFor(Type t)
+        private static JObject SchemaFor(Type t, int depth, HashSet<Type> path)
         {
             t = Nullable.GetUnderlyingType(t) ?? t;
             if (t == typeof(string)) return new JObject { ["type"] = "string" };
@@ -211,12 +218,38 @@ namespace SwAgent.Tools
             if (t == typeof(int) || t == typeof(long)) return new JObject { ["type"] = "integer" };
             if (t == typeof(double) || t == typeof(float)) return new JObject { ["type"] = "number" };
             if (t.IsEnum) return new JObject { ["type"] = "string", ["enum"] = new JArray(Enum.GetNames(t)) };
-            if (t.IsArray) return new JObject { ["type"] = "array", ["items"] = SchemaFor(t.GetElementType()) };
+            // Free-form JSON (a JObject "design" or "data" input): JObject is a class whose CLR properties (Parent, First,
+            // Root...) lead back to themselves - walking them recursed until the stack overflowed and took SolidWorks down
+            // while the add-in loaded. Before the IsClass and IEnumerable branches (JArray is both).
+            if (typeof(JToken).IsAssignableFrom(t))
+            {
+                if (t == typeof(JArray)) return new JObject { ["type"] = "array" };
+                if (t == typeof(JObject)) return new JObject { ["type"] = "object" };
+                return new JObject(); // any JSON value
+            }
+            if (depth > MaxDepth) return new JObject { ["type"] = "object" };
+            if (t.IsArray) return new JObject { ["type"] = "array", ["items"] = SchemaFor(t.GetElementType(), depth + 1, path) };
+            if (typeof(IDictionary).IsAssignableFrom(t) || (t.IsGenericType && t.GetInterfaces().Any(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IDictionary<,>))))
+            {
+                return new JObject { ["type"] = "object" };
+            }
             if (typeof(IEnumerable).IsAssignableFrom(t) && t.IsGenericType)
             {
-                return new JObject { ["type"] = "array", ["items"] = SchemaFor(t.GetGenericArguments()[0]) };
+                return new JObject { ["type"] = "array", ["items"] = SchemaFor(t.GetGenericArguments()[0], depth + 1, path) };
             }
-            if (t.IsClass && t != typeof(object)) return BuildSchema(t); // nested input objects (e.g. ToolFile[])
+            if (t.IsClass && t != typeof(object))
+            {
+                // Nested input objects (e.g. ToolFile[]). A type that contains itself is an object past its first level.
+                if (!path.Add(t)) return new JObject { ["type"] = "object" };
+                try
+                {
+                    return BuildSchema(t, depth, path);
+                }
+                finally
+                {
+                    path.Remove(t);
+                }
+            }
             return new JObject { ["type"] = "object" };
         }
 

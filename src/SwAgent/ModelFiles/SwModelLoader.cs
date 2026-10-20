@@ -27,17 +27,14 @@ namespace SwAgent.ModelFiles
             public SolidWorksFacts Facts;
         }
 
-        /// <summary>One load at a time: DocumentVisible is a global switch.</summary>
-        private static readonly SemaphoreSlim Gate = new SemaphoreSlim(1, 1);
-
         public static async Task<Loaded> LoadAsync(ISldWorks sw, string path, CancellationToken ct)
         {
-            await Gate.WaitAsync(ct);
-            try
+            // One hidden open at a time, shared with every other caller (HiddenDocuments): DocumentVisible is a global switch.
+            using (await HiddenDocuments.LockAsync(ct))
             {
                 var slicer = new Slicer();
                 var activeBefore = sw.ActiveDoc as IModelDoc2;
-                var openBefore = OpenTitles(sw);
+                var openBefore = HiddenDocuments.OpenTitles(sw);
                 var model = sw.GetOpenDocumentByName(path) as IModelDoc2;
                 var opened = false;
                 if (model == null)
@@ -56,12 +53,8 @@ namespace SwAgent.ModelFiles
                 }
                 finally
                 {
-                    if (opened) Close(sw, model, openBefore, activeBefore);
+                    if (opened) HiddenDocuments.Close(sw, model, openBefore, activeBefore);
                 }
-            }
-            finally
-            {
-                Gate.Release();
             }
         }
 
@@ -69,11 +62,7 @@ namespace SwAgent.ModelFiles
         {
             var ext = Path.GetExtension(path).ToLowerInvariant();
             var type = ext == ".sldprt" ? swDocumentTypes_e.swDocPART : ext == ".sldasm" ? swDocumentTypes_e.swDocASSEMBLY : swDocumentTypes_e.swDocNONE;
-            var partVisible = sw.GetDocumentVisible((int)swDocumentTypes_e.swDocPART);
-            var asmVisible = sw.GetDocumentVisible((int)swDocumentTypes_e.swDocASSEMBLY);
-            sw.DocumentVisible(false, (int)swDocumentTypes_e.swDocPART);
-            sw.DocumentVisible(false, (int)swDocumentTypes_e.swDocASSEMBLY);
-            try
+            using (HiddenDocuments.Hidden(sw))
             {
                 var watch = Stopwatch.StartNew();
                 IModelDoc2 model;
@@ -92,38 +81,7 @@ namespace SwAgent.ModelFiles
                 Log.Info($"Model context: loaded {Path.GetFileName(path)} hidden in {watch.ElapsedMilliseconds} ms");
                 return model;
             }
-            finally
-            {
-                sw.DocumentVisible(partVisible, (int)swDocumentTypes_e.swDocPART);
-                sw.DocumentVisible(asmVisible, (int)swDocumentTypes_e.swDocASSEMBLY);
-            }
         }
-
-        /// <summary>Close our document, any hidden documents it pulled in (imported assembly parts), and restore the active document.</summary>
-        private static void Close(ISldWorks sw, IModelDoc2 model, HashSet<string> openBefore, IModelDoc2 activeBefore)
-        {
-            try
-            {
-                sw.QuitDoc(model.GetTitle());
-                foreach (var doc in (sw.GetDocuments() as object[] ?? new object[0]).OfType<IModelDoc2>().ToList())
-                {
-                    var title = doc.GetTitle();
-                    if (!openBefore.Contains(title) && !doc.Visible) sw.QuitDoc(title);
-                }
-                if (activeBefore != null && !ReferenceEquals(sw.ActiveDoc, activeBefore))
-                {
-                    var errors = 0;
-                    sw.ActivateDoc3(activeBefore.GetTitle(), false, (int)swRebuildOnActivation_e.swDontRebuildActiveDoc, ref errors);
-                }
-            }
-            catch (Exception ex)
-            {
-                Log.Warn("Closing the hidden model document failed: " + ex.Message);
-            }
-        }
-
-        private static HashSet<string> OpenTitles(ISldWorks sw) =>
-            new HashSet<string>((sw.GetDocuments() as object[] ?? new object[0]).OfType<IModelDoc2>().Select(d => d.GetTitle()), StringComparer.OrdinalIgnoreCase);
 
         private static SolidWorksFacts ReadFacts(IModelDoc2 model)
         {
@@ -289,6 +247,144 @@ namespace SwAgent.ModelFiles
             catch
             {
                 // Each fact is optional.
+            }
+        }
+    }
+
+    /// <summary>
+    /// Every document the add-in opens in the background goes through here (critique B6): attachments read for the agent
+    /// (SwModelLoader), the mold tool's part import and STEP export, drawings converted to PDF. DocumentVisible is a global
+    /// SolidWorks switch, so:
+    ///   - one gate: LockAsync for work that awaits (it is held across the awaits), Lock for synchronous work;
+    ///   - Hidden turns visibility off for parts, assemblies and drawings and restores exactly what was set - only ever
+    ///     inside synchronous code, never across an await (a document the user opens meanwhile would stay hidden);
+    ///   - Close quits what we opened plus any hidden documents it pulled in, and re-activates the user's document.
+    /// Everything runs on the SolidWorks UI thread.
+    /// </summary>
+    internal static class HiddenDocuments
+    {
+        private static readonly SemaphoreSlim Gate = new SemaphoreSlim(1, 1);
+
+        private static readonly int[] Types =
+        {
+            (int)swDocumentTypes_e.swDocPART, (int)swDocumentTypes_e.swDocASSEMBLY, (int)swDocumentTypes_e.swDocDRAWING,
+        };
+
+        public static async Task<IDisposable> LockAsync(CancellationToken ct)
+        {
+            await Gate.WaitAsync(ct);
+            return new Releaser(() => Gate.Release());
+        }
+
+        /// <summary>Synchronous holders inside Lock right now (UI thread only).</summary>
+        private static int _syncDepth;
+
+        /// <summary>
+        /// The gate for synchronous work. If an async load holds it, it is paused between two of its slices on this same
+        /// thread with visibility restored (Hidden is never held across an await), so synchronous work can't interleave with
+        /// its hidden window and goes ahead without owning the gate. If synchronous work holds it, this is a re-entry from a
+        /// message pump inside that work (OpenDoc6 or LoadFile4 of a big file pumps messages: a second drawing dropped
+        /// meanwhile): two hidden opens would interleave, so it fails fast with a "busy, try again" error instead.
+        /// </summary>
+        public static IDisposable Lock()
+        {
+            var owned = Gate.Wait(0);
+            if (!owned && _syncDepth > 0)
+                throw new InvalidOperationException("SolidWorks is busy opening another file hidden; try again in a moment.");
+            _syncDepth++;
+            return new Releaser(() =>
+            {
+                _syncDepth--;
+                if (owned) Gate.Release();
+            });
+        }
+
+        /// <summary>New part, assembly and drawing documents open hidden until this is disposed.</summary>
+        public static IDisposable Hidden(ISldWorks sw)
+        {
+            var before = Types.Select(t => (Type: t, Visible: sw.GetDocumentVisible(t))).ToList();
+            foreach (var t in Types) sw.DocumentVisible(false, t);
+            return new Releaser(() =>
+            {
+                foreach (var (t, visible) in before)
+                {
+                    try
+                    {
+                        sw.DocumentVisible(visible, t);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Warn("Restoring document visibility failed: " + ex.Message);
+                    }
+                }
+            });
+        }
+
+        /// <summary>Lock and Hidden together, for a synchronous open-use-close.</summary>
+        public static IDisposable Scope(ISldWorks sw)
+        {
+            var gate = Lock();
+            try
+            {
+                var hidden = Hidden(sw);
+                return new Releaser(() =>
+                {
+                    try
+                    {
+                        hidden.Dispose();
+                    }
+                    finally
+                    {
+                        gate.Dispose();
+                    }
+                });
+            }
+            catch
+            {
+                gate.Dispose();
+                throw;
+            }
+        }
+
+        public static HashSet<string> OpenTitles(ISldWorks sw) =>
+            new HashSet<string>((sw.GetDocuments() as object[] ?? new object[0]).OfType<IModelDoc2>().Select(d => d.GetTitle()), StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Close our document, any hidden documents it pulled in (imported assembly parts, a drawing's models), and restore the active document.</summary>
+        public static void Close(ISldWorks sw, IModelDoc2 model, HashSet<string> openBefore, IModelDoc2 activeBefore)
+        {
+            try
+            {
+                if (model != null) sw.QuitDoc(model.GetTitle());
+                foreach (var doc in (sw.GetDocuments() as object[] ?? new object[0]).OfType<IModelDoc2>().ToList())
+                {
+                    var title = doc.GetTitle();
+                    if (!openBefore.Contains(title) && !doc.Visible) sw.QuitDoc(title);
+                }
+                if (activeBefore != null && !ReferenceEquals(sw.ActiveDoc, activeBefore))
+                {
+                    var errors = 0;
+                    sw.ActivateDoc3(activeBefore.GetTitle(), false, (int)swRebuildOnActivation_e.swDontRebuildActiveDoc, ref errors);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("Closing the hidden document failed: " + ex.Message);
+            }
+        }
+
+        private sealed class Releaser : IDisposable
+        {
+            private Action _release;
+
+            public Releaser(Action release)
+            {
+                _release = release;
+            }
+
+            public void Dispose()
+            {
+                var r = Interlocked.Exchange(ref _release, null);
+                r?.Invoke();
             }
         }
     }

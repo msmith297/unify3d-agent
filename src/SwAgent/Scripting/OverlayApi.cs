@@ -35,6 +35,37 @@ namespace SwAgent.Scripting
         /// <summary>A temporary body (IModeler.CreateBodyFrom..., IBody2.Copy2 + Operations2) shown in the scene - e.g. the exact proposed cut. Parts only.</summary>
         public void Body(IBody2 body, int rgb = 0xFF8C1A) => SceneOverlay.ShowBody(_g.Model, body, rgb);
 
+        /// <summary>
+        /// Translucent highlight of model faces (e.g. yellow critical faces, red faces that need draft), with an optional
+        /// label. The fill is capped at 3,000 triangles across all highlights (more are drawn as outlines) and is drawn only
+        /// while the camera rests.
+        /// </summary>
+        public void Faces(IEnumerable<IFace2> faces, string color, string label = null, double alpha = 0.3) =>
+            SceneOverlay.ShowItems(_g.swApp, _g.Model, OverlayTools.FaceItems(faces ?? new IFace2[0], OverlayTools.ParseColor(color), label, alpha), append: true);
+
+        /// <summary>A translucent box between two opposite corners along the model axes (meters) - e.g. a plate of the planned stack.</summary>
+        public void Box(double[] corner0, double[] corner1, string color = "white", string label = null, double alpha = 0.25)
+        {
+            var items = new List<SceneOverlay.Item> { OverlayTools.BoxItem(corner0, corner1, OverlayTools.ParseColor(color), alpha) };
+            if (!string.IsNullOrEmpty(label)) items.Add(new SceneOverlay.Item { Type = "label", Points = { corner1 }, Text = label, Color = OverlayTools.ParseColor(color) });
+            SceneOverlay.ShowItems(_g.swApp, _g.Model, items, append: true);
+        }
+
+        /// <summary>
+        /// A translucent box in the mold frame: u, v, w ranges in meters along Mold.Frame()'s axes (a plate of the planned
+        /// stack, a cavity footprint). Drawn without touching the model.
+        /// </summary>
+        public void Box(SwAgent.Mold.Geometry.MoldFrame frame, double u0, double v0, double w0, double u1, double v1, double w1,
+            string color = "white", string label = null, double alpha = 0.25)
+        {
+            var corners = new double[8][];
+            for (var k = 0; k < 8; k++)
+                corners[k] = frame.ToModel((k & 1) == 0 ? u0 : u1, (k & 2) == 0 ? v0 : v1, (k & 4) == 0 ? w0 : w1);
+            var items = new List<SceneOverlay.Item> { OverlayTools.CornersItem(corners, OverlayTools.ParseColor(color), alpha) };
+            if (!string.IsNullOrEmpty(label)) items.Add(new SceneOverlay.Item { Type = "label", Points = { corners[7] }, Text = label, Color = OverlayTools.ParseColor(color) });
+            SceneOverlay.ShowItems(_g.swApp, _g.Model, items, append: true);
+        }
+
         public void Clear() => SceneOverlay.ClearAll();
 
         private void Add(string type, double[][] points, string text = null, string color = null, bool fill = false, bool dashed = false,

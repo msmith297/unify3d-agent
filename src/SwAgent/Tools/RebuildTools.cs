@@ -8,6 +8,7 @@ using Newtonsoft.Json.Linq;
 using SolidWorks.Interop.sldworks;
 using SolidWorks.Interop.swconst;
 using SwAgent.Infrastructure;
+using SwAgent.Mold.Geometry;
 
 namespace SwAgent.Tools
 {
@@ -56,15 +57,153 @@ namespace SwAgent.Tools
 
         private static string OriginalOf(string path) => string.IsNullOrEmpty(path) ? null : (string)ReadCopies()[path.ToLowerInvariant()];
 
-        /// <summary>Where a design's journal and checkpoints live: named after the original file, so every attempt (each new copy) shares them.</summary>
+        // ---------- mold designs (design-compression-mold): restorable in place, but not working copies ----------
+
+        /// <summary>
+        /// The mold tool builds in the user's own file, so its checkpoints restore over that file. It is registered here -
+        /// apart from working-copies.json, so the "never on the user's original" rule for Smart Rebuild's copies is
+        /// untouched - with its record GUID, and removed when the record's status becomes done.
+        /// </summary>
+        private static string MoldDesignsFile => Path.Combine(Directory.CreateDirectory(Path.Combine(Paths.LocalDir, "snapshots")).FullName, "mold-designs.json");
+
+        internal static void RegisterMoldDesign(string path, string moldId)
+        {
+            try
+            {
+                var all = ReadJson(MoldDesignsFile);
+                all[path.ToLowerInvariant()] = moldId ?? "";
+                // Forget files that no longer exist (renamed or deleted molds).
+                foreach (var gone in all.Properties().Where(p => !File.Exists(p.Name)).Select(p => p.Name).ToList()) all.Remove(gone);
+                File.WriteAllText(MoldDesignsFile, all.ToString());
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("Couldn't record the mold design: " + ex.Message);
+            }
+        }
+
+        internal static void UnregisterMoldDesign(string path)
+        {
+            try
+            {
+                var all = ReadJson(MoldDesignsFile);
+                if (all.Remove((path ?? "").ToLowerInvariant())) File.WriteAllText(MoldDesignsFile, all.ToString());
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("Couldn't update the mold designs: " + ex.Message);
+            }
+        }
+
+        internal static bool IsMoldDesign(string path) => !string.IsNullOrEmpty(path) && ReadJson(MoldDesignsFile)[path.ToLowerInvariant()] != null;
+
+        private static JObject ReadJson(string file)
+        {
+            try
+            {
+                return File.Exists(file) ? JObject.Parse(File.ReadAllText(file)) : new JObject();
+            }
+            catch
+            {
+                return new JObject();
+            }
+        }
+
+        /// <summary>The mold record's GUID (custom property Unify3D.MoldId), or null.</summary>
+        internal static string MoldIdOf(IModelDoc2 model)
+        {
+            try
+            {
+                var cpm = model?.Extension?.CustomPropertyManager[""];
+                if (cpm == null) return null;
+                cpm.Get6("Unify3D.MoldId", false, out var raw, out var resolved, out _, out _);
+                var id = (string.IsNullOrWhiteSpace(resolved) ? raw : resolved)?.Trim();
+                return string.IsNullOrEmpty(id) ? null : id;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Whether this file is the mold its Unify3D.MoldId names, not a copy of it: a Save As or a Smart Rebuild working
+        /// copy carries the same property, and must not share the original's checkpoints (restore would copy one file's
+        /// state over the other, and pruning would delete the other's restore points) or its journal. Yes when this path
+        /// is registered with that id; no for a working copy; otherwise the record next to it decides (RecordOwner); with
+        /// no record next to it, no if another existing file is registered with the same id.
+        /// </summary>
+        internal static bool IsMoldOriginal(IModelDoc2 model, string moldId)
+        {
+            var path = model?.GetPathName();
+            if (string.IsNullOrEmpty(path) || string.IsNullOrEmpty(moldId)) return false;
+            var designs = ReadJson(MoldDesignsFile);
+            if (string.Equals((string)designs[path.ToLowerInvariant()], moldId, StringComparison.OrdinalIgnoreCase)) return true;
+            if (OriginalOf(path) != null) return false;
+            var folder = SwGeo.StoredRecordFolder(model);
+            if (folder != null) return RecordOwner.Owns(folder, path);
+            return !designs.Properties().Any(p => string.Equals((string)p.Value, moldId, StringComparison.OrdinalIgnoreCase) &&
+                                                  !string.Equals(p.Name, path, StringComparison.OrdinalIgnoreCase) && File.Exists(p.Name));
+        }
+
+        /// <summary>
+        /// Where a design's journal and checkpoints live. A mold is keyed by its record GUID, so two molds with the same file
+        /// name in different folders never share them - but only the mold itself, not a copy of it (IsMoldOriginal).
+        /// Otherwise named after the original file, so every Smart Rebuild attempt (each new copy) shares them.
+        /// </summary>
         internal static string DesignDir(IModelDoc2 model)
         {
-            var path = model.GetPathName();
-            var key = Path.GetFileNameWithoutExtension(OriginalOf(path) ?? path);
-            if (string.IsNullOrEmpty(key)) key = model.GetTitle();
+            var moldId = MoldIdOf(model);
+            if (moldId != null && !IsMoldOriginal(model, moldId)) moldId = null;
+            string key;
+            if (moldId != null) key = "mold-" + moldId;
+            else
+            {
+                var path = model.GetPathName();
+                key = Path.GetFileNameWithoutExtension(OriginalOf(path) ?? path);
+                if (string.IsNullOrEmpty(key)) key = model.GetTitle();
+                key = "rebuild-" + key;
+            }
             key = new string(key.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c).ToArray());
-            return Directory.CreateDirectory(Path.Combine(Paths.LocalDir, "snapshots", "rebuild-" + key)).FullName;
+            return Directory.CreateDirectory(Path.Combine(Paths.LocalDir, "snapshots", key)).FullName;
         }
+
+        // ---------- checkpoint names ----------
+
+        /// <summary>Checkpoints kept per design (each is a full copy of the part); the oldest go first.</summary>
+        internal const int KeepCheckpoints = 20;
+
+        private static readonly Regex StampRx = new Regex(@"^(?:\d{8}-)?\d{6}-(?<name>.+)$");
+
+        /// <summary>A checkpoint file's name without its time stamp ("20261019-153012-stage-4-3" -> "stage-4-3"; old "153012-x" too).</summary>
+        internal static string CheckpointName(string fileNameWithoutExtension)
+        {
+            var m = StampRx.Match(fileNameWithoutExtension ?? "");
+            return m.Success ? m.Groups["name"].Value : fileNameWithoutExtension;
+        }
+
+        /// <summary>
+        /// The checkpoint to restore: an exact file name (with its stamp) wins; otherwise the NEWEST file (by time, not by
+        /// name - "HHmmss" stamps sort yesterday's 15:00 after today's 09:00) whose name without the stamp is the name asked for.
+        /// </summary>
+        internal static string PickCheckpoint(IEnumerable<(string Path, DateTime Time)> files, string requested)
+        {
+            requested = (requested ?? "").Trim();
+            if (requested.Length == 0) return null;
+            var list = files.ToList();
+            var exact = list.FirstOrDefault(f => string.Equals(Path.GetFileNameWithoutExtension(f.Path), requested, StringComparison.OrdinalIgnoreCase));
+            if (exact.Path != null) return exact.Path;
+            var clean = new string(requested.Select(c => char.IsLetterOrDigit(c) || c == '-' || c == '_' ? c : '-').ToArray()).Trim('-');
+            return list.Where(f => string.Equals(CheckpointName(Path.GetFileNameWithoutExtension(f.Path)), clean, StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(f => f.Time).Select(f => f.Path).FirstOrDefault();
+        }
+
+        private static List<(string Path, DateTime Time)> Files(string dir, string ext) =>
+            Directory.GetFiles(dir, "*" + ext).Select(f => (f, File.GetLastWriteTimeUtc(f))).ToList();
+
+        /// <summary>Delete all but the newest `keep` checkpoints.</summary>
+        internal static List<string> Prune(IEnumerable<(string Path, DateTime Time)> files, int keep) =>
+            files.OrderByDescending(f => f.Time).Skip(keep).Select(f => f.Path).ToList();
 
         // ---------- analyze_design ----------
 
@@ -213,7 +352,8 @@ namespace SwAgent.Tools
             "Smart Rebuild checkpoints: save a copy of the working file at a known-good state, list them, or restore one - the file " +
             "goes back to that state and the conversation carries on with the reopened document. Save one before every risky stage; " +
             "when a stage goes wrong, restore the last good checkpoint instead of undoing in circles or starting over. Restoring only " +
-            "works on Smart Rebuild working copies (never on the user's original). Never close or reopen documents in your own code.")]
+            "works on Smart Rebuild working copies and registered mold designs (never on any other original). Never close or reopen " +
+            "documents in your own code.")]
         public ToolResult Checkpoint(ToolContext ctx, CheckpointInput input)
         {
             var model = ctx.RequireModel();
@@ -226,29 +366,43 @@ namespace SwAgent.Tools
                 case "save":
                 {
                     if (name.Length == 0) return ToolResult.Error("Give the checkpoint a name.");
-                    var stamp = DateTime.Now.ToString("HHmmss");
+                    // Date and time: restore picks the newest by time, and names like "stage-4.2" repeat on every attempt.
+                    var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
                     var path = Path.Combine(dir, $"{stamp}-{name}{ext}");
                     int errors = 0, warnings = 0;
                     var ok = model.Extension.SaveAs3(path, (int)swSaveAsVersion_e.swSaveAsCurrentVersion,
                         (int)(swSaveAsOptions_e.swSaveAsOptions_Copy | swSaveAsOptions_e.swSaveAsOptions_Silent), null, null, ref errors, ref warnings);
                     if (!ok) return ToolResult.Error($"Saving the checkpoint failed ({(swFileSaveError_e)errors}).");
+                    var pruned = 0;
+                    foreach (var old in Prune(Files(dir, ext), KeepCheckpoints))
+                    {
+                        try
+                        {
+                            File.Delete(old);
+                            pruned++;
+                        }
+                        catch (Exception ex)
+                        {
+                            Log.Warn("Couldn't delete an old checkpoint: " + ex.Message);
+                        }
+                    }
                     var broken = 0;
                     for (var f = (IFeature)model.FirstFeature(); f != null; f = (IFeature)f.GetNextFeature())
                         if (f.GetErrorCode2(out var warn) != 0 && !warn) broken++;
-                    return ToolResult.Ok($"Checkpoint '{stamp}-{name}' saved ({broken} feature(s) with errors at this point). The working file is unchanged.");
+                    return ToolResult.Ok($"Checkpoint '{stamp}-{name}' saved ({broken} feature(s) with errors at this point). The working file is unchanged." +
+                                         (pruned > 0 ? $" ({pruned} oldest checkpoint(s) removed; the last {KeepCheckpoints} are kept.)" : ""));
                 }
                 case "list":
                 {
-                    var files = Directory.GetFiles(dir, "*" + ext).OrderBy(f => f).ToList();
-                    return ToolResult.Ok(files.Count == 0 ? "No checkpoints yet." : "Checkpoints (oldest first):\n" + string.Join("\n", files.Select(f => "  " + Path.GetFileNameWithoutExtension(f))));
+                    var files = Files(dir, ext).OrderBy(f => f.Time).ToList();
+                    return ToolResult.Ok(files.Count == 0 ? "No checkpoints yet." : "Checkpoints (oldest first):\n" + string.Join("\n", files.Select(f => "  " + Path.GetFileNameWithoutExtension(f.Path))));
                 }
                 case "restore":
                 {
                     var path = model.GetPathName();
-                    if (OriginalOf(path) == null)
-                        return ToolResult.Error("Restoring replaces the open file with the checkpoint, so it only works on a Smart Rebuild working copy - this file isn't one.");
-                    var match = Directory.GetFiles(dir, "*" + ext).Where(f => Path.GetFileNameWithoutExtension(f).EndsWith(name, StringComparison.OrdinalIgnoreCase) || Path.GetFileNameWithoutExtension(f) == input.Name)
-                        .OrderBy(f => f).LastOrDefault();
+                    if (OriginalOf(path) == null && !IsMoldDesign(path))
+                        return ToolResult.Error("Restoring replaces the open file with the checkpoint, so it only works on a Smart Rebuild working copy or a registered mold design - this file is neither.");
+                    var match = PickCheckpoint(Files(dir, ext), input.Name);
                     if (match == null) return ToolResult.Error($"No checkpoint '{input.Name}'. Use checkpoint list.");
                     var sw = ctx.Sw;
                     var type = model.GetType();
@@ -336,6 +490,21 @@ namespace SwAgent.Tools
             var ok = model.Extension.SaveAs3(target, (int)swSaveAsVersion_e.swSaveAsCurrentVersion, (int)swSaveAsOptions_e.swSaveAsOptions_Silent, null, null, ref errors, ref warnings);
             if (!ok) return ToolResult.Error($"Save As failed ({(swFileSaveError_e)errors}).");
             RegisterWorkingCopy(target, current);
+            // A copy of a mold is not that mold: drop the record link so it neither merges into the original's mold.json
+            // nor shares its mold checkpoints (it keys by the original's name like any Smart Rebuild copy).
+            if (MoldIdOf(model) != null)
+            {
+                try
+                {
+                    var cpm = model.Extension.CustomPropertyManager[""];
+                    cpm?.Delete2(SwGeo.IdProperty);
+                    cpm?.Delete2(SwGeo.RecordProperty);
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn("Couldn't clear the mold properties on the working copy: " + ex.Message);
+                }
+            }
             Log.Info($"Smart Rebuild: working on a copy {target} (original {current} unchanged)");
             return ToolResult.Ok($"Saved a working copy and switched to it: {target}. The original {current} stays as it was. " +
                                  "The journal and checkpoints are shared with earlier attempts on the original.");

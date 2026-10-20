@@ -13,11 +13,18 @@ namespace SwAgent.Tools
     {
         public sealed class ItemInput
         {
-            [ToolParam("line | arrow | polygon | circle | marker | dimension | label. line/arrow: a path through the points (arrow head at the last). " +
+            [ToolParam("line | arrow | polygon | circle | marker | dimension | label | face | box. line/arrow: a path through the points (arrow head at the last). " +
                        "polygon: closed outline (fill to shade it). circle: a true 3D circle - points[0] centre, normal, radius. marker: a ring of " +
                        "fixed screen size around points[0]. dimension: two points with arrows both ways and the text between. label: text tied to " +
-                       "points[0] with a leader (points[1], optional, is where the tag sits).", Required = true)]
+                       "points[0] with a leader (points[1], optional, is where the tag sits). face: translucent highlight of model faces - ref " +
+                       "(\"S3\") and/or faces (persistent refs); text adds a label. box: translucent box with opposite corners points[0], points[1].", Required = true)]
             public string Type { get; set; }
+
+            [ToolParam("face: persistent references (base64, as mold tools and selection data report them) of the faces to highlight.")]
+            public string[] Faces { get; set; }
+
+            [ToolParam("face / box: fill opacity 0..1 (default 0.3).")]
+            public double? Alpha { get; set; }
 
             [ToolParam("Model coordinates [x, y, z] in the request's units - measured from the model (your code or the selection data), not guessed.")]
             public double[][] Points { get; set; }
@@ -61,7 +68,7 @@ namespace SwAgent.Tools
         }
 
         [AgentTool("show_overlay",
-            "Draw on the user's 3D view to show what you mean: outlines of proposed geometry, arrows to features, circles around holes, " +
+            "Draw on the user's 3D view to show what you mean: outlines of proposed geometry, translucent face highlights and boxes, arrows to features, circles around holes, " +
             "dimensions and labels, all anchored to model coordinates - they stay on the geometry while the user rotates, pans and zooms. " +
             "Nothing is added to the model. Shown until you call clear_overlay or the user sends their next message.")]
         public ToolResult Show(ToolContext ctx, ShowInput input)
@@ -75,6 +82,47 @@ namespace SwAgent.Tools
             {
                 var type = (it.Type ?? "").Trim().ToLowerInvariant();
                 var points = (it.Points ?? new double[0][]).Where(p => p != null && p.Length >= 3).Select(p => new[] { p[0] * scale, p[1] * scale, p[2] * scale }).ToList();
+                if (type == "face")
+                {
+                    var faces = new List<IFace2>();
+                    if (!string.IsNullOrWhiteSpace(it.Ref))
+                    {
+                        try
+                        {
+                            if (SelectionTools.Resolve(model, ctx.Refs, it.Ref.Trim()) is IFace2 f) faces.Add(f);
+                            else problems.Add($"item {i + 1}: {it.Ref} is not a face");
+                        }
+                        catch (ToolException ex)
+                        {
+                            problems.Add($"item {i + 1}: {ex.Message}");
+                        }
+                    }
+                    foreach (var b64 in it.Faces ?? new string[0])
+                    {
+                        var f = FaceByPersistRef(model, b64);
+                        if (f == null) problems.Add($"item {i + 1}: a face reference no longer resolves");
+                        else faces.Add(f);
+                    }
+                    if (faces.Count == 0)
+                    {
+                        problems.Add($"item {i + 1} (face): no face to highlight");
+                        continue;
+                    }
+                    items.AddRange(FaceItems(faces, ParseColor(it.Color), it.Text, it.Alpha ?? 0.3));
+                    continue;
+                }
+                if (type == "box")
+                {
+                    if (points.Count < 2)
+                    {
+                        problems.Add($"item {i + 1} (box): needs two opposite corners");
+                        continue;
+                    }
+                    items.Add(BoxItem(points[0], points[1], ParseColor(it.Color), it.Alpha ?? 0.3));
+                    if (!string.IsNullOrEmpty(it.Text))
+                        items.Add(new SceneOverlay.Item { Type = "label", Points = { new[] { points[1][0], points[1][1], points[1][2] } }, Text = it.Text, Color = ParseColor(it.Color) });
+                    continue;
+                }
                 if (!string.IsNullOrWhiteSpace(it.Ref))
                 {
                     var anchor = AnchorOf(model, ctx, it.Ref.Trim());
@@ -101,9 +149,89 @@ namespace SwAgent.Tools
             }
             if (items.Count == 0) return ToolResult.Error("Nothing could be drawn: " + string.Join("; ", problems));
             SceneOverlay.ShowItems(ctx.Sw, model, items, input.Append == true);
+            var outlined = items.Count(x => x.OutlineOnly);
             return ToolResult.Ok($"Showing {items.Count} item(s) on the user's view (anchored to the model; they follow the camera)." +
+                                 (outlined > 0 ? $" {outlined} face item(s) over the {SceneOverlay.MaxFilledTriangles}-triangle fill budget are drawn as outlines." : "") +
                                  (problems.Count > 0 ? " Skipped: " + string.Join("; ", problems) : "") +
                                  " They stay until clear_overlay or the user's next message.");
+        }
+
+        internal static IFace2 FaceByPersistRef(IModelDoc2 model, string b64)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(b64)) return null;
+                var obj = model.Extension.GetObjectByPersistReference3(Convert.FromBase64String(b64.Trim()), out var err);
+                return err == (int)SolidWorks.Interop.swconst.swPersistReferencedObjectStates_e.swPersistReferencedObject_Ok ? obj as IFace2 : null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>The display triangles of faces (model meters, 9 floats each). Call from a tool call or a cell, never a timer.</summary>
+        internal static float[] FaceTriangles(IEnumerable<IFace2> faces)
+        {
+            var all = new List<float>();
+            foreach (var f in faces)
+            {
+                if (f == null) continue;
+                if (f.GetTessTriangles(true) is float[] tris) all.AddRange(tris.Take(tris.Length - tris.Length % 9));
+            }
+            return all.ToArray();
+        }
+
+        /// <summary>A translucent highlight of the faces plus, with text, a label at the middle of their largest triangle.</summary>
+        internal static List<SceneOverlay.Item> FaceItems(IEnumerable<IFace2> faces, Color color, string text, double alpha)
+        {
+            var tris = FaceTriangles(faces);
+            var result = new List<SceneOverlay.Item>();
+            if (tris.Length < 9) return result;
+            result.Add(new SceneOverlay.Item { Type = "tris", Tris = tris, Color = color, Alpha = alpha });
+            if (!string.IsNullOrEmpty(text))
+            {
+                int best = 0;
+                double bestArea = -1;
+                for (var k = 0; k + 8 < tris.Length; k += 9)
+                {
+                    double ax = tris[k + 3] - tris[k], ay = tris[k + 4] - tris[k + 1], az = tris[k + 5] - tris[k + 2];
+                    double bx = tris[k + 6] - tris[k], by = tris[k + 7] - tris[k + 1], bz = tris[k + 8] - tris[k + 2];
+                    double cx = ay * bz - az * by, cy = az * bx - ax * bz, cz = ax * by - ay * bx;
+                    var a = cx * cx + cy * cy + cz * cz;
+                    if (a > bestArea)
+                    {
+                        bestArea = a;
+                        best = k;
+                    }
+                }
+                var c = new[] { (tris[best] + tris[best + 3] + tris[best + 6]) / 3.0, (tris[best + 1] + tris[best + 4] + tris[best + 7]) / 3.0, (tris[best + 2] + tris[best + 5] + tris[best + 8]) / 3.0 };
+                result.Add(new SceneOverlay.Item { Type = "label", Points = { c }, Text = text, Color = color });
+            }
+            return result;
+        }
+
+        /// <summary>A translucent box along the model axes between two opposite corners, with its 12 edges as the outline.</summary>
+        internal static SceneOverlay.Item BoxItem(double[] a, double[] b, Color color, double alpha)
+        {
+            var corners = new double[8][];
+            for (var k = 0; k < 8; k++)
+                corners[k] = new[] { (k & 1) == 0 ? a[0] : b[0], (k & 2) == 0 ? a[1] : b[1], (k & 4) == 0 ? a[2] : b[2] };
+            return CornersItem(corners, color, alpha);
+        }
+
+        /// <summary>A translucent box given by its 8 corners (bit 0 = +first axis, bit 1 = +second, bit 2 = +third).</summary>
+        internal static SceneOverlay.Item CornersItem(double[][] corners, Color color, double alpha)
+        {
+            var outline = new List<double[]>();
+            for (var k = 0; k < 8; k++)
+                for (var bit = 1; bit <= 4; bit <<= 1)
+                    if ((k & bit) == 0)
+                    {
+                        outline.Add(corners[k]);
+                        outline.Add(corners[k | bit]);
+                    }
+            return new SceneOverlay.Item { Type = "tris", Tris = SceneOverlay.BoxTriangles(corners), Color = color, Alpha = alpha, Outline = outline };
         }
 
         [AgentTool("clear_overlay", "Remove everything you drew on the user's view (show_overlay, Overlay.* in code).")]
