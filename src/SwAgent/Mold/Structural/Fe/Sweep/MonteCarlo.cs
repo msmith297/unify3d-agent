@@ -21,7 +21,8 @@ namespace SwAgent.Mold.Structural.Fe.Sweep
     ///     land_mm, pressure_MPa, material: { id, tempC }, cycles, kf, delta_allow_mm,
     ///     rails: { y1_mm, y2_mm } (B), opening: { x1_mm, y1_mm, x2_mm, y2_mm } (C), pillars: { xs_mm: [], ys_mm: [], k_N_per_mm } (E) }
     /// Output: { E_MPa, nu, sigma_allow_MPa, plate: { t_mm, governs: "deflection"|"stress"|"minimum"|"add support" },
-    ///           walls: [ { cavity, side: "length"|"width", w_mm, governs } ], root_factor (the wall-root factor it used, for the record) }
+    ///           walls: [ { cavity, side: "length"|"width", w_mm, governs } ], method (optional, for the record) }
+    /// governs "add support" (plates past t/b 0.5) and "out of range" (walls past w/h 0.5) are recorded but not checked.
     /// </summary>
     public static class MonteCarloHarness
     {
