@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<!--
+  Machining sheet template for the design-compression-mold tool, filled by SwAgent.Mold.MachiningSheet (mold_record
+  machining_sheet): one section per machined body, then the purchased hardware and the screw table. The context is
+  mold.json plus `machining`, which MachiningSheet.Build derives from the record (bodies, holes, fits with limits,
+  flatness, finish, notes; the hardware list). STEP files carry no tolerances, fits, flatness or finish: this sheet
+  carries them to the machine shop. Placeholder syntax and unit filters: data/README.md.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Machining sheet {{identity.moldNumber}} rev {{identity.revision}}</title>
+<style>
+  :root { --ink: #1f2328; --muted: #59636e; --line: #d0d7de; --band: #f3f5f7; --warn: #9a3412; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px; font: 13px/1.45 "Segoe UI", Arial, sans-serif; color: var(--ink); background: #fff; }
+  header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 3px solid var(--ink); padding-bottom: 8px; margin-bottom: 16px; }
+  header h1 { margin: 0; font-size: 22px; }
+  header .ids { text-align: right; color: var(--muted); font-size: 12px; }
+  h2 { font-size: 16px; margin: 26px 0 6px; padding: 5px 8px; background: var(--ink); color: #fff; }
+  h3 { font-size: 13px; margin: 12px 0 4px; }
+  table { width: 100%; border-collapse: collapse; margin: 4px 0 8px; }
+  th, td { border: 1px solid var(--line); padding: 4px 6px; text-align: left; vertical-align: top; }
+  th { background: var(--band); font-weight: 600; }
+  td.num { white-space: nowrap; }
+  .kv th { width: 30%; }
+  .note { color: var(--muted); font-size: 12px; }
+  .warn { color: var(--warn); font-weight: 600; }
+  ul { margin: 4px 0 8px 20px; padding: 0; }
+  .body { break-before: page; }
+  .body:first-of-type { break-before: auto; }
+  footer { margin-top: 24px; color: var(--muted); font-size: 11px; border-top: 1px solid var(--line); padding-top: 6px; }
+  @media print { body { padding: 0; font-size: 11px; } }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Machining sheet - mold {{identity.moldNumber}}</h1>
+    <div>{{identity.partName}} ({{identity.partNumber}}); shrink already applied to the cavities ({{shrink.feature}})</div>
+  </div>
+  <div class="ids">Revision {{identity.revision}}<br>Record {{id}}<br>Updated {{updatedAt}}</div>
+</header>
+
+<p class="note">Coordinates are in the mold frame: W is the press and pull direction (+W toward the lid). One STEP file per body is in exports/bodies/, named by the body id.
+Break sharp edges 0.2-0.5 mm except on the parting line, the land and seam edges.</p>
+<ul>
+  {{#each machining.general}}<li>{{this}}</li>{{/each}}
+</ul>
+
+{{#each machining.bodies}}
+<div class="body">
+<h2>{{this.id}} - {{this.role}}</h2>
+<table class="kv">
+  <tr><th>STEP file</th><td>exports/bodies/{{this.id}}.step</td></tr>
+  <tr><th>Material</th><td>{{this.material}}</td></tr>
+  <tr><th>Finished size L x W x T</th><td class="num">{{this.finished_mm[0]|mm}} x {{this.finished_mm[1]|mm}} x {{this.finished_mm[2]|mm}}</td></tr>
+  <tr><th>Blank</th><td class="num">{{this.blank_mm[0]|mm}} x {{this.blank_mm[1]|mm}} x {{this.blank_mm[2]|mm}}, from {{this.stock_mm|mm}} stock</td></tr>
+  <tr><th>Cavity finish</th><td>{{this.finish}}</td></tr>
+</table>
+
+<h3>Holes</h3>
+<table>
+  <tr><th>Id</th><th>Kind</th><th>Size</th><th>Qty</th><th>Diameter</th><th>Depth</th><th>Fit</th><th>Limits</th><th>Note</th></tr>
+  {{#each this.holes}}
+  <tr><td>{{this.id}}</td><td>{{this.kind}}</td><td>{{this.size}}</td><td class="num">{{this.qty}}</td><td class="num">{{this.dia_mm|mm}}</td>
+      <td class="num">{{this.depth_mm|mm}}</td><td>{{this.fit}}</td><td class="num">{{this.limits}}</td><td>{{this.note}}</td></tr>
+  {{/each}}
+</table>
+
+<h3>Flatness and parallelism</h3>
+<table>
+  <tr><th>Face</th><th>Tolerance</th><th>Note</th></tr>
+  {{#each this.flatness}}
+  <tr><td>{{this.face}}</td><td class="num">{{this.tol_mm|mm}}</td><td>{{this.note}}</td></tr>
+  {{/each}}
+</table>
+
+<h3>Notes</h3>
+<ul>
+  {{#each this.notes}}<li>{{this}}</li>{{/each}}
+</ul>
+</div>
+{{/each}}
+
+<h2>Purchased hardware</h2>
+<table>
+  <tr><th>Item</th><th>Size</th><th>Qty</th><th>Note</th></tr>
+  {{#each machining.bom}}
+  <tr><td>{{this.item}}</td><td>{{this.size}}</td><td class="num">{{this.qty}}</td><td>{{this.note}}</td></tr>
+  {{/each}}
+</table>
+<p class="note">The same list is in hardware-bom.csv next to mold.json.</p>
+
+<h2>Screws and tapped holes</h2>
+<table>
+  <tr><th>Id</th><th>Joint</th><th>Size and grade</th><th>Count</th><th>Stock length</th><th>Grip</th><th>Engagement</th><th>Tapped depth</th><th>Counterbore (for the washer)</th><th>Thread insert</th></tr>
+  {{#each hardware.bolts}}
+  <tr><td>{{this.id}}</td><td>{{this.joint}}</td><td>{{this.size}} {{this.spec}}</td><td class="num">{{this.count}}</td><td class="num">{{this.stockLength_mm|mm}}</td>
+      <td class="num">{{this.grip_mm|mm}}</td><td class="num">{{this.engagement_mm|mm}}</td><td class="num">{{this.tapDepth_mm|mm}}</td>
+      <td class="num">{{this.cboreForWasher_mm|mm}} x {{this.cboreDepth_mm|mm}} deep</td><td>{{this.insert}}</td></tr>
+  {{/each}}
+</table>
+<p class="note">Tapped depth is at least the engagement length plus 0.5 x d of relief; thread inserts need an STI tap. Torques are on the setup sheet.</p>
+
+<footer>Generated by Unify3D Agent - design-compression-mold {{tool.version}} (calculator {{tool.calculator}}). Operator data: setup-sheet.html. Design record: mold.json.</footer>
+</body>
+</html>

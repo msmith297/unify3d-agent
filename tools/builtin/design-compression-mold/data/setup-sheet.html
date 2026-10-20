@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<!--
+  Operator setup sheet template for the design-compression-mold tool, filled by SwAgent.Mold.SetupSheet (mold_record
+  setup_sheet). The context is mold.json plus `sheet`, the operator numbers SetupSheet.Build derives from the record;
+  the agent writes only identity, setup, views, report and part.drawing. Placeholder syntax and unit filters:
+  data/README.md. Keep placeholders out of comments: the filler replaces them there too.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Setup sheet {{identity.moldNumber}} rev {{identity.revision}}</title>
+<style>
+  :root { --ink: #1f2328; --muted: #59636e; --line: #d0d7de; --band: #f3f5f7; --warn: #9a3412; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px; font: 13px/1.45 "Segoe UI", Arial, sans-serif; color: var(--ink); background: #fff; }
+  header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 3px solid var(--ink); padding-bottom: 8px; margin-bottom: 16px; }
+  header h1 { margin: 0; font-size: 22px; letter-spacing: 0.2px; }
+  header .ids { text-align: right; color: var(--muted); font-size: 12px; }
+  h2 { font-size: 15px; margin: 22px 0 8px; padding: 4px 8px; background: var(--band); border-left: 4px solid var(--ink); break-after: avoid; }
+  table { width: 100%; border-collapse: collapse; margin: 4px 0 8px; }
+  th, td { border: 1px solid var(--line); padding: 4px 6px; text-align: left; vertical-align: top; }
+  th { background: var(--band); font-weight: 600; }
+  td.num { white-space: nowrap; }
+  .kv th { width: 34%; }
+  .note { color: var(--muted); font-size: 12px; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .views { display: flex; gap: 12px; flex-wrap: wrap; }
+  .views figure { margin: 0; flex: 1 1 300px; border: 1px solid var(--line); padding: 6px; }
+  .views img { width: 100%; height: auto; display: block; }
+  .views figcaption { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  ol, ul { margin: 4px 0 8px 20px; padding: 0; }
+  li { margin: 2px 0; }
+  .sign { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 18px; }
+  .sign div { border-top: 1px solid var(--ink); padding-top: 4px; color: var(--muted); font-size: 12px; }
+  footer { margin-top: 24px; color: var(--muted); font-size: 11px; border-top: 1px solid var(--line); padding-top: 6px; }
+  h3 { font-size: 13px; margin: 10px 0 4px; }
+  @media print { body { padding: 0; font-size: 11px; } h2 { margin-top: 14px; } section { break-inside: avoid-page; } }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Setup sheet - mold {{identity.moldNumber}}</h1>
+    <div>{{identity.partName}} ({{identity.partNumber}}) in {{sheet.materialName}}</div>
+  </div>
+  <div class="ids">
+    Revision {{identity.revision}}<br>
+    Record {{id}}<br>
+    Updated {{updatedAt}}
+  </div>
+</header>
+
+<section>
+<h2>1. Mold</h2>
+<table class="kv">
+  <tr><th>Mold file</th><td>{{files.moldPart}}</td></tr>
+  <tr><th>Molded part</th><td>{{files.moldedPart.path}}</td></tr>
+  <tr><th>Process</th><td>Class {{process.class}} - {{sheet.processLabel}}; mold type {{process.moldType}}</td></tr>
+  <tr><th>Plates</th><td>{{structural.materials.plates.id}} ({{structural.materials.plates.service}} at {{structural.materials.plates.tempC|degC}})</td></tr>
+  <tr><th>Inserts and stops</th><td>{{structural.materials.inserts.id}} ({{structural.materials.inserts.service}})</td></tr>
+  <tr><th>Cavities</th><td>{{layout.pattern}}, moats {{layout.moats}}</td></tr>
+  <tr><th>Shrink applied</th><td>{{shrink.pct|pct}} ({{shrink.basisLabel}}): scale {{shrink.scale[0]}} x {{shrink.scale[1]}} x {{shrink.scale[2]}} about {{shrink.about}}</td></tr>
+  <tr><th>Design life</th><td>{{structural.inputs.cycles}} cycles per cavity (tier {{structural.inputs.tier}})</td></tr>
+</table>
+<div class="views">
+  <figure><img src="{{views.assembly}}" alt="Assembled mold"><figcaption>Assembled mold</figcaption></figure>
+  <figure><img src="{{views.cavityMap}}" alt="Cavity map"><figcaption>Cavity map (numbers are engraved next to each cavity)</figcaption></figure>
+</div>
+<table>
+  <tr><th>Cavity</th><th>Centre U</th><th>Centre V</th><th>Rotation</th></tr>
+  {{#each layout.cavities}}
+  <tr><td>{{this.id}}</td><td class="num">{{this.origin[0]|mm}}</td><td class="num">{{this.origin[1]|mm}}</td><td class="num">{{this.rotationDeg}} deg</td></tr>
+  {{/each}}
+</table>
+</section>
+
+<section>
+<h2>2. Pieces and lifting</h2>
+<table>
+  <tr><th>Piece</th><th>Role</th><th>Weight</th><th>Size L x W x T</th><th>How it is lifted</th></tr>
+  {{#each sheet.pieces}}
+  <tr><td>{{this.id}}</td><td>{{this.role}}</td><td class="num">{{this.mass_kg|kg}}</td>
+      <td class="num">{{this.box_mm[0]|mm}} x {{this.box_mm[1]|mm}} x {{this.box_mm[2]|mm}}</td><td>{{this.lift}}</td></tr>
+  {{/each}}
+</table>
+<table class="kv">
+  <tr><th>Lid weight / limit</th><td>{{sheet.lid.mass_kg|kg}} of {{sheet.lid.limit_kg|kg}} ({{sheet.lid.basis}})</td></tr>
+  <tr><th>Lifting index (lid)</th><td><strong>{{sheet.lid.liftingIndex}}</strong> - must be 1.0 or below</td></tr>
+</table>
+<p class="note">Weights are engraved on every piece. Handles stay outside the platen outline or below the lid's platen face so the press can't crush them.</p>
+</section>
+
+<section>
+<h2>3. Assembly</h2>
+<ol>
+  {{#each setup.assembly}}<li>{{this}}</li>{{/each}}
+</ol>
+<p>Alignment: {{sheet.dowelScheme}}.</p>
+<table>
+  <tr><th>Dowel</th><th>Diameter</th><th>Kind</th></tr>
+  {{#each hardware.dowels}}
+  <tr><td>{{this.id}}</td><td class="num">{{this.d_mm|mm}}</td><td>{{this.kind}}</td></tr>
+  {{/each}}
+</table>
+<table>
+  <tr><th>Joint</th><th>Screws</th><th>Count</th><th>Torque dry</th><th>Torque lubricated</th><th>Preload band</th><th>Washer</th><th>Thread insert</th><th>Re-torque</th></tr>
+  {{#each sheet.bolts}}
+  <tr><td>{{this.joint}}</td><td>{{this.size}} {{this.spec}}</td><td class="num">{{this.count}}</td>
+      <td class="num">{{this.torqueDry_Nm|Nm}}</td><td class="num">{{this.torqueLubed_Nm|Nm}}</td>
+      <td class="num">{{this.preloadLow_kN|kN}} to {{this.preloadHigh_kN|kN}}</td><td>{{this.washer}}</td><td>{{this.insert}}</td><td>{{this.retorque}}</td></tr>
+  {{/each}}
+</table>
+<p class="note">Torque scatter gives the preload band shown. Hardened washers under every screw head on aluminium.</p>
+<table>
+  <tr><th>Stop pad</th><th>Size</th><th>Hardness</th><th>Where</th></tr>
+  {{#each hardware.stops}}
+  <tr><td>{{this.id}}</td><td class="num">{{this.side_mm|mm}} square</td><td>{{this.hardness}}</td><td>{{this.at}}</td></tr>
+  {{/each}}
+</table>
+</section>
+
+<section>
+<h2>4. Press</h2>
+<table class="kv">
+  <tr><th>Platen set point</th><td><strong>{{sheet.press.setPointC|degC}}</strong></td></tr>
+  <tr><th>Gauge setting (recommended)</th><td><strong>{{sheet.press.gaugeRecommended_MPa|MPa}}</strong></td></tr>
+  <tr><th>Maximum gauge</th><td class="warn">{{sheet.press.gaugeMax_MPa|MPa}} - {{sheet.press.gaugeMaxBasis}}</td></tr>
+  <tr><th>Force at the setting / needed</th><td>{{process.press.force_kN|kN}} / {{process.press.fReq_kN|kN}}</td></tr>
+  <tr><th>How the gauge converts</th><td>{{sheet.press.conversion}} (ram area {{process.press.ramArea_mm2|mm2}})</td></tr>
+  <tr><th>Closed mold height</th><td>{{sheet.press.closedHeight_mm|mm}}</td></tr>
+  <tr><th>Load centre</th><td>{{sheet.press.loadCentre}}</td></tr>
+</table>
+<p class="note">A press whose gauge reads force: set the force, not the pressure.</p>
+<h3>Running fewer cavities</h3>
+<table>
+  <tr><th>Active cavities</th><th>Gauge</th><th>Force</th><th>Centred patterns</th><th>For example</th><th>Note</th></tr>
+  {{#each sheet.partialLoading}}
+  <tr><td class="num">{{this.active}}</td><td class="num">{{this.gauge_MPa|MPa}}</td><td class="num">{{this.force_kN|kN}}</td>
+      <td class="num">{{this.patterns}} of {{this.of}}</td><td>{{this.example}}</td><td>{{this.note}}</td></tr>
+  {{/each}}
+</table>
+<p class="warn">Never run fewer than {{sheet.neverFewerThan}} cavities.</p>
+<h3>Sliding in and out</h3>
+<ul>
+  {{#each sheet.slideIn}}<li>{{this}}</li>{{/each}}
+</ul>
+</section>
+
+<section>
+<h2>5. Preheat</h2>
+<p>{{sheet.preheat}}</p>
+<table>
+  <tr><th>Thermocouple well</th><th>Piece</th><th>Diameter</th><th>Depth</th><th>Ends from the cavity</th></tr>
+  {{#each hardware.tcWells}}
+  <tr><td>{{this.id}}</td><td>{{this.body}}</td><td class="num">{{this.d_mm|mm}}</td><td class="num">{{this.depth_mm|mm}}</td><td class="num">{{this.endFromCavity_mm|mm}}</td></tr>
+  {{/each}}
+</table>
+</section>
+
+<section>
+<h2>6. Material and charge</h2>
+<table class="kv">
+  <tr><th>Material</th><td>{{sheet.materialName}} (data confidence {{sheet.confidence}})</td></tr>
+  <tr><th>Charge per cavity</th><td><strong>{{sheet.charge.perCavity_g|g}}</strong> +/- {{sheet.charge.tolerancePct|pct}}</td></tr>
+  <tr><th>Charge per shot</th><td>{{sheet.charge.shot_g|g}}</td></tr>
+  <tr><th>Pot life</th><td>{{materials.part.used.potLifeMin|min}}</td></tr>
+</table>
+<ul>
+  {{#each setup.material}}<li>{{this}}</li>{{/each}}
+</ul>
+</section>
+
+<section>
+<h2>7. Pour or charge sequence</h2>
+{{#if sheet.pour.secondsTotal}}
+<table class="kv">
+  <tr><th>Pour time, all cavities</th><td>{{sheet.pour.secondsTotal}} s ({{sheet.pour.secondsPerCavity}} s per cavity) - must stay under {{sheet.pour.limitSeconds}} s, half the pot life</td></tr>
+</table>
+{{/if}}
+<ol>
+  {{#each setup.pourSequence}}<li>{{this}}</li>{{/each}}
+</ol>
+</section>
+
+<section>
+<h2>8. Cure</h2>
+<p><strong>{{sheet.cure.minutes|min}}</strong> at {{sheet.press.setPointC|degC}}. {{sheet.cure.note}}</p>
+<p class="note">{{sheet.cure.calc}}</p>
+</section>
+
+<section>
+<h2>9. Demold</h2>
+<ol>
+  {{#each setup.demold}}<li>{{this}}</li>{{/each}}
+</ol>
+</section>
+
+<section>
+<h2>10. Release and cleaning</h2>
+<p>Release agent: {{sheet.releaseAgent}}</p>
+<p>{{setup.release}}</p>
+<p>{{setup.cleaning}}</p>
+</section>
+
+<section>
+<h2>11. Post-cure</h2>
+{{#if sheet.postCure}}{{#if sheet.postCure.required}}
+<p><strong>{{sheet.postCure.hours}} h at {{sheet.postCure.tempC|degC}}</strong>. {{sheet.postCure.notes}}</p>
+{{else}}<p>Not required. {{sheet.postCure.notes}}</p>{{/if}}{{else}}<p>None for this material.</p>{{/if}}
+</section>
+
+<section>
+<h2>12. First article</h2>
+<ol>
+  {{#each sheet.firstArticle}}<li>{{this}}</li>{{/each}}
+</ol>
+<table>
+  <tr><th>Tolerance</th><th>What</th><th>+/-</th><th>Across the parting line</th><th>Sheet / zone</th></tr>
+  {{#each part.drawing.tolerances}}
+  <tr><td>{{this.id}}</td><td>{{this.what}}</td><td class="num">{{this.tol_mm|mm}}</td><td>{{this.closure}}</td><td>{{this.sheet}}</td></tr>
+  {{/each}}
+</table>
+</section>
+
+<section>
+<h2>13. Safety</h2>
+<ul>
+  {{#each setup.safety}}<li>{{this}}</li>{{/each}}
+  <li>Material hazards: {{sheet.hazards}}</li>
+</ul>
+</section>
+
+<section>
+<h2>14. Maintenance</h2>
+<ul>
+  {{#each sheet.maintenance}}<li>{{this}}</li>{{/each}}
+</ul>
+</section>
+
+<section>
+<h2>Checks and open items</h2>
+<table>
+  <tr><th>Lowest margins</th><th>Type</th><th>Margin</th><th>Status</th></tr>
+  {{#each report.lowestMargins}}
+  <tr><td>{{this.id}}</td><td>{{this.type}}</td><td class="num">{{this.margin}}</td><td>{{this.status}}</td></tr>
+  {{/each}}
+</table>
+<table>
+  <tr><th>Warning or failure</th><th>Status</th><th>Note</th></tr>
+  {{#each sheet.warnings}}
+  <tr><td>{{this.id}}</td><td>{{this.status}}</td><td>{{this.note}}</td></tr>
+  {{/each}}
+</table>
+<ul>
+  {{#each report.openItems}}<li>{{this}}</li>{{/each}}
+</ul>
+<table>
+  <tr><th>External check</th><th>Hook</th><th>Status</th><th>Why / summary</th></tr>
+  {{#each simulations}}
+  <tr><td>{{this.id}} ({{this.kind}})</td><td>{{this.hook}}</td><td>{{this.status}}</td><td>{{this.reason}} {{this.summary}}</td></tr>
+  {{/each}}
+</table>
+</section>
+
+<div class="sign"><div>Set up by</div><div>Checked by</div><div>Date</div></div>
+
+<footer>Generated by Unify3D Agent - design-compression-mold {{tool.version}} (calculator {{tool.calculator}}). Machining data: machining-sheet.html. Design record: mold.json.</footer>
+</body>
+</html>

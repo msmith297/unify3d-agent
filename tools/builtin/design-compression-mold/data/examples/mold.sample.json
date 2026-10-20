@@ -1,0 +1,1249 @@
+{
+  "schema": "unify3d.mold/1",
+  "id": "3f2a9c1e-7b4d-4e8a-9c21-5d6e8f0a1b2c",
+  "tool": {
+    "name": "design-compression-mold",
+    "version": "1.0.0",
+    "addin": "1.0.0.0",
+    "calculator": "1.0.0"
+  },
+  "status": "done",
+  "createdAt": "2026-10-19T20:00:00Z",
+  "updatedAt": "2026-10-19T20:00:00Z",
+  "units": {
+    "length": "mm",
+    "angle": "deg",
+    "pressure": "MPa",
+    "temperature": "degC",
+    "mass": "kg",
+    "force": "kN",
+    "viscosity": "cP",
+    "time": "min",
+    "display": "imperial"
+  },
+  "files": {
+    "moldPart": "C:\\Molds\\Bumper 1042 mold.SLDPRT",
+    "moldedPart": {
+      "path": "C:\\Molds\\Parts\\Bumper pad 1042-07.STEP",
+      "converted": "C:\\Molds\\Bumper 1042 mold.mold\\part\\Bumper pad 1042-07.SLDPRT",
+      "feature": "MOLD Part Bumper pad 1042-07",
+      "fromDrawing": false,
+      "sourceVolume_mm3": 393289.5
+    },
+    "drawings": [
+      {
+        "path": "C:\\Molds\\Parts\\1042-07 rev C.pdf",
+        "pages": 1
+      }
+    ]
+  },
+  "inputs": {
+    "press_pressure": 13.789514586336,
+    "press_pressure_is": "Gauge reading",
+    "press_rated_force": 444.82216152604997,
+    "press_rated_gauge": 20.684271879504,
+    "press_temp": 100,
+    "cavities": 2,
+    "cycle_life": 5000,
+    "mold_material": "Aluminium + steel inserts",
+    "mold_grade": "al_6061_t651",
+    "part_grade": "pu-tdi-ether-90a",
+    "shrink_basis": "Supplier datasheet (steel mold)",
+    "max_plate_mass": 23,
+    "max_plate_size": [
+      600,
+      400,
+      150
+    ],
+    "lid_lift_at": "At the slide-out table",
+    "lid_reach": 400,
+    "lid_lifts_per_hour": 12,
+    "mold_handling": "Slides in and out each cycle",
+    "mold_support": "Flat on the platen"
+  },
+  "materials": {
+    "part": {
+      "rheology": {
+        "status": "unknown",
+        "note": "viscosity vs time and temperature"
+      },
+      "kinetics": {
+        "status": "unknown",
+        "note": "gel time and cure kinetics"
+      },
+      "thermal": {
+        "status": "unknown",
+        "note": "conductivity, heat capacity, density of the part material"
+      },
+      "mechanical": {
+        "status": "unknown",
+        "note": "modulus or hardness, friction or release for demolding"
+      },
+      "id": "pu-tdi-ether-90a",
+      "used": {
+        "shrinkPct": 1.5,
+        "shrinkBasis": "Supplier datasheet (steel mold)",
+        "sg": 1.1,
+        "viscosityCp": 1200.0,
+        "mooney": null,
+        "potLifeMin": 6.0,
+        "cureMin": 30.0,
+        "draftMinDeg": 0.5,
+        "moldingPressure_MPa": 0.34474,
+        "chargeExcessPct": 5.0
+      },
+      "confidence": "medium",
+      "sources": [
+        "S19",
+        "S20",
+        "S3",
+        "K-PU"
+      ]
+    }
+  },
+  "process": {
+    "class": "A",
+    "processType": "liquid_cast_hot",
+    "processLabel": "Liquid pour (hot cast)",
+    "builtByV1": true,
+    "charge": {
+      "perCavity_g": 454.25,
+      "shot_g": 953.92,
+      "holdUpPct": 5.0,
+      "tolerancePct": 2.0,
+      "excessPct": 5.0
+    },
+    "overflowRequired_mm3": 39329.0,
+    "grooveRadius_mm": null,
+    "pour": {
+      "secondsPerCavity": 60.42,
+      "secondsTotal": 120.8,
+      "limitSeconds": 180.0,
+      "massRate_g_s": 10.0,
+      "handlingSeconds": 15.0,
+      "side": "base",
+      "tiltDeg": 0,
+      "points": [
+        {
+          "cavity": "C1",
+          "at": [
+            -96.34,
+            0,
+            0
+          ]
+        },
+        {
+          "cavity": "C2",
+          "at": [
+            96.34,
+            0,
+            0
+          ]
+        }
+      ]
+    },
+    "cureMin": 30.0,
+    "cureNote": "E6: datasheet demold time at 100 C (no temperature scaling for liquid systems)",
+    "postCure": {
+      "required": true,
+      "tempC": 100,
+      "hours": 16,
+      "notes": "16 h at 100 C typical for TDI/MBOCA systems; full properties after ~7 days at room temperature."
+    },
+    "loadingWell": null,
+    "moldType": "flash_full_land",
+    "gauge": {
+      "recommended_MPa": 3.1678,
+      "basis": "S7: F_req / A_ram",
+      "max_MPa": 20.684,
+      "maxBasis": "press rating"
+    },
+    "press": {
+      "ramArea_mm2": 21505.3,
+      "force_kN": 296.548,
+      "meaning": "Gauge",
+      "aProj_mm2": 35130.8,
+      "aProjForce_mm2": 35130.8,
+      "pLC1_MPa": 1.5513,
+      "pLC1x_MPa": 8.4412,
+      "pReq_MPa": 1.5513,
+      "fReq_kN": 68.124,
+      "gaugeNeeded_MPa": 13.79,
+      "gauge": {
+        "recommended_MPa": 3.1678,
+        "basis": "S7: F_req / A_ram",
+        "max_MPa": 20.684,
+        "maxBasis": "press rating (bearing not sized yet)"
+      },
+      "loadCentre_mm": [
+        0.0,
+        0.0
+      ]
+    }
+  },
+  "frame": {
+    "origin": [
+      0,
+      0,
+      0
+    ],
+    "u": [
+      1,
+      0,
+      0
+    ],
+    "v": [
+      0,
+      1,
+      0
+    ],
+    "w": [
+      0,
+      0,
+      1
+    ],
+    "coordinateSystem": "MOLD CS",
+    "orient": {
+      "axisAngle": [
+        0,
+        0,
+        1,
+        0
+      ],
+      "move_mm": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  "shrink": {
+    "pct": 1.5,
+    "basis": "cold_mold_cold_part_steel_ref",
+    "basisLabel": "datasheet basis",
+    "alphaRef": 1.2e-05,
+    "alphaCavity": 2.36e-05,
+    "deltaT_K": 80.0,
+    "scale": [
+      1.014288,
+      1.014288,
+      1.014288
+    ],
+    "effectivePct": 1.4087,
+    "feature": "MOLD Shrink s=1.014288 (datasheet basis, 6061-T651 at 100 C)",
+    "pctAxis": null,
+    "about": "MOLD CS (parting-plane centroid; swScaleAboutCoordinateSystem, critique A6)",
+    "steelSafe": []
+  },
+  "part": {
+    "volume_mm3": 393289.53599999996,
+    "projectedArea_mm2": 15483.839999999997,
+    "perimeter_mm": 508.0,
+    "box_mm": [
+      152.39999999999998,
+      101.6,
+      25.4
+    ],
+    "floorRadius_mm": 0,
+    "drawing": {
+      "flashClass": "ISO 3302-1 F2",
+      "finish": "SPI B-1 on all cavity faces",
+      "tolerances": [
+        {
+          "id": "T1",
+          "what": "overall thickness 25.40",
+          "tol_mm": 0.25,
+          "closure": true,
+          "sheet": "1 / B3"
+        },
+        {
+          "id": "T2",
+          "what": "length 152.40",
+          "tol_mm": 0.4,
+          "closure": false,
+          "sheet": "1 / C2"
+        }
+      ],
+      "notes": [
+        {
+          "id": "N1",
+          "text": "No parting line on the top face",
+          "sheet": "1 / A1"
+        }
+      ]
+    },
+    "criticalFaces": [
+      {
+        "id": "CF1",
+        "ref": "S1",
+        "persistId": "AAAAB3...",
+        "point": [
+          0,
+          0,
+          25.4
+        ],
+        "source": "drawing note N1",
+        "area_mm2": 15483.8
+      }
+    ]
+  },
+  "partingLine": {
+    "type": "planar",
+    "planes": [
+      {
+        "id": "PL1",
+        "w_mm": 0,
+        "feature": "MOLD PL1"
+      }
+    ],
+    "score": 0.92
+  },
+  "airTraps": [],
+  "vents": [],
+  "layout": {
+    "patternRequest": "2x1",
+    "pattern": "grid 2x1",
+    "footprint_mm": [
+      431.8,
+      190.5
+    ],
+    "cavities": [
+      {
+        "id": "C1",
+        "origin": [
+          -96.3388,
+          0.0,
+          0
+        ],
+        "rotationDeg": 0
+      },
+      {
+        "id": "C2",
+        "origin": [
+          96.3388,
+          0.0,
+          0
+        ],
+        "rotationDeg": 0
+      }
+    ],
+    "moats": "separate",
+    "gap_mm": [
+      38.1,
+      38.1
+    ],
+    "edge_mm": [
+      42.272,
+      43.724
+    ],
+    "gapRequest_mm": null
+  },
+  "bodies": [
+    {
+      "id": "BASE-1",
+      "role": "base",
+      "folder": "Mold - Base",
+      "swName": "MOLD Plate BASE-1",
+      "swMaterial": "6061-T6 (SS)",
+      "volume_mm3": 2839012.4,
+      "mass_kg": 7.68,
+      "massBasis": "6061-T651 2700 kg/m3",
+      "box_mm": [
+        431.8,
+        190.5,
+        44.45
+      ],
+      "boxFrame_mm": [
+        -215.9,
+        -95.25,
+        -44.45,
+        215.9,
+        95.25,
+        0
+      ],
+      "centroid": [
+        0,
+        0,
+        -23.1
+      ],
+      "limits": {
+        "mass": "pass",
+        "box": "pass"
+      },
+      "machining": {
+        "notes": [
+          "Setups: 2 (parting face first, then the platen face).",
+          "Engrave M-1042 BASE-1, 7.7 kg (16.9 lb), cavity numbers C1 and C2, TC-B1 at its well."
+        ]
+      }
+    },
+    {
+      "id": "LID-1",
+      "role": "lid",
+      "folder": "Mold - Lid",
+      "swName": "MOLD Plate LID-1",
+      "swMaterial": "6061-T6 (SS)",
+      "volume_mm3": 1828172.1,
+      "mass_kg": 4.94,
+      "massBasis": "6061-T651 2700 kg/m3",
+      "box_mm": [
+        431.8,
+        190.5,
+        22.225
+      ],
+      "boxFrame_mm": [
+        -215.9,
+        -95.25,
+        0,
+        215.9,
+        95.25,
+        22.225
+      ],
+      "centroid": [
+        0,
+        0,
+        11.11
+      ],
+      "limits": {
+        "mass": "pass",
+        "box": "pass"
+      },
+      "machining": {
+        "notes": [
+          "Setups: 1 (parting face), flip once for the top chamfer.",
+          "Engrave M-1042 LID-1, 4.9 kg (10.9 lb)."
+        ]
+      }
+    },
+    {
+      "id": "PART-REF",
+      "role": "reference",
+      "folder": "Mold - Reference",
+      "swName": "MOLD Part Bumper pad 1042-07",
+      "swMaterial": null,
+      "volume_mm3": 404151.2,
+      "mass_kg": null,
+      "massBasis": "unknown",
+      "box_mm": [
+        154.58,
+        103.05,
+        25.76
+      ],
+      "boxFrame_mm": [
+        -77.29,
+        -51.53,
+        -25.76,
+        77.29,
+        51.53,
+        0
+      ],
+      "centroid": [
+        0,
+        0,
+        -12.88
+      ]
+    },
+    {
+      "id": "GARBAGE-1",
+      "role": "garbage",
+      "folder": "Garbage",
+      "swName": "Body-Move/Copy3",
+      "swMaterial": null,
+      "volume_mm3": 1.2,
+      "mass_kg": null,
+      "massBasis": "unknown",
+      "box_mm": [
+        2.0,
+        1.0,
+        0.6
+      ],
+      "boxFrame_mm": [
+        0,
+        0,
+        0,
+        2,
+        1,
+        0.6
+      ],
+      "centroid": [
+        1,
+        0.5,
+        0.3
+      ]
+    }
+  ],
+  "hardware": {
+    "bolts": [],
+    "dowels": [
+      {
+        "id": "D1",
+        "d_mm": 12.7,
+        "kind": "round",
+        "at": [
+          -200.025,
+          -79.375,
+          0
+        ]
+      },
+      {
+        "id": "D2",
+        "d_mm": 12.7,
+        "kind": "slot (radial from D1)",
+        "at": [
+          193.675,
+          79.375,
+          0
+        ]
+      },
+      {
+        "id": "D3",
+        "d_mm": 12.7,
+        "kind": "slot (radial from D1)",
+        "at": [
+          200.025,
+          -79.375,
+          0
+        ]
+      },
+      {
+        "id": "D4",
+        "d_mm": 12.7,
+        "kind": "slot (radial from D1)",
+        "at": [
+          -200.025,
+          79.375,
+          0
+        ]
+      }
+    ],
+    "dowelScheme": {
+      "scheme": "one round dowel at the datum + 3 slotted along radial lines from it",
+      "mismatch_mm": 0.3047,
+      "lidBaseDeltaT_K": 30.0,
+      "clearance_mm": 0.02,
+      "note": "S58/D1: 0.305 mm lid-to-base mismatch over 430 mm at a 30 K difference is more than the 0.02 mm running clearance. Ask how the shop's existing 4 dowels are fitted before overriding the shop standard.",
+      "askShop": true
+    },
+    "fits": [],
+    "stops": [],
+    "tcWells": [
+      {
+        "id": "TC-B1",
+        "body": "BASE-1",
+        "d_mm": 6.35,
+        "depth_mm": 50.8,
+        "endFromCavity_mm": 9.0
+      },
+      {
+        "id": "TC-L1",
+        "body": "LID-1",
+        "d_mm": 6.35,
+        "depth_mm": 50.8,
+        "endFromCavity_mm": 9.0
+      }
+    ],
+    "lift": [
+      {
+        "body": "BASE-1",
+        "kind": "pull handles (slide-in, E4)"
+      },
+      {
+        "body": "LID-1",
+        "kind": "by hand",
+        "liftingIndex": 0.423,
+        "rwl_kg": 11.67,
+        "basis": "NIOSH RWL, lid lifted at the slide-out table"
+      }
+    ],
+    "handlesRule": "outside the platen outline or wholly below the lid's platen face (D2, acceptance A16); on steel thread inserts",
+    "slideIn": {
+      "locatingStop": true,
+      "basePullHandles": true,
+      "nothingProudBelowBase": true
+    },
+    "washers": "hardened (ASTM F436 / ISO 7089 300HV) on every aluminium clamped face; counterbore = washer OD + 0.5 mm",
+    "bom": [
+      {
+        "id": "BOM-BUSH",
+        "item": "Steel dowel bushing, press fit",
+        "size": "0.5 in ID x 0.75 in OD x 0.75 in",
+        "qty": 4,
+        "partNumber": null,
+        "note": "lid dowel holes; pressed with the lid at 120 C"
+      }
+    ]
+  },
+  "structural": {
+    "loadCases": {
+      "LC1": {
+        "p_MPa": 1.5513,
+        "pressureField": null
+      },
+      "LC1x": {
+        "p_MPa": 8.4412
+      },
+      "LC2": {
+        "F_kN": 296.55
+      },
+      "LC3": {
+        "deltaT_K": 80.0,
+        "lidBaseDeltaT_K": 30.0
+      }
+    },
+    "inputs": {
+      "support": "A",
+      "deltaGap_mm": 0.01,
+      "deltaWall_mm": 0.03125,
+      "gapBasis": "A11: 0.02 flash gap - 0.01 land flatness - 0 platen parallelism",
+      "wallBasis": "A11: 0.25 x width tolerance +-0.125 mm (default, drawing silent)",
+      "flowClass": "liquid1000to10000cP",
+      "deltaFlash_mm": 0.02,
+      "landFlatness_mm": 0.01,
+      "cycles": 5000.0,
+      "tempC": 100.0,
+      "tier": "T2",
+      "rootFactor": 1.2
+    },
+    "materials": {
+      "plates": {
+        "id": "al_6061_t651",
+        "tempC": 100.0,
+        "E_GPa": 66.83,
+        "Sy_MPa": 262.2,
+        "Su_MPa": 291.4,
+        "service": "ok",
+        "note": null
+      },
+      "inserts": {
+        "id": "st_p20",
+        "tempC": 100.0,
+        "E_GPa": 203.0,
+        "Sy_MPa": 855.0,
+        "Su_MPa": 979.2,
+        "service": "ok",
+        "note": null
+      }
+    },
+    "results": {
+      "walls": [
+        {
+          "id": "W-V-B",
+          "half": "base",
+          "faces": "+-V",
+          "L_mm": 154.578,
+          "h_mm": 25.7629,
+          "LoverH": 6.0,
+          "w_defl_mm": 8.4066,
+          "w_stress_mm": 8.4066,
+          "w_struct_mm": 8.4066,
+          "w_drawn_mm": 43.7242,
+          "alpha": 5.8584,
+          "beta": 2.9939,
+          "sigma_MPa": 3.4406,
+          "allow_MPa": 68.9,
+          "Kf": 2.2,
+          "Sa_MPa": 186.41,
+          "sigmaMaxR0_MPa": 227.37,
+          "deflection_mm": 0.00085998,
+          "governs": "flash system and dowels",
+          "stocky": false,
+          "sigmaAbuse_MPa": 18.739
+        },
+        {
+          "id": "W-U-B",
+          "half": "base",
+          "faces": "+-U",
+          "L_mm": 103.052,
+          "h_mm": 25.7629,
+          "LoverH": 4.0,
+          "w_defl_mm": 8.0065,
+          "w_stress_mm": 8.0065,
+          "w_struct_mm": 8.0065,
+          "w_drawn_mm": 38.1,
+          "alpha": 4.7768,
+          "beta": 2.6849,
+          "sigma_MPa": 5.0514,
+          "allow_MPa": 68.9,
+          "Kf": 2.2,
+          "Sa_MPa": 186.41,
+          "sigmaMaxR0_MPa": 227.37,
+          "deflection_mm": 0.0010598,
+          "governs": "flash system and dowels",
+          "stocky": false,
+          "sigmaAbuse_MPa": 28.703
+        }
+      ],
+      "floors": [
+        {
+          "body": "BASE-1",
+          "t_mm": 18.6871,
+          "required_mm": 18.35,
+          "governs": "TC well"
+        }
+      ],
+      "plates": {
+        "base": {
+          "required_mm": 44.113,
+          "t_mm": 44.45,
+          "stock_mm": 50.8
+        },
+        "lid": {
+          "required_mm": 21.59,
+          "t_mm": 22.225,
+          "stock_mm": 25.4,
+          "basis": "S28: 0.05 x longest side, min plate, plug + 10 mm"
+        },
+        "span": null
+      },
+      "pieces": [
+        {
+          "id": "BASE-1",
+          "role": "base",
+          "material": "al_6061_t651",
+          "t_mm": 44.45,
+          "stock_mm": 50.8,
+          "box_mm": [
+            431.8,
+            190.5,
+            44.45
+          ],
+          "mass_kg": 7.6561,
+          "blank_mm": [
+            437.8,
+            196.5,
+            53.8
+          ]
+        },
+        {
+          "id": "LID-1",
+          "role": "lid",
+          "material": "al_6061_t651",
+          "t_mm": 22.225,
+          "stock_mm": 25.4,
+          "box_mm": [
+            431.8,
+            190.5,
+            22.225
+          ],
+          "mass_kg": 4.9361,
+          "blank_mm": [
+            437.8,
+            196.5,
+            28.4
+          ]
+        }
+      ],
+      "bearing": {
+        "area_mm2": 29883.5,
+        "stress_MPa": 9.9235,
+        "allow_MPa": 131.1,
+        "Db": 2.0,
+        "gaugeMax_MPa": 182.17,
+        "basis": "S33 class A: parting face - cavities - moat - runners (estimate until mold_bodies measures it)"
+      },
+      "keys": [],
+      "pins": [],
+      "layout": {
+        "pattern": "grid 2x1",
+        "footprint_mm": [
+          431.8,
+          190.5
+        ],
+        "cavities": [
+          {
+            "id": "C1",
+            "origin": [
+              -96.3388,
+              0.0,
+              0
+            ],
+            "rotationDeg": 0
+          },
+          {
+            "id": "C2",
+            "origin": [
+              96.3388,
+              0.0,
+              0
+            ],
+            "rotationDeg": 0
+          }
+        ],
+        "moats": "separate",
+        "gap_mm": [
+          38.1,
+          38.1
+        ],
+        "edge_mm": [
+          42.272,
+          43.724
+        ],
+        "patternRequest": "2x1",
+        "gapRequest_mm": null
+      },
+      "stackHeight_mm": 66.675,
+      "lid": {
+        "mass_kg": 4.9361,
+        "limit_kg": 11.67,
+        "limitBasis": "NIOSH RWL, lid lifted at the slide-out table",
+        "liftingIndex": 0.423
+      },
+      "partialLoading": {
+        "rows": [
+          {
+            "active": 2,
+            "gauge_MPa": 3.1678,
+            "force_kN": 68.124,
+            "patterns": 1,
+            "of": 1,
+            "example": "C1 C2",
+            "note": ""
+          },
+          {
+            "active": 1,
+            "gauge_MPa": 1.5839,
+            "force_kN": 34.062,
+            "patterns": 0,
+            "of": 2,
+            "example": null,
+            "note": "no centred pattern (S8)"
+          }
+        ],
+        "neverFewerThan": 2,
+        "rule": "same pressure per cavity: gauge x active/total; patterns keep the load centre within 5% (S8); same-gauge with fewer cavities raises the cavity pressure"
+      }
+    },
+    "coefficients": {
+      "file": "coefficients.csv",
+      "version": "0.1.0-provisional",
+      "sha256": "612702d9ae6d4e8aec9574c7fb8c22755ce3bbd979e7ceaa3f52c962cb86d114",
+      "provisional": true
+    },
+    "gauge": {
+      "recommended_MPa": 3.1678,
+      "max_MPa": 20.684,
+      "maxBasis": "press rating"
+    }
+  },
+  "checks": [
+    {
+      "id": "CHG-POUR",
+      "source": "mold_calc@1.0.0",
+      "type": "fill",
+      "body": null,
+      "loadCase": null,
+      "demand": 120.8,
+      "capacity": 180.0,
+      "unit": "s",
+      "margin": 0.4895,
+      "status": "pass",
+      "method": "S68: n x (m/mdot + handling) <= 0.5 x pot life (D3)",
+      "stage": "3",
+      "note": "else pour in batches or a recorded sequence",
+      "waivedBy": null
+    },
+    {
+      "id": "PRESS-FORCE",
+      "source": "mold_calc@1.0.0",
+      "type": "press",
+      "body": null,
+      "loadCase": null,
+      "demand": 296.5,
+      "capacity": 68.12,
+      "unit": "kN",
+      "margin": 3.3531,
+      "status": "pass",
+      "method": "S6: the press force at this setting must reach the force needed",
+      "stage": "3",
+      "note": "",
+      "waivedBy": null
+    },
+    {
+      "id": "PRESS-CAPACITY",
+      "source": "mold_calc@1.0.0",
+      "type": "press",
+      "body": null,
+      "loadCase": null,
+      "demand": 85.15,
+      "capacity": 444.8,
+      "unit": "kN",
+      "margin": 4.2237,
+      "status": "pass",
+      "method": "S7: F_req x 1.25 <= rated force",
+      "stage": "3",
+      "note": "",
+      "waivedBy": null
+    },
+    {
+      "id": "WEIGHT-LID",
+      "source": "mold_calc@1.0.0",
+      "type": "lifting",
+      "body": null,
+      "loadCase": null,
+      "demand": 4.936,
+      "capacity": 11.67,
+      "unit": "kg",
+      "margin": 1.364,
+      "status": "pass",
+      "method": "S73 + A2: lid <= NIOSH RWL, lid lifted at the slide-out table",
+      "stage": "3",
+      "note": "",
+      "waivedBy": null
+    },
+    {
+      "id": "WEIGHT-BASE-1",
+      "source": "mold_calc@1.0.0",
+      "type": "weight",
+      "body": "BASE-1",
+      "loadCase": null,
+      "demand": 7.656,
+      "capacity": 23.0,
+      "unit": "kg",
+      "margin": 2.0041,
+      "status": "pass",
+      "method": "S73: each machined piece <= max_plate_mass",
+      "stage": "3",
+      "note": "",
+      "waivedBy": null
+    },
+    {
+      "id": "WEIGHT-LID-1",
+      "source": "mold_calc@1.0.0",
+      "type": "weight",
+      "body": "LID-1",
+      "loadCase": null,
+      "demand": 4.936,
+      "capacity": 23.0,
+      "unit": "kg",
+      "margin": 3.6596,
+      "status": "pass",
+      "method": "S73: each machined piece <= max_plate_mass",
+      "stage": "3",
+      "note": "",
+      "waivedBy": null
+    },
+    {
+      "id": "PRESS-GAUGE-MAX",
+      "source": "mold_calc@1.0.0",
+      "type": "press",
+      "body": null,
+      "loadCase": null,
+      "demand": 3.168,
+      "capacity": 20.68,
+      "unit": "MPa",
+      "margin": 5.5296,
+      "status": "pass",
+      "method": "S35/S24/A3: recommended gauge <= the lowest maximum (press rating)",
+      "stage": "3",
+      "note": "",
+      "waivedBy": null
+    },
+    {
+      "id": "WALL-ABUSE-U-B",
+      "source": "mold_calc@1.0.0",
+      "type": "stress",
+      "body": null,
+      "loadCase": "LC1x",
+      "demand": 28.7,
+      "capacity": 262.2,
+      "unit": "MPa",
+      "margin": 8.135,
+      "status": "pass",
+      "method": "S24/LC1x: strip 3 p h^2/w^2 + p b/(2w) <= Sy,T at F/A_proj (SF 1.0)",
+      "stage": "3",
+      "note": "",
+      "waivedBy": null
+    },
+    {
+      "id": "STR-BEAR-PL1",
+      "source": "mold_calc@1.0.0",
+      "type": "bearing",
+      "body": "BASE-1",
+      "loadCase": "LC2",
+      "demand": 9.923,
+      "capacity": 131.1,
+      "unit": "MPa",
+      "margin": 12.2111,
+      "status": "pass",
+      "method": "S34, D_b = 2 (N < 1e5)",
+      "stage": "3",
+      "note": "",
+      "waivedBy": null
+    },
+    {
+      "id": "WALL-STRESS-U-B",
+      "source": "mold_calc@1.0.0",
+      "type": "fatigue",
+      "body": null,
+      "loadCase": "LC1",
+      "demand": 5.051,
+      "capacity": 68.9,
+      "unit": "MPa",
+      "margin": 12.6397,
+      "status": "pass",
+      "method": "S22-S23: beta p h^2/w^2 + p b/(2w) <= min(Sy/2, fatigue), K_f 2.2",
+      "stage": "3",
+      "note": "",
+      "waivedBy": null
+    },
+    {
+      "id": "WALL-ABUSE-V-B",
+      "source": "mold_calc@1.0.0",
+      "type": "stress",
+      "body": null,
+      "loadCase": "LC1x",
+      "demand": 18.74,
+      "capacity": 262.2,
+      "unit": "MPa",
+      "margin": 12.9921,
+      "status": "pass",
+      "method": "S24/LC1x: strip 3 p h^2/w^2 + p b/(2w) <= Sy,T at F/A_proj (SF 1.0)",
+      "stage": "3",
+      "note": "",
+      "waivedBy": null
+    },
+    {
+      "id": "WALL-STRESS-V-B",
+      "source": "mold_calc@1.0.0",
+      "type": "fatigue",
+      "body": null,
+      "loadCase": "LC1",
+      "demand": 3.441,
+      "capacity": 68.9,
+      "unit": "MPa",
+      "margin": 19.0257,
+      "status": "pass",
+      "method": "S22-S23: beta p h^2/w^2 + p b/(2w) <= min(Sy/2, fatigue), K_f 2.2",
+      "stage": "3",
+      "note": "",
+      "waivedBy": null
+    },
+    {
+      "id": "WALL-DEFL-U-B",
+      "source": "mold_calc@1.0.0",
+      "type": "deflection",
+      "body": null,
+      "loadCase": "LC1",
+      "demand": 0.00106,
+      "capacity": 0.03125,
+      "unit": "mm",
+      "margin": 28.486,
+      "status": "pass",
+      "method": "S21 + A11: 1.2 alpha p h^4/(E w^3) <= 0.25 x width tolerance",
+      "stage": "3",
+      "note": "",
+      "waivedBy": null
+    },
+    {
+      "id": "WALL-DEFL-V-B",
+      "source": "mold_calc@1.0.0",
+      "type": "deflection",
+      "body": null,
+      "loadCase": "LC1",
+      "demand": 0.00086,
+      "capacity": 0.03125,
+      "unit": "mm",
+      "margin": 35.3381,
+      "status": "pass",
+      "method": "S21 + A11: 1.2 alpha p h^4/(E w^3) <= 0.25 x width tolerance",
+      "stage": "3",
+      "note": "",
+      "waivedBy": null
+    },
+    {
+      "id": "BOX-BASE-1",
+      "source": "mold_calc@1.0.0",
+      "type": "box",
+      "body": "BASE-1",
+      "loadCase": null,
+      "demand": null,
+      "capacity": null,
+      "unit": null,
+      "margin": null,
+      "status": "pass",
+      "method": "S72: sorted box + blank allowance <= sorted max_plate_size",
+      "stage": "3",
+      "note": "",
+      "waivedBy": null
+    },
+    {
+      "id": "BOX-LID-1",
+      "source": "mold_calc@1.0.0",
+      "type": "box",
+      "body": "LID-1",
+      "loadCase": null,
+      "demand": null,
+      "capacity": null,
+      "unit": null,
+      "margin": null,
+      "status": "pass",
+      "method": "S72: sorted box + blank allowance <= sorted max_plate_size",
+      "stage": "3",
+      "note": "",
+      "waivedBy": null
+    },
+    {
+      "id": "A7",
+      "source": "agent",
+      "type": "criticalSurface",
+      "status": "pass",
+      "method": "A7: ClosestDistance from every flash-system face to CF1 > 0",
+      "margin": null,
+      "location": {
+        "bodyId": "BASE-1",
+        "point": [
+          -96.34,
+          0,
+          0
+        ],
+        "normal": [
+          0,
+          0,
+          1
+        ],
+        "stepFaceId": null
+      }
+    }
+  ],
+  "simulations": [
+    {
+      "id": "SIM-H1",
+      "hook": "H1",
+      "kind": "process",
+      "server": null,
+      "tool": null,
+      "status": "not_run",
+      "reason": "no process simulator configured",
+      "summary": null,
+      "findings": []
+    },
+    {
+      "id": "SIM-H2",
+      "hook": "H2",
+      "kind": "machinability",
+      "server": null,
+      "tool": null,
+      "status": "not_run",
+      "reason": "no machinability simulator configured",
+      "summary": null,
+      "findings": []
+    }
+  ],
+  "stages": [
+    {
+      "id": "4.1",
+      "name": "Frame and reference",
+      "status": "done",
+      "checkpoint": "20261019-201500-stage-4.1",
+      "features": [
+        "MOLD CS",
+        "MOLD PL1",
+        "MOLD Shrink s=1.014288 (datasheet basis, 6061-T651 at 100 C)",
+        "MOLD Cavity copies"
+      ],
+      "check": "A3 ratio 1.00002; PL1 on the silhouette within 0.003 mm",
+      "at": "2026-10-19T20:16:00Z"
+    },
+    {
+      "id": "4.9",
+      "name": "Finish",
+      "status": "done",
+      "checkpoint": "20261019-212000-stage-4.9",
+      "features": [
+        "MOLD Chamfer BASE-1",
+        "MOLD Chamfer LID-1"
+      ],
+      "check": "A1, A2 pass",
+      "at": "2026-10-19T21:22:00Z"
+    }
+  ],
+  "decisions": [
+    {
+      "id": "DEC-1",
+      "at": "2026-10-19T20:05:00Z",
+      "topic": "dowel scheme",
+      "choice": "1 round + 3 slotted radially",
+      "options": [
+        "keep 4 round dowels (shop practice)",
+        "1 round + 3 slotted radially"
+      ],
+      "by": "user",
+      "why": "0.30 mm lid-to-base mismatch at 30 K"
+    },
+    {
+      "id": "DEC-2",
+      "at": "2026-10-19T20:05:00Z",
+      "topic": "pour side",
+      "choice": "base, no tilt",
+      "by": "agent",
+      "why": "no air traps for a base pour"
+    }
+  ],
+  "setupSheet": "setup-sheet.html",
+  "scope": "build",
+  "identity": {
+    "moldNumber": "M-1042",
+    "revision": "A",
+    "partNumber": "1042-07",
+    "partName": "Bumper pad 6 x 4 x 1"
+  },
+  "setup": {
+    "assembly": [
+      "Press the four steel bushings into the lid (heat the lid to 120 C).",
+      "Press the round dowel D1 and the slotted-side dowels into the base.",
+      "Lower the lid straight down onto the dowels; D1 at the engraved datum corner."
+    ],
+    "material": [
+      "Preheat the TDI-ether prepolymer to 80 C and the curative to 115 C.",
+      "Degas the mix 2-3 min at 29 inHg until the foam breaks."
+    ],
+    "pourSequence": [
+      "Pour C1, then C2, into the base, each at its pour point.",
+      "Close the lid within 3 min of mixing (half the pot life)."
+    ],
+    "demold": [
+      "Lift the lid with the pull handles straight up.",
+      "Pry only at the pry slots, never on the land.",
+      "Lift the parts out with a blunt hook at the flash."
+    ],
+    "release": "Wipe a thin coat of the release agent on every cavity face and the land before each shot; let it flash off.",
+    "cleaning": "Clean the moat and runners with a brass scraper every cycle; never use steel tools on the land.",
+    "safety": [
+      "Platens and the mold run at 100 C (212 F): heat-resistant gloves for every lift.",
+      "Keep hands out of the daylight while the press closes; use the two-hand control.",
+      "Lift the lid by its handles only; the lifting index is on this sheet."
+    ]
+  },
+  "views": {
+    "assembly": "views/assembly.png",
+    "cavityMap": "views/cavity-map.png"
+  },
+  "report": {
+    "lowestMargins": [
+      {
+        "id": "CHG-POUR",
+        "type": "fill",
+        "margin": 0.4895,
+        "status": "pass"
+      },
+      {
+        "id": "WEIGHT-LID",
+        "type": "lifting",
+        "margin": 1.364,
+        "status": "pass"
+      },
+      {
+        "id": "WEIGHT-BASE-1",
+        "type": "weight",
+        "margin": 2.0041,
+        "status": "pass"
+      }
+    ],
+    "openItems": [
+      "Coefficient table is provisional (structural.coefficients.provisional).",
+      "No process or machinability simulator configured (H1, H2 not run)."
+    ],
+    "summary": "2-cavity PU pour mold in 6061-T651, base 7.7 kg, lid 4.9 kg; recommended gauge 459 psi (3.17 MPa)."
+  },
+  "machiningSheet": "machining-sheet.html"
+}
