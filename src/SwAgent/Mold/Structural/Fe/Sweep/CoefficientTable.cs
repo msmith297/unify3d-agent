@@ -104,7 +104,7 @@ namespace SwAgent.Mold.Structural.Fe.Sweep
             return (xs[k], xs[k + 1], (x - xs[k]) / (xs[k + 1] - xs[k]));
         }
 
-        static (double, double) Bilinear(Block b, string bc, double aspect, double tau, double nu)
+        (double, double) Bilinear(Block b, string bc, double aspect, double tau, double nu)
         {
             double tauC = Math.Max(b.Taus[0], Math.Min(b.Taus[b.Taus.Length - 1], tau));
             if (CoefficientSweep.IsWall(bc) && aspect > b.Aspects[b.Aspects.Length - 1])
@@ -114,12 +114,26 @@ namespace SwAgent.Mold.Structural.Fe.Sweep
                 var last = Bilinear(b, bc, b.Aspects[b.Aspects.Length - 1], tau, nu);
                 return (Math.Max(strip.Alpha, last.Item1), Math.Max(strip.Beta, last.Item2));
             }
-            var (i0, i1, wa) = Index(b.Aspects, aspect);
             var t2 = b.Taus.Select(v => v * v).ToArray();
             var (j0, j1, wt) = Index(t2, tauC * tauC);
+            if (LogLogAspect)
+            {
+                // linear in tau^2, then log(value) linear in log(aspect): alpha ~ aspect^n locally, as plate coefficients are
+                var la = b.Aspects.Select(v => Math.Log(v)).ToArray();
+                var (k0, k1, wl) = Index(la, Math.Log(Math.Max(aspect, 1e-9)));
+                double Lg(double[,] v) => Math.Exp((1 - wl) * Math.Log((1 - wt) * v[k0, j0] + wt * v[k0, j1]) + wl * Math.Log((1 - wt) * v[k1, j0] + wt * v[k1, j1]));
+                return (Lg(b.Alpha), Lg(b.Beta));
+            }
+            var (i0, i1, wa) = Index(b.Aspects, aspect);
             double Bi(double[,] v) => (1 - wa) * ((1 - wt) * v[i0, j0] + wt * v[i0, j1]) + wa * ((1 - wt) * v[i1, j0] + wt * v[i1, j1]);
             return (Bi(b.Alpha), Bi(b.Beta));
         }
+
+        /// <summary>
+        /// Interpolate log(value) linearly in log(aspect) instead of value in aspect (tau^2 stays linear). The contract's scheme is
+        /// plain bilinear; the sweep's interpolation check reports both.
+        /// </summary>
+        public bool LogLogAspect { get; set; }
 
         static (int, int, double) Index(double[] xs, double x)
         {
@@ -135,12 +149,16 @@ namespace SwAgent.Mold.Structural.Fe.Sweep
         /// f = 1 for plates or the wall-root factor for walls. Returns t and the converged tau; tau above 0.5 means "add support".
         /// </summary>
         public double ThicknessForDeflection(string bc, double aspect, double b, double p, double e, double nu, double delta, double loadFrac = 1, double factor = 1)
+            => ThicknessForDeflection(bc, aspect, b, p, e, nu, delta, loadFrac, _ => factor);
+
+        /// <summary>As above with a factor that depends on tau (the wall-root factor 1 + c w/h).</summary>
+        public double ThicknessForDeflection(string bc, double aspect, double b, double p, double e, double nu, double delta, double loadFrac, Func<double, double> factorOfTau)
         {
             double t = (IsWallLike(bc) ? 0.3 : 0.2) * b;
             for (int k = 0; k < 200; k++)
             {
                 var (alpha, _) = Get(bc, aspect, t / b, nu, loadFrac);
-                double tn = Math.Pow(factor * alpha * p * Math.Pow(b, 4) / (e * delta), 1.0 / 3);
+                double tn = Math.Pow(factorOfTau(t / b) * alpha * p * Math.Pow(b, 4) / (e * delta), 1.0 / 3);
                 if (Math.Abs(tn - t) < 1e-7 * t) return tn;
                 t = tn;
             }

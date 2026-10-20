@@ -1,8 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!-- Dev-only sweep console for the compression-mold structural method (not shipped). Writes coefficients.csv and the files in
-       tools/builtin/design-compression-mold/data/validation. Run from the repository root, Release build:
-       dotnet run -c Release --project tools/dev/MoldSweep -- all -->
+       tools/builtin/design-compression-mold/data/validation. Run from the repository root, Release build (see README.md). -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net48</TargetFramework>

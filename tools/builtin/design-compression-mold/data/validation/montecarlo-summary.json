@@ -1,0 +1,252 @@
+{
+  "schema": "unify3d.mold-montecarlo/1",
+  "generator": "MoldSweep montecarlo, SwAgent.Mold.Structural.Fe.Sweep.MonteCarloHarness a2-1",
+  "date": "2026-10-19",
+  "sizing": "StubSizing, recommended (table + fixed point; root factor 1 + 2.6 w/h; +1% interpolation allowance; case E by the layout FE)",
+  "samples": 2000,
+  "seed": 1,
+  "checks": 5410,
+  "skipped": 14580,
+  "truth": "MITC4 plate of the exact layout (cavities plus land as pressure patches; rails as line supports; pillars as springs; an opening as SS4; platen as a stiff tensionless foundation); walls as Wall-C plates times the 3D root factor 1 + 2.6 w/h; r_w at the land nodes",
+  "max_r_w": 1.0,
+  "max_r_s": 0.9987,
+  "median_r_w_deflection_governed": 0.9899,
+  "acceptance": "max r_w <= 1.00, max r_s <= 1.00, median r_w >= 0.75 where deflection governs",
+  "accepted": true,
+  "failures": [],
+  "by_element": {
+    "plate, support A": {
+      "checks": 487,
+      "max_r_w": 0.4222,
+      "max_r_s": 0.1924,
+      "median_r_w_deflection_governed": null,
+      "governs": {
+        "minimum": 487
+      },
+      "histogram_r_w_deflection_governed": {
+        "0-0.25": 0,
+        "0.25-0.5": 0,
+        "0.5-0.6": 0,
+        "0.6-0.7": 0,
+        "0.7-0.8": 0,
+        "0.8-0.9": 0,
+        "0.9-0.95": 0,
+        "0.95-1": 0,
+        "1-1.05": 0,
+        ">1.05": 0
+      }
+    },
+    "plate, support B": {
+      "checks": 137,
+      "max_r_w": 0.8427,
+      "max_r_s": 0.6996,
+      "median_r_w_deflection_governed": 0.5791,
+      "governs": {
+        "deflection": 134,
+        "minimum": 3
+      },
+      "histogram_r_w_deflection_governed": {
+        "0-0.25": 0,
+        "0.25-0.5": 22,
+        "0.5-0.6": 56,
+        "0.6-0.7": 40,
+        "0.7-0.8": 12,
+        "0.8-0.9": 4,
+        "0.9-0.95": 0,
+        "0.95-1": 0,
+        "1-1.05": 0,
+        ">1.05": 0
+      }
+    },
+    "plate, support C": {
+      "checks": 209,
+      "max_r_w": 0.8455,
+      "max_r_s": 0.7309,
+      "median_r_w_deflection_governed": 0.615,
+      "governs": {
+        "deflection": 208,
+        "minimum": 1
+      },
+      "histogram_r_w_deflection_governed": {
+        "0-0.25": 22,
+        "0.25-0.5": 9,
+        "0.5-0.6": 57,
+        "0.6-0.7": 78,
+        "0.7-0.8": 39,
+        "0.8-0.9": 3,
+        "0.9-0.95": 0,
+        "0.95-1": 0,
+        "1-1.05": 0,
+        ">1.05": 0
+      }
+    },
+    "plate, support E": {
+      "checks": 202,
+      "max_r_w": 1.0,
+      "max_r_s": 0.9987,
+      "median_r_w_deflection_governed": 0.9946,
+      "governs": {
+        "deflection": 167,
+        "minimum": 33,
+        "stress": 2
+      },
+      "histogram_r_w_deflection_governed": {
+        "0-0.25": 0,
+        "0.25-0.5": 0,
+        "0.5-0.6": 0,
+        "0.6-0.7": 0,
+        "0.7-0.8": 0,
+        "0.8-0.9": 0,
+        "0.9-0.95": 0,
+        "0.95-1": 167,
+        "1-1.05": 0,
+        ">1.05": 0
+      }
+    },
+    "walls": {
+      "checks": 4375,
+      "max_r_w": 0.997,
+      "max_r_s": 0.9986,
+      "median_r_w_deflection_governed": 0.9902,
+      "governs": {
+        "minimum": 2365,
+        "deflection": 1838,
+        "stress": 172
+      },
+      "histogram_r_w_deflection_governed": {
+        "0-0.25": 0,
+        "0.25-0.5": 0,
+        "0.5-0.6": 1,
+        "0.6-0.7": 1,
+        "0.7-0.8": 1,
+        "0.8-0.9": 3,
+        "0.9-0.95": 3,
+        "0.95-1": 1829,
+        "1-1.05": 0,
+        ">1.05": 0
+      }
+    }
+  },
+  "elapsed_s": 22.0,
+  "compare_design_as_written": {
+    "sizing": "StubSizing, design.md as written (root factor 1.2; no interpolation allowance; case E as C4 panels between pillars)",
+    "max_r_w": 31.3586,
+    "max_r_s": 2.8755,
+    "median_r_w_deflection_governed": 1.6323,
+    "accepted": false,
+    "failures_count": 3668,
+    "by_element": {
+      "plate, support A": {
+        "checks": 487,
+        "max_r_w": 0.4222,
+        "max_r_s": 0.1924,
+        "median_r_w_deflection_governed": null,
+        "governs": {
+          "minimum": 487
+        },
+        "histogram_r_w_deflection_governed": {
+          "0-0.25": 0,
+          "0.25-0.5": 0,
+          "0.5-0.6": 0,
+          "0.6-0.7": 0,
+          "0.7-0.8": 0,
+          "0.8-0.9": 0,
+          "0.9-0.95": 0,
+          "0.95-1": 0,
+          "1-1.05": 0,
+          ">1.05": 0
+        }
+      },
+      "plate, support B": {
+        "checks": 137,
+        "max_r_w": 0.8512,
+        "max_r_s": 0.7051,
+        "median_r_w_deflection_governed": 0.5848,
+        "governs": {
+          "deflection": 134,
+          "minimum": 3
+        },
+        "histogram_r_w_deflection_governed": {
+          "0-0.25": 0,
+          "0.25-0.5": 22,
+          "0.5-0.6": 52,
+          "0.6-0.7": 42,
+          "0.7-0.8": 14,
+          "0.8-0.9": 4,
+          "0.9-0.95": 0,
+          "0.95-1": 0,
+          "1-1.05": 0,
+          ">1.05": 0
+        }
+      },
+      "plate, support C": {
+        "checks": 210,
+        "max_r_w": 0.854,
+        "max_r_s": 0.7367,
+        "median_r_w_deflection_governed": 0.621,
+        "governs": {
+          "deflection": 209,
+          "minimum": 1
+        },
+        "histogram_r_w_deflection_governed": {
+          "0-0.25": 22,
+          "0.25-0.5": 10,
+          "0.5-0.6": 54,
+          "0.6-0.7": 77,
+          "0.7-0.8": 42,
+          "0.8-0.9": 4,
+          "0.9-0.95": 0,
+          "0.95-1": 0,
+          "1-1.05": 0,
+          ">1.05": 0
+        }
+      },
+      "plate, support E": {
+        "checks": 363,
+        "max_r_w": 31.3586,
+        "max_r_s": 2.8755,
+        "median_r_w_deflection_governed": 3.0177,
+        "governs": {
+          "deflection": 210,
+          "stress": 14,
+          "minimum": 139
+        },
+        "histogram_r_w_deflection_governed": {
+          "0-0.25": 0,
+          "0.25-0.5": 0,
+          "0.5-0.6": 0,
+          "0.6-0.7": 0,
+          "0.7-0.8": 0,
+          "0.8-0.9": 0,
+          "0.9-0.95": 0,
+          "0.95-1": 0,
+          "1-1.05": 0,
+          ">1.05": 210
+        }
+      },
+      "walls": {
+        "checks": 5898,
+        "max_r_w": 1.9257,
+        "max_r_s": 1.0049,
+        "median_r_w_deflection_governed": 1.6518,
+        "governs": {
+          "minimum": 3040,
+          "deflection": 2486,
+          "stress": 372
+        },
+        "histogram_r_w_deflection_governed": {
+          "0-0.25": 0,
+          "0.25-0.5": 0,
+          "0.5-0.6": 0,
+          "0.6-0.7": 0,
+          "0.7-0.8": 0,
+          "0.8-0.9": 1,
+          "0.9-0.95": 1,
+          "0.95-1": 0,
+          "1-1.05": 0,
+          ">1.05": 2484
+        }
+      }
+    }
+  }
+}

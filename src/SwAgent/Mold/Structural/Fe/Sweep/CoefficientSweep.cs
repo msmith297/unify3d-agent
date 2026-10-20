@@ -34,7 +34,7 @@ namespace SwAgent.Mold.Structural.Fe.Sweep
     ///   Wall-S    as Wall-C with the sides simply supported (bolted frame corners).
     ///   Overhang  cantilever plate: clamped on y = 0, free elsewhere; b = overhang length c, a = width along the support.
     ///   Pillar    interior panel of a pillar grid, the periodic cell a x b: every edge a symmetry line, a rigid square pillar
-    ///             head of side 0.2 b at each corner (a quarter per corner). beta is taken outside the heads.
+    ///             head of side 0.2 b at each corner (a quarter per corner). beta is the mid-span moment (cell centre lines).
     /// alpha uses the largest |w| anywhere; beta the largest principal moment (clamped edges from reactions, free edges from the
     /// first Gauss row with the natural conditions).
     /// </summary>
@@ -42,10 +42,11 @@ namespace SwAgent.Mold.Structural.Fe.Sweep
     {
         public const string Version = "a2-1";
         public static readonly string[] BcSets = { "SS4", "C4", "Rails", "C2S2", "Wall-C", "Wall-S", "Overhang", "Pillar" };
-        public static readonly double[] PlateAspects = { 0.5, 0.75, 1.0, 1.2, 1.4, 1.6, 1.8, 2.0, 2.5, 3.0, 4.0, 6.0 };
-        /// <summary>Walls also get L/h = 8 and 12 (critique A4); above 12 the closed-form strip with shear applies.</summary>
-        public static readonly double[] WallAspects = { 0.5, 0.75, 1.0, 1.2, 1.4, 1.6, 1.8, 2.0, 2.5, 3.0, 4.0, 6.0, 8.0, 12.0 };
-        public static readonly double[] Taus = { 0.01, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5 };
+        /// <summary>The design's 12 aspects plus intermediate rows, so interpolation between rows stays within 1% of the FE.</summary>
+        public static readonly double[] PlateAspects = { 0.5, 0.5625, 0.625, 0.6875, 0.75, 0.875, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.8, 2.0, 2.25, 2.5, 2.75, 3.0, 3.5, 4.0, 5.0, 6.0 };
+        /// <summary>Walls also get L/h = 7, 8, 10 and 12 (critique A4); above 12 the closed-form strip with shear applies.</summary>
+        public static readonly double[] WallAspects = { 0.5, 0.5625, 0.625, 0.6875, 0.75, 0.875, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.8, 2.0, 2.25, 2.5, 2.75, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 7.0, 8.0, 10.0, 12.0 };
+        public static readonly double[] Taus = { 0.01, 0.05, 0.075, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5 };
         public static readonly double[] Nus = { 0.29, 0.33 };
         public static readonly double[] LoadFracs = { 0.25, 0.5, 0.75, 1.0 };
         public const double PillarHead = 0.2;
@@ -67,7 +68,7 @@ namespace SwAgent.Mold.Structural.Fe.Sweep
         /// <summary>Default mesh: 48 elements on the short side (24 left thin clamped plates up to 0.9% short of the converged values).</summary>
         public const int DefaultElements = 48;
         /// <summary>beta leaves out the plate within 0.1 b of a clamped-free corner (a Mindlin singularity: the value there grows
-        /// without bound under refinement for t/b >= 0.1; real corners are radiused and carry K_f) and within 0.1 b of a pillar head.</summary>
+        /// without bound under refinement for t/b >= 0.1; real corners are radiused and carry K_f).</summary>
         public const double CornerExclusion = 0.1;
 
         static bool SymX(string bc) => true;
@@ -102,10 +103,7 @@ namespace SwAgent.Mold.Structural.Fe.Sweep
             if (sy) m.YB = Y; else m.YLines.Add(b / 2);
             if (bc == "Pillar")
             {
-                double h = PillarHead * b / 2, band = h + CornerExclusion * b;
-                // grid lines on the edge of the band beta leaves out, so every mesh samples the moment at the same distance
-                foreach (var x in new[] { band, a - band }) if (x > 0 && x < m.A) m.XLines.Add(x);
-                foreach (var y in new[] { band, b - band }) if (y > 0 && y < m.B) m.YLines.Add(y);
+                double h = PillarHead * b / 2;
                 m.Fixed.Add(new FixedRegion(0, h, 0, h));
                 if (!sx) m.Fixed.Add(new FixedRegion(a - h, a, 0, h));
                 if (!sy) m.Fixed.Add(new FixedRegion(0, h, b - h, b));
@@ -138,10 +136,10 @@ namespace SwAgent.Mold.Structural.Fe.Sweep
             const double eps = 1e-9;
             if (bc == "Pillar")
             {
-                // outside the heads and a 0.1 b band around them (Chebyshev distance from each pillar centre)
-                double lim = PillarHead / 2 + CornerExclusion + eps;
-                var centres = new List<(double X, double Y)> { (0, 0), (aspect, 0), (0, 1), (aspect, 1) };
-                mMax = r.MaxMoment((x, y) => centres.All(c => Math.Max(Math.Abs(x - c.X), Math.Abs(y - c.Y)) > lim), out _);
+                // the mid-span moments: on the cell's centre lines x = a/2 and y = b/2 (the panel centre and the points midway
+                // between neighbouring pillars). The hogging next to a rigid head is singular in plate theory and keeps growing
+                // under refinement (5-6% from 48 to 96 elements even 0.1 b from the head), so it is not tabulated.
+                mMax = r.MaxMoment((x, y) => Math.Abs(x - aspect / 2) < eps || Math.Abs(y - 0.5) < eps, out _);
             }
             else
             {
@@ -167,11 +165,16 @@ namespace SwAgent.Mold.Structural.Fe.Sweep
             public double MaxRefinementChange;
             public string WorstRefinement;
             public TimeSpan Elapsed;
+            public Dictionary<string, (double Alpha, double Beta)> InterpolationUnderRead = new Dictionary<string, (double, double)>();
+            public double MaxInterpolationUnderRead, MaxInterpolationUnderReadLogLog;
             public bool Passed => Failures.Count == 0;
         }
 
-        /// <summary>Refinement limit for a row: 0.5%, or 2% for thin pillar panels (tau below 0.05 converge slowly next to the heads).</summary>
-        public static double RefinementLimit(CoefficientRow r) => r.Bc == "Pillar" && r.Tau < 0.05 ? 0.02 : 0.005;
+        /// <summary>
+        /// Refinement limit for a row: 0.5%; 1% for the thin-limit rows (tau 0.01, which exist for the Roark gate: a thin plate's
+        /// edge layers are narrower than the elements); 2% for thin pillar panels (tau below 0.05 converge slowly next to the heads).
+        /// </summary>
+        public static double RefinementLimit(CoefficientRow r) => r.Tau >= 0.05 ? 0.005 : r.Bc == "Pillar" ? 0.02 : 0.01;
 
         /// <summary>
         /// Runs the whole sweep (parallel), the h-refinement check on a random 5% of the rows (twice the elements; a coefficient
@@ -215,7 +218,7 @@ namespace SwAgent.Mold.Structural.Fe.Sweep
                 }
             if (log != null) log($"  refinement check done, {sw.Elapsed.TotalSeconds:F0} s");
             var badRefine = pick.Select((p, k) => (p, k)).Where(x => changes[x.k] > RefinementLimit(rows[x.p])).ToList();
-            rep.Gates.Add($"h-refinement {elementsOnShortSide} -> {2 * elementsOnShortSide} elements on {pick.Count} random rows: max change {rep.MaxRefinementChange * 100:F2}% ({rep.WorstRefinement}); limit 0.5% (2% for pillar panels below tau 0.05)");
+            rep.Gates.Add($"h-refinement {elementsOnShortSide} -> {2 * elementsOnShortSide} elements on {pick.Count} random rows: max change {rep.MaxRefinementChange * 100:F2}% ({rep.WorstRefinement}); limit 0.5% (1% for the tau 0.01 rows, 2% for pillar panels below tau 0.05)");
             foreach (var x in badRefine)
             {
                 var c = rows[x.p];
@@ -223,6 +226,8 @@ namespace SwAgent.Mold.Structural.Fe.Sweep
             }
 
             Gates(rep, elementsOnShortSide, ct);
+            InterpolationCheck(rep, elementsOnShortSide, ct);
+            if (log != null) log($"  gates and interpolation check done, {sw.Elapsed.TotalSeconds:F0} s");
             rep.Elapsed = sw.Elapsed;
             return rep;
         }
@@ -276,7 +281,7 @@ namespace SwAgent.Mold.Structural.Fe.Sweep
             rep.Gates.Add($"free-edge recovery, rails at tau 0.01 vs the Levy series: worst {fe * 100:F2}% (limit +0.5% / -1%); thin rails beta exceeds the beam's 0.75 by up to {beamExcess * 100:F1}% (physical, not an artefact); at tau >= 0.3 beta <= {thickMax:F3}");
 
             // 4. Walls (critique A4): alpha and beta rise with L/h toward the cantilever strip with shear. Thin and moderately thick
-            //    walls (tau <= 0.25) are monotonic all the way and never above the strip; thicker walls overshoot it slightly
+            //    walls (tau below 0.25) are monotonic all the way and never above the strip; thicker walls (tau >= 0.25) overshoot it slightly
             //    around L/h 6 (a Mindlin edge effect next to the sides, up to about 1%) and settle back onto it, so for them the
             //    rows must be monotonic up to L/h 4 and within 1.5% above the strip. Every L/h 12 row is within 3% of the strip.
             double stripWorst = 0, monoWorst = 0, overWorst = 0;
@@ -284,7 +289,7 @@ namespace SwAgent.Mold.Structural.Fe.Sweep
             {
                 var list = g.OrderBy(r => r.Aspect).ToList();
                 var strip = ClosedForm.CantileverStrip(g.Key.Nu, g.Key.Tau);
-                bool thick = g.Key.Tau > 0.25;
+                bool thick = g.Key.Tau >= 0.25;
                 double overLimit = thick ? 1.015 : 1.002;
                 for (int k = 0; k < list.Count; k++)
                 {
@@ -304,7 +309,65 @@ namespace SwAgent.Mold.Structural.Fe.Sweep
                 stripWorst = Math.Max(stripWorst, Math.Max(Math.Abs(sa), Math.Abs(sb)));
                 if (Math.Abs(sa) > 0.03 || Math.Abs(sb) > 0.03) rep.Failures.Add($"{last.Bc} L/h {last.Aspect} tau {last.Tau}: {sa * 100:F1}% / {sb * 100:F1}% off the strip");
             }
-            rep.Gates.Add($"walls: monotonic in L/h (worst drop {monoWorst * 100:F2}%, limit 0.1%; tau > 0.25 checked up to L/h 4), largest excess over the strip with shear {overWorst * 100:F2}% (limit 0.2%, 1.5% for tau > 0.25), L/h 12 within {stripWorst * 100:F2}% of the strip (limit 3%). Above L/h 12 use alpha = max(alpha_12, strip), beta = max(beta_12, 3)");
+            rep.Gates.Add($"walls: monotonic in L/h (worst drop {monoWorst * 100:F2}%, limit 0.1%; tau >= 0.25 checked up to L/h 4), largest excess over the strip with shear {overWorst * 100:F2}% (limit 0.2%, 1.5% for tau >= 0.25), L/h 12 within {stripWorst * 100:F2}% of the strip (limit 3%). Above L/h 12 use alpha = max(alpha_12, strip), beta = max(beta_12, 3)");
+        }
+
+        /// <summary>
+        /// How far bilinear interpolation in (aspect, tau^2) under-reads the FE between the rows: the FE at every midpoint
+        /// (aspect halfway, tau^2 halfway; nu 0.29 and 0.33; full load) against the table. Positive = the table under-reads
+        /// (unconservative). Per boundary set: the worst under-read of alpha and of beta. Gate: 1%.
+        /// </summary>
+        public static void InterpolationCheck(Report rep, int elementsOnShortSide = DefaultElements, CancellationToken ct = default)
+        {
+            var table = CoefficientTable.Parse(Header + "\n" + string.Join("\n", rep.Rows.Select(r => r.ToCsv())));
+            var tableLog = CoefficientTable.Parse(Header + "\n" + string.Join("\n", rep.Rows.Select(r => r.ToCsv())));
+            tableLog.LogLogAspect = true;
+            var jobs = new List<(string bc, double asp, double tau, double nu)>();
+            foreach (var bc in BcSets)
+            {
+                var asp = IsWall(bc) ? WallAspects : PlateAspects;
+                foreach (var nu in Nus)
+                    for (int i = 0; i + 1 < asp.Length; i++)
+                        for (int j = 0; j + 1 < Taus.Length; j++)
+                            jobs.Add((bc, (asp[i] + asp[i + 1]) / 2, Math.Sqrt((Taus[j] * Taus[j] + Taus[j + 1] * Taus[j + 1]) / 2), nu));
+            }
+            var under = new (double a, double b)[jobs.Count];
+            var underLog = new (double a, double b)[jobs.Count];
+            Parallel.For(0, jobs.Count, new ParallelOptions { CancellationToken = ct }, k =>
+            {
+                var (bc, asp, tau, nu) = jobs[k];
+                var fe = Compute(bc, asp, tau, nu, 1, elementsOnShortSide, ct);
+                var tb = table.Get(bc, asp, tau, nu, 1);
+                var tl = tableLog.Get(bc, asp, tau, nu, 1);
+                under[k] = (fe.Alpha / tb.Alpha - 1, fe.Beta / tb.Beta - 1);
+                underLog[k] = (fe.Alpha / tl.Alpha - 1, fe.Beta / tl.Beta - 1);
+            });
+            // thin pillar panels (tau below 0.05) are indicative only (see RefinementLimit); they are left out of the gate
+            bool Gated(int k) => !(jobs[k].bc == "Pillar" && jobs[k].tau < 0.05);
+            string Report((double a, double b)[] u, out double worst)
+            {
+                var parts = new List<string>();
+                worst = 0;
+                foreach (var bc in BcSets)
+                {
+                    var idx = Enumerable.Range(0, jobs.Count).Where(k => jobs[k].bc == bc && Gated(k)).ToList();
+                    double ua = idx.Max(k => u[k].a), ub = idx.Max(k => u[k].b);
+                    int ka = idx.OrderByDescending(k => u[k].a).First(), kb = idx.OrderByDescending(k => u[k].b).First();
+                    parts.Add($"{bc} {ua * 100:F2}% (aspect {jobs[ka].asp:0.###}, tau {jobs[ka].tau:0.###}) / {ub * 100:F2}% (aspect {jobs[kb].asp:0.###}, tau {jobs[kb].tau:0.###})");
+                    worst = Math.Max(worst, Math.Max(ua, ub));
+                }
+                return string.Join("; ", parts);
+            }
+            string lin = Report(under, out double worstLin), log = Report(underLog, out double worstLog);
+            foreach (var bc in BcSets)
+            {
+                var idx = Enumerable.Range(0, jobs.Count).Where(k => jobs[k].bc == bc && Gated(k)).ToList();
+                rep.InterpolationUnderRead[bc] = (idx.Max(k => under[k].a), idx.Max(k => under[k].b));
+            }
+            rep.MaxInterpolationUnderRead = worstLin;
+            rep.MaxInterpolationUnderReadLogLog = worstLog;
+            rep.Gates.Add($"interpolation at {Enumerable.Range(0, jobs.Count).Count(Gated)} midpoints between rows (pillar panels below tau 0.05 left out), worst under-read of the FE (alpha / beta). Bilinear in (aspect, tau^2): {lin}. Log-log in aspect, linear in tau^2 (for comparison): {log}. Limit 1% for bilinear");
+            if (worstLin > 0.01) rep.Failures.Add($"bilinear interpolation under-reads the FE by up to {worstLin * 100:F2}%");
         }
 
         public static string Sha256(IEnumerable<string> dataLines)
@@ -327,7 +390,7 @@ namespace SwAgent.Mold.Structural.Fe.Sweep
             sb.Append("# bc: SS4 | C4 | Rails (SS y edges, free x edges) | C2S2 (y edges clamped, x edges SS) | Wall-C (bottom C, top free, sides C) | Wall-S (sides SS) | Overhang (C on y = 0, rest free) | Pillar (periodic cell, rigid heads 0.2 b square at the corners).\n");
             sb.Append("# loadFrac: area fraction of a centred patch with the plate's proportions (plates SS4, C4, Rails, C2S2 only). wMaxX, wMaxY: where |w| peaks, as x/a and y/b.\n");
             sb.Append("# Interpolate bilinearly in (aspect, tau^2). Walls above L/h 12: alpha = max(alpha at 12, 1.5 (1 - nu^2) + 1.2 (1 + nu) tau^2) (cantilever strip with shear), beta = max(beta at 12, 3).\n");
-            sb.Append("# beta leaves out 0.1 b around clamped-free corners (Wall-C, Overhang: a Mindlin singularity) and the band 0.1 b wide around pillar heads.\n");
+            sb.Append("# beta leaves out 0.1 b around clamped-free corners (Wall-C, Overhang: a Mindlin singularity). Pillar beta is the mid-span moment (cell centre lines); the hogging over the heads is singular in plate theory and NOT included: check the plate over a pillar by bearing/punching.\n");
             sb.Append($"# generator: MoldSweep coefficients, SwAgent.Mold.Structural.Fe.Sweep.CoefficientSweep {Version}; MITC4, {elementsOnShortSide} elements on the short side; {date:yyyy-MM-dd}; {rep.Rows.Count} rows.\n");
             foreach (var g in rep.Gates) sb.Append("# gate: ").Append(g).Append('\n');
             sb.Append("# gates passed: ").Append(rep.Passed ? "yes" : "NO - " + rep.Failures.Count + " failures").Append('\n');

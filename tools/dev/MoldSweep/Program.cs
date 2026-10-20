@@ -15,7 +15,7 @@ namespace MoldSweep
     /// MoldSweep: the dev console behind the compression-mold structural tables (design 2.4 and 3.20).
     ///   coefficients  Sweep 1: src/SwAgent/Mold/Structural/coefficients.csv, with its gates.
     ///   table         data/validation/sizing-table.csv (thickness vs pressure, span, material, deflection limit).
-    ///   montecarlo    Sweep 2: data/validation/montecarlo.csv and montecarlo-summary.json (stub sizing until integration).
+    ///   montecarlo    Sweep 2: data/validation/montecarlo-summary.json and results/montecarlo.csv (stub sizing until integration).
     ///   solid3d       3D solid cross-check: wall-root factor, thick plates, bolted-joint member stiffness -> solid3d-summary.json.
     ///   all           solid3d, coefficients, table, montecarlo.
     /// Options: --root DIR (repository root; found from the working directory by default), --elements N, --n N, --seed N, --quick.
@@ -88,16 +88,21 @@ namespace MoldSweep
 
         static string WallRootNote(SweepPaths p)
         {
-            if (!File.Exists(p.Solid3dSummary)) return "1.2 (default; run MoldSweep solid3d to calibrate)";
-            var j = JObject.Parse(File.ReadAllText(p.Solid3dSummary));
-            var w = j["wallRoot"];
-            return w == null ? null : $"{(string)w["recommendedFactor"]} recommended from {(int?)w["cases"]} 3D solid cases (max ratio {(string)w["maxRatio"]}, {(string)w["source"]}); see data/validation/solid3d-summary.json";
+            if (!File.Exists(p.Solid3dSummary)) return "1.2 (design default; run MoldSweep solid3d to calibrate)";
+            var w = JObject.Parse(File.ReadAllText(p.Solid3dSummary))["wallRoot"];
+            return w == null ? null : $"{(string)w["recommendedFormula"]}; {(int?)w["cases"]} 3D solid cases, 3D / plate {(string)w["minRatio"]}-{(string)w["maxRatio"]} ({(string)w["source"]}); data/validation/solid3d-summary.json";
+        }
+
+        static double WallRootSlope(SweepPaths p)
+        {
+            if (!File.Exists(p.Solid3dSummary)) return 2.6;
+            return (double?)JObject.Parse(File.ReadAllText(p.Solid3dSummary))["wallRoot"]?["recommendedSlope"] ?? 2.6;
         }
 
         static bool Table(SweepPaths p)
         {
             var table = CoefficientTable.Load(p.Coefficients);
-            var csv = SizingTable.Build(table);
+            var csv = SizingTable.Build(table, WallRootSlope(p));
             File.WriteAllText(p.SizingTable, csv, new UTF8Encoding(false));
             Console.WriteLine($"  wrote {p.SizingTable}");
             return true;
@@ -107,11 +112,25 @@ namespace MoldSweep
         {
             int n = Int(o, "n", 2000), seed = Int(o, "seed", 1);
             var table = CoefficientTable.Load(p.Coefficients);
-            Console.WriteLine($"Sweep 2: {n} random molds, seed {seed}, sizing: {StubSizing.Name}...");
-            var run = MonteCarloHarness.Run(n, seed, StubSizing.Create(table), log: Console.WriteLine);
-            File.WriteAllText(p.MonteCarloCsv, run.ToCsv(), new UTF8Encoding(false));
-            File.WriteAllText(p.MonteCarloSummary, run.Summary(StubSizing.Name).ToString(Formatting.Indented), new UTF8Encoding(false));
+            double slope = WallRootSlope(p);
+            MonteCarloHarness.TrueRootFactor = wh => 1 + slope * wh;
+            StubSizing.RootFactor = wh => 1 + slope * wh;
+            Console.WriteLine($"Sweep 2: {n} random molds, seed {seed}, sizing: {StubSizing.Recommended.Name}...");
+            var run = MonteCarloHarness.Run(n, seed, StubSizing.Create(table, StubSizing.Recommended), log: Console.WriteLine);
             Console.WriteLine($"  max r_w {run.MaxRw:F3}, max r_s {run.MaxRs:F3}, median r_w (deflection-governed) {run.MedianRwGoverned:F3}; {run.Failures.Count} failures");
+            Console.WriteLine($"  the same molds sized by {StubSizing.DesignAsWritten.Name}...");
+            var asWritten = MonteCarloHarness.Run(n, seed, StubSizing.Create(table, StubSizing.DesignAsWritten), log: null);
+            Console.WriteLine($"  max r_w {asWritten.MaxRw:F3}, max r_s {asWritten.MaxRs:F3}; {asWritten.Failures.Count} failures");
+            var summary = run.Summary(StubSizing.Recommended.Name);
+            var other = asWritten.Summary(StubSizing.DesignAsWritten.Name);
+            summary["compare_design_as_written"] = new JObject
+            {
+                ["sizing"] = other["sizing"], ["max_r_w"] = other["max_r_w"], ["max_r_s"] = other["max_r_s"],
+                ["median_r_w_deflection_governed"] = other["median_r_w_deflection_governed"], ["accepted"] = other["accepted"],
+                ["failures_count"] = asWritten.Failures.Count, ["by_element"] = other["by_element"],
+            };
+            File.WriteAllText(p.MonteCarloCsv, run.ToCsv(), new UTF8Encoding(false));
+            File.WriteAllText(p.MonteCarloSummary, summary.ToString(Formatting.Indented), new UTF8Encoding(false));
             Console.WriteLine($"  wrote {p.MonteCarloCsv} and {p.MonteCarloSummary}");
             return run.Accepted;
         }
@@ -135,8 +154,11 @@ namespace MoldSweep
             Coefficients = Path.Combine(root, "src", "SwAgent", "Mold", "Structural", "coefficients.csv");
             var v = Path.Combine(root, "tools", "builtin", "design-compression-mold", "data", "validation");
             Directory.CreateDirectory(v);
+            // the per-check Monte Carlo rows stay with the console (not shipped with the tool)
+            var results = Path.Combine(root, "tools", "dev", "MoldSweep", "results");
+            Directory.CreateDirectory(results);
             SizingTable = Path.Combine(v, "sizing-table.csv");
-            MonteCarloCsv = Path.Combine(v, "montecarlo.csv");
+            MonteCarloCsv = Path.Combine(results, "montecarlo.csv");
             MonteCarloSummary = Path.Combine(v, "montecarlo-summary.json");
             Solid3dSummary = Path.Combine(v, "solid3d-summary.json");
         }

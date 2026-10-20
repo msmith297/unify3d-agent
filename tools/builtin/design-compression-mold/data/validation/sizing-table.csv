@@ -1,0 +1,1348 @@
+# Required thickness t (mm) for a deflection limit: t = [f alpha(t/b) p b^4 / (E delta)]^(1/3), fixed point from coefficients.csv
+# f = 1 for plates; for walls the 3D-calibrated wall-root factor f = 1 + 2.6 w/h. sigma = beta p b^2 / t^2 at that t (walls: no membrane term). Over t/b = 0.5: add support (pillars, rails), do not thicken.
+# coefficients sha256: ec7997e8639ecd8eed323d808e0f606fdf210dcd9fedfcf4cceade44cbba65ba
+bc,aspect,span_is,material,E_MPa,nu,delta_mm,span_mm,p_MPa,t_mm,t_over_b,sigma_MPa,note
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.012,50,5,13.3,0.267,21,
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.012,50,10,18.0,0.360,23,
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.012,50,20,,0.505,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.012,50,35,,0.609,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.012,100,5,36.0,0.360,11,
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.012,100,10,,0.505,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.012,100,20,,0.637,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.012,100,35,,0.767,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.012,150,5,65.6,0.438,8,
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.012,150,10,,0.579,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.012,150,20,,0.729,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.012,150,35,,0.878,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.012,200,5,,0.505,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.012,200,10,,0.637,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.012,200,20,,0.802,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.012,200,35,,0.967,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.012,250,5,,0.544,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.012,250,10,,0.686,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.012,250,20,,0.864,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.012,250,35,,1.041,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.012,300,5,,0.579,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.012,300,10,,0.729,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.012,300,20,,0.918,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.012,300,35,,1.107,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.02,50,5,10.9,0.218,31,
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.02,50,10,14.4,0.288,35,
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.02,50,20,19.6,0.392,38,
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.02,50,35,,0.514,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.02,100,5,28.8,0.288,18,
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.02,100,10,39.2,0.392,19,
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.02,100,20,,0.537,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.02,100,35,,0.647,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.02,150,5,51.5,0.343,12,
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.02,150,10,72.1,0.481,13,
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.02,150,20,,0.615,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.02,150,35,,0.741,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.02,200,5,78.4,0.392,10,
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.02,200,10,,0.537,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.02,200,20,,0.677,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.02,200,35,,0.815,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.02,250,5,109.4,0.438,8,
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.02,250,10,,0.579,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.02,250,20,,0.729,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.02,250,35,,0.878,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.02,300,5,144.2,0.481,6,
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.02,300,10,,0.615,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.02,300,20,,0.775,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.02,300,35,,0.933,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.025,50,5,10.0,0.200,37,
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.025,50,10,13.1,0.262,43,
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.025,50,20,17.7,0.353,47,
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.025,50,35,23.2,0.464,48,
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.025,100,5,26.2,0.262,21,
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.025,100,10,35.3,0.353,24,
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.025,100,20,49.8,0.498,24,
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.025,100,35,,0.601,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.025,150,5,46.7,0.311,15,
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.025,150,10,64.3,0.429,16,
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.025,150,20,,0.571,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.025,150,35,,0.688,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.025,200,5,70.7,0.353,12,
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.025,200,10,99.5,0.498,12,
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.025,200,20,,0.628,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.025,200,35,,0.757,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.025,250,5,98.0,0.392,10,
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.025,250,10,,0.537,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.025,250,20,,0.677,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.025,250,35,,0.815,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.025,300,5,128.6,0.429,8,
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.025,300,10,,0.571,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.025,300,20,,0.719,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.025,300,35,,0.867,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.05,50,5,7.7,0.155,61,
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.05,50,10,10.0,0.200,73,
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.05,50,20,13.1,0.262,85,
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.05,50,35,16.6,0.333,93,
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.05,100,5,20.0,0.200,37,
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.05,100,10,26.2,0.262,43,
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.05,100,20,35.3,0.353,47,
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.05,100,35,46.4,0.464,48,
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.05,150,5,35.1,0.234,27,
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.05,150,10,46.7,0.311,30,
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.05,150,20,64.3,0.429,32,
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.05,150,35,,0.546,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.05,200,5,52.5,0.262,21,
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.05,200,10,70.7,0.353,24,
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.05,200,20,99.5,0.498,24,
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.05,200,35,,0.601,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.05,250,5,71.9,0.288,18,
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.05,250,10,98.0,0.392,19,
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.05,250,20,,0.537,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.05,250,35,,0.647,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.05,300,5,93.3,0.311,15,
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.05,300,10,128.6,0.429,16,
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.05,300,20,,0.571,,add support
+SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.05,300,35,,0.688,,add support
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.012,50,5,8.8,0.175,46,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.012,50,10,11.4,0.227,55,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.012,50,20,15.0,0.301,63,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.012,50,35,19.3,0.385,67,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.012,100,5,22.7,0.227,28,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.012,100,10,30.1,0.301,32,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.012,100,20,41.1,0.411,34,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.012,100,35,,0.529,,add support
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.012,150,5,40.0,0.267,20,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.012,150,10,53.9,0.359,22,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.012,150,20,,0.503,,add support
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.012,150,35,,0.606,,add support
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.012,200,5,60.1,0.301,16,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.012,200,10,82.1,0.411,17,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.012,200,20,,0.553,,add support
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.012,200,35,,0.667,,add support
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.012,250,5,82.8,0.331,13,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.012,250,10,114.7,0.459,14,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.012,250,20,,0.596,,add support
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.012,250,35,,0.718,,add support
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.012,300,5,107.7,0.359,11,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.012,300,10,,0.503,,add support
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.012,300,20,,0.633,,add support
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.012,300,35,,0.763,,add support
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.02,50,5,7.3,0.146,67,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.02,50,10,9.4,0.187,81,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.02,50,20,12.2,0.244,96,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.02,50,35,15.4,0.307,106,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.02,100,5,18.7,0.187,41,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.02,100,10,24.4,0.244,48,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.02,100,20,32.5,0.325,54,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.02,100,35,42.1,0.421,56,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.02,150,5,32.8,0.218,30,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.02,150,10,43.2,0.288,34,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.02,150,20,58.6,0.391,37,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.02,150,35,,0.511,,add support
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.02,200,5,48.8,0.244,24,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.02,200,10,65.0,0.325,27,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.02,200,20,89.9,0.449,28,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.02,200,35,,0.562,,add support
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.02,250,5,66.7,0.267,20,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.02,250,10,89.8,0.359,22,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.02,250,20,,0.503,,add support
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.02,250,35,,0.606,,add support
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.02,300,5,86.3,0.288,17,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.02,300,10,117.2,0.391,19,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.02,300,20,,0.534,,add support
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.02,300,35,,0.644,,add support
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.025,50,5,6.7,0.135,79,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.025,50,10,8.6,0.173,96,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.025,50,20,11.2,0.224,114,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.025,50,35,14.0,0.280,128,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.025,100,5,17.3,0.173,48,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.025,100,10,22.4,0.224,57,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.025,100,20,29.6,0.296,65,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.025,100,35,37.8,0.378,70,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.025,150,5,30.1,0.201,35,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.025,150,10,39.4,0.263,41,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.025,150,20,52.9,0.352,46,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.025,150,35,69.1,0.461,47,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.025,200,5,44.8,0.224,28,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.025,200,10,59.1,0.296,33,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.025,200,20,80.5,0.403,35,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.025,200,35,,0.522,,add support
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.025,250,5,61.0,0.244,24,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.025,250,10,81.3,0.325,27,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.025,250,20,112.3,0.449,28,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.025,250,35,,0.562,,add support
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.025,300,5,78.8,0.263,21,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.025,300,10,105.7,0.352,23,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.025,300,20,148.1,0.494,23,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.025,300,35,,0.598,,add support
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.05,50,5,5.3,0.106,128,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.05,50,10,6.7,0.135,157,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.05,50,20,8.6,0.173,191,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.05,50,35,10.6,0.213,221,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.05,100,5,13.5,0.135,79,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.05,100,10,17.3,0.173,96,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.05,100,20,22.4,0.224,114,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.05,100,35,28.0,0.280,128,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.05,150,5,23.3,0.156,59,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.05,150,10,30.1,0.201,71,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.05,150,20,39.4,0.263,83,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.05,150,35,49.8,0.332,90,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.05,200,5,34.5,0.173,48,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.05,200,10,44.8,0.224,57,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.05,200,20,59.1,0.296,65,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.05,200,35,75.6,0.378,70,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.05,250,5,46.9,0.187,41,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.05,250,10,61.0,0.244,48,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.05,250,20,81.3,0.325,54,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.05,250,35,105.1,0.421,56,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.05,300,5,60.2,0.201,35,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.05,300,10,78.8,0.263,41,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.05,300,20,105.7,0.352,46,
+SS4,1,"panel side b (square, simply supported all round)","P20 at 120 C",200000,0.29,0.05,300,35,138.2,0.461,47,
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,50,5,18.4,0.368,23,
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,50,10,,0.501,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,50,20,,0.631,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,50,35,,0.761,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,100,5,,0.501,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,100,10,,0.631,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,100,20,,0.795,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,100,35,,0.958,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,150,5,,0.573,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,150,10,,0.723,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,150,20,,0.910,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,150,35,,1.097,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,200,5,,0.631,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,200,10,,0.795,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,200,20,,1.002,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,200,35,,1.207,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,250,5,,0.680,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,250,10,,0.857,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,250,20,,1.079,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,250,35,,1.301,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,300,5,,0.723,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,300,10,,0.910,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,300,20,,1.147,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,300,35,,1.382,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,50,5,14.9,0.299,34,
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,50,10,19.9,0.397,39,
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,50,20,,0.532,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,50,35,,0.642,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,100,5,39.7,0.397,19,
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,100,10,,0.532,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,100,20,,0.671,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,100,35,,0.808,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,150,5,71.5,0.477,13,
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,150,10,,0.609,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,150,20,,0.768,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,150,35,,0.925,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,200,5,,0.532,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,200,10,,0.671,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,200,20,,0.845,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,200,35,,1.018,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,250,5,,0.573,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,250,10,,0.723,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,250,20,,0.910,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,250,35,,1.097,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,300,5,,0.609,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,300,10,,0.768,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,300,20,,0.967,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,300,35,,1.166,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,50,5,13.7,0.274,41,
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,50,10,18.1,0.361,47,
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,50,20,24.6,0.492,51,
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,50,35,,0.596,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,100,5,36.1,0.361,23,
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,100,10,49.2,0.492,25,
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,100,20,,0.623,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,100,35,,0.750,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,150,5,64.6,0.431,17,
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,150,10,,0.566,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,150,20,,0.713,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,150,35,,0.859,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,200,5,98.3,0.492,13,
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,200,10,,0.623,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,200,20,,0.784,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,200,35,,0.945,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,250,5,,0.532,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,250,10,,0.671,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,250,20,,0.845,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,250,35,,1.018,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,300,5,,0.566,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,300,10,,0.713,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,300,20,,0.898,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,300,35,,1.082,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,50,5,10.6,0.211,69,
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,50,10,13.7,0.274,82,
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,50,20,18.1,0.361,94,
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,50,35,23.1,0.462,101,
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,100,5,27.4,0.274,41,
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,100,10,36.1,0.361,47,
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,100,20,49.2,0.492,51,
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,100,35,,0.596,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,150,5,48.2,0.321,30,
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,150,10,64.6,0.431,33,
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,150,20,,0.566,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,150,35,,0.682,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,200,5,72.3,0.361,23,
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,200,10,98.3,0.492,25,
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,200,20,,0.623,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,200,35,,0.750,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,250,5,99.3,0.397,19,
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,250,10,,0.532,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,250,20,,0.671,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,250,35,,0.808,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,300,5,129.2,0.431,17,
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,300,10,,0.566,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,300,20,,0.713,,add support
+SS4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,300,35,,0.859,,add support
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,50,5,12.0,0.239,53,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,50,10,15.6,0.312,63,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,50,20,20.8,0.415,71,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,50,35,,0.526,,add support
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,100,5,31.2,0.312,31,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,100,10,41.5,0.415,35,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,100,20,,0.550,,add support
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,100,35,,0.663,,add support
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,150,5,55.1,0.368,23,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,150,10,74.9,0.499,24,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,150,20,,0.629,,add support
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,150,35,,0.758,,add support
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,200,5,83.1,0.415,18,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,200,10,,0.550,,add support
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,200,20,,0.693,,add support
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,200,35,,0.835,,add support
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,250,5,114.7,0.459,14,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,250,10,,0.592,,add support
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,250,20,,0.746,,add support
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,250,35,,0.899,,add support
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,300,5,149.8,0.499,12,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,300,10,,0.629,,add support
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,300,20,,0.793,,add support
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,300,35,,0.956,,add support
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,50,5,9.9,0.199,77,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,50,10,12.8,0.256,93,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,50,20,16.8,0.335,108,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,50,35,21.2,0.424,118,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,100,5,25.6,0.256,46,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,100,10,33.5,0.335,54,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,100,20,45.0,0.450,60,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,100,35,,0.559,,add support
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,150,5,44.9,0.299,34,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,150,10,59.5,0.397,39,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,150,20,,0.531,,add support
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,150,35,,0.640,,add support
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,200,5,67.1,0.335,27,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,200,10,90.1,0.450,30,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,200,20,,0.584,,add support
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,200,35,,0.704,,add support
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,250,5,91.9,0.368,23,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,250,10,124.8,0.499,24,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,250,20,,0.629,,add support
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,250,35,,0.758,,add support
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,300,5,119.1,0.397,19,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,300,10,,0.531,,add support
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,300,20,,0.669,,add support
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,300,35,,0.806,,add support
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,50,5,9.2,0.183,91,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,50,10,11.8,0.236,110,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,50,20,15.3,0.307,129,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,50,35,19.3,0.385,143,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,100,5,23.6,0.236,55,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,100,10,30.7,0.307,65,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,100,20,40.8,0.408,73,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,100,35,,0.519,,add support
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,150,5,41.2,0.274,40,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,150,10,54.2,0.361,47,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,150,20,73.5,0.490,51,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,150,35,,0.594,,add support
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,200,5,61.4,0.307,32,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,200,10,81.6,0.408,37,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,200,20,,0.542,,add support
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,200,35,,0.654,,add support
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,250,5,83.9,0.335,27,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,250,10,112.6,0.450,30,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,250,20,,0.584,,add support
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,250,35,,0.704,,add support
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,300,5,108.4,0.361,23,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,300,10,146.9,0.490,25,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,300,20,,0.621,,add support
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,300,35,,0.748,,add support
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,50,5,7.2,0.144,148,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,50,10,9.2,0.183,181,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,50,20,11.8,0.236,219,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,50,35,14.6,0.291,251,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,100,5,18.3,0.183,91,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,100,10,23.6,0.236,110,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,100,20,30.7,0.307,129,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,100,35,38.5,0.385,143,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,150,5,31.8,0.212,68,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,150,10,41.2,0.274,81,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,150,20,54.2,0.361,93,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,150,35,69.1,0.461,100,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,200,5,47.1,0.236,55,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,200,10,61.4,0.307,65,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,200,20,81.6,0.408,73,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,200,35,,0.519,,add support
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,250,5,64.0,0.256,46,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,250,10,83.9,0.335,54,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,250,20,112.6,0.450,60,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,250,35,,0.559,,add support
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,300,5,82.3,0.274,40,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,300,10,108.4,0.361,47,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,300,20,146.9,0.490,51,
+SS4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,300,35,,0.594,,add support
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.012,50,5,9.7,0.194,37,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.012,50,10,13.6,0.272,36,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.012,50,20,20.4,0.408,31,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.012,50,35,,0.546,,add support
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.012,100,5,27.2,0.272,18,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.012,100,10,40.8,0.408,15,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.012,100,20,,0.570,,add support
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.012,100,35,,0.687,,add support
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.012,150,5,51.2,0.341,11,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.012,150,10,,0.518,,add support
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.012,150,20,,0.653,,add support
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.012,150,35,,0.787,,add support
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.012,200,5,81.6,0.408,8,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.012,200,10,,0.570,,add support
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.012,200,20,,0.719,,add support
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.012,200,35,,0.866,,add support
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.012,250,5,118.5,0.474,6,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.012,250,10,,0.614,,add support
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.012,250,20,,0.774,,add support
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.012,250,35,,0.933,,add support
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.012,300,5,,0.518,,add support
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.012,300,10,,0.653,,add support
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.012,300,20,,0.823,,add support
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.012,300,35,,0.991,,add support
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.02,50,5,7.8,0.155,59,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.02,50,10,10.5,0.211,62,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.02,50,20,15.0,0.300,59,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.02,50,35,21.1,0.421,51,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.02,100,5,21.1,0.211,31,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.02,100,10,30.0,0.300,29,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.02,100,20,46.1,0.461,24,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.02,100,35,,0.580,,add support
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.02,150,5,38.6,0.257,20,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.02,150,10,57.2,0.381,18,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.02,150,20,,0.551,,add support
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.02,150,35,,0.664,,add support
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.02,200,5,60.0,0.300,15,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.02,200,10,92.2,0.461,12,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.02,200,20,,0.606,,add support
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.02,200,35,,0.730,,add support
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.02,250,5,85.3,0.341,11,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.02,250,10,,0.518,,add support
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.02,250,20,,0.653,,add support
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.02,250,35,,0.787,,add support
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.02,300,5,114.4,0.381,9,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.02,300,10,,0.551,,add support
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.02,300,20,,0.694,,add support
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.02,300,35,,0.836,,add support
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.025,50,5,7.1,0.142,72,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.025,50,10,9.5,0.190,77,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.025,50,20,13.3,0.266,76,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.025,50,35,18.3,0.365,68,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.025,100,5,19.0,0.190,38,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.025,100,10,26.6,0.266,38,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.025,100,20,39.7,0.397,33,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.025,100,35,,0.538,,add support
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.025,150,5,34.5,0.230,26,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.025,150,10,49.9,0.333,24,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.025,150,20,,0.511,,add support
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.025,150,35,,0.616,,add support
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.025,200,5,53.2,0.266,19,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.025,200,10,79.4,0.397,16,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.025,200,20,,0.563,,add support
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.025,200,35,,0.678,,add support
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.025,250,5,75.0,0.300,15,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.025,250,10,115.2,0.461,12,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.025,250,20,,0.606,,add support
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.025,250,35,,0.730,,add support
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.025,300,5,99.9,0.333,12,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.025,300,10,,0.511,,add support
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.025,300,20,,0.644,,add support
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.025,300,35,,0.776,,add support
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.05,50,5,5.4,0.108,126,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.05,50,10,7.1,0.142,143,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.05,50,20,9.5,0.190,154,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.05,50,35,12.4,0.248,153,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.05,100,5,14.2,0.142,72,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.05,100,10,19.0,0.190,77,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.05,100,20,26.6,0.266,76,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.05,100,35,36.5,0.365,68,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.05,150,5,25.1,0.168,50,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.05,150,10,34.5,0.230,52,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.05,150,20,49.9,0.333,47,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.05,150,35,71.5,0.477,39,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.05,200,5,38.0,0.190,38,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.05,200,10,53.2,0.266,38,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.05,200,20,79.4,0.397,33,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.05,200,35,,0.538,,add support
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.05,250,5,52.7,0.211,31,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.05,250,10,75.0,0.300,29,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.05,250,20,115.2,0.461,24,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.05,250,35,,0.580,,add support
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.05,300,5,69.0,0.230,26,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.05,300,10,99.9,0.333,24,
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.05,300,20,,0.511,,add support
+C4,1,"panel side b (square, clamped all round)","6061-T6 at 120 C",66000,0.33,0.05,300,35,,0.616,,add support
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.012,50,5,6.1,0.123,97,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.012,50,10,8.1,0.162,108,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.012,50,20,11.0,0.221,113,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.012,50,35,14.6,0.293,109,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.012,100,5,16.2,0.162,54,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.012,100,10,22.1,0.221,57,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.012,100,20,31.5,0.315,53,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.012,100,35,44.4,0.444,46,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.012,150,5,29.0,0.193,37,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.012,150,10,40.4,0.270,37,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.012,150,20,60.2,0.401,32,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.012,150,35,,0.540,,add support
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.012,200,5,44.1,0.221,28,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.012,200,10,63.0,0.315,27,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.012,200,20,97.2,0.486,22,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.012,200,35,,0.595,,add support
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.012,250,5,61.4,0.246,22,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.012,250,10,89.6,0.359,20,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.012,250,20,,0.532,,add support
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.012,250,35,,0.641,,add support
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.012,300,5,80.9,0.270,18,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.012,300,10,120.4,0.401,16,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.012,300,20,,0.565,,add support
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.012,300,35,,0.681,,add support
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.02,50,5,5.1,0.101,145,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.02,50,10,6.6,0.132,167,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.02,50,20,8.8,0.175,184,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.02,50,35,11.3,0.226,188,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.02,100,5,13.2,0.132,84,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.02,100,10,17.5,0.175,92,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.02,100,20,24.1,0.241,94,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.02,100,35,32.4,0.324,88,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.02,150,5,23.3,0.155,59,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.02,150,10,31.5,0.210,63,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.02,150,20,44.6,0.297,60,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.02,150,35,62.1,0.414,53,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.02,200,5,35.0,0.175,46,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.02,200,10,48.2,0.241,47,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.02,200,20,70.0,0.350,43,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.02,200,35,,0.502,,add support
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.02,250,5,48.3,0.193,37,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.02,250,10,67.4,0.270,37,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.02,250,20,100.3,0.401,32,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.02,250,35,,0.540,,add support
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.02,300,5,63.0,0.210,31,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.02,300,10,89.1,0.297,30,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.02,300,20,135.7,0.452,25,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.02,300,35,,0.574,,add support
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.025,50,5,4.7,0.093,172,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.025,50,10,6.0,0.121,201,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.025,50,20,8.0,0.159,224,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.025,50,35,10.2,0.203,234,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.025,100,5,12.1,0.121,100,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.025,100,10,15.9,0.159,112,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.025,100,20,21.6,0.216,118,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.025,100,35,28.6,0.286,114,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.025,150,5,21.3,0.142,72,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.025,150,10,28.5,0.190,78,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.025,150,20,39.6,0.264,77,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.025,150,35,54.0,0.360,70,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.025,200,5,31.9,0.159,56,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.025,200,10,43.3,0.216,59,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.025,200,20,61.6,0.308,56,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.025,200,35,86.4,0.432,48,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.025,250,5,43.8,0.175,46,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.025,250,10,60.2,0.241,47,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.025,250,20,87.5,0.350,43,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.025,250,35,,0.502,,add support
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.025,300,5,56.9,0.190,39,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.025,300,10,79.2,0.264,39,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.025,300,20,117.3,0.391,34,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.025,300,35,,0.533,,add support
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.05,50,5,3.6,0.073,286,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.05,50,10,4.7,0.093,343,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.05,50,20,6.0,0.121,401,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.05,50,35,7.5,0.151,440,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.05,100,5,9.3,0.093,172,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.05,100,10,12.1,0.121,201,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.05,100,20,15.9,0.159,224,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.05,100,35,20.3,0.203,234,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.05,150,5,16.2,0.108,126,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.05,150,10,21.3,0.142,144,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.05,150,20,28.5,0.190,155,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.05,150,35,37.0,0.247,156,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.05,200,5,24.2,0.121,100,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.05,200,10,31.9,0.159,112,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.05,200,20,43.3,0.216,118,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.05,200,35,57.2,0.286,114,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.05,250,5,32.9,0.132,84,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.05,250,10,43.8,0.175,92,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.05,250,20,60.2,0.241,94,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.05,250,35,80.9,0.324,88,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.05,300,5,42.5,0.142,72,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.05,300,10,56.9,0.190,78,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.05,300,20,79.2,0.264,77,
+C4,1,"panel side b (square, clamped all round)","P20 at 120 C",200000,0.29,0.05,300,35,108.1,0.360,70,
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,50,5,12.7,0.255,37,
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,50,10,18.4,0.369,34,
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,50,20,,0.536,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,50,35,,0.646,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,100,5,36.9,0.369,17,
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,100,10,,0.536,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,100,20,,0.675,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,100,35,,0.813,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,150,5,71.1,0.474,10,
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,150,10,,0.613,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,150,20,,0.773,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,150,35,,0.931,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,200,5,,0.536,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,200,10,,0.675,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,200,20,,0.851,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,200,35,,1.025,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,250,5,,0.577,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,250,10,,0.727,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,250,20,,0.916,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,250,35,,1.104,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,300,5,,0.613,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,300,10,,0.773,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,300,20,,0.974,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.012,300,35,,1.173,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,50,5,10.1,0.201,60,
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,50,10,14.0,0.279,62,
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,50,20,20.6,0.411,55,
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,50,35,,0.545,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,100,5,27.9,0.279,31,
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,100,10,41.1,0.411,27,
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,100,20,,0.569,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,100,35,,0.686,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,150,5,52.0,0.347,20,
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,150,10,,0.517,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,150,20,,0.652,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,150,35,,0.785,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,200,5,82.2,0.411,14,
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,200,10,,0.569,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,200,20,,0.717,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,200,35,,0.864,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,250,5,118.5,0.474,10,
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,250,10,,0.613,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,250,20,,0.773,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,250,35,,0.931,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,300,5,,0.517,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,300,10,,0.652,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,300,20,,0.821,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.02,300,35,,0.990,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,50,5,9.1,0.183,73,
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,50,10,12.5,0.250,77,
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,50,20,18.0,0.360,72,
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,50,35,,0.506,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,100,5,25.0,0.250,39,
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,100,10,36.0,0.360,36,
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,100,20,,0.529,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,100,35,,0.637,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,150,5,46.0,0.307,25,
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,150,10,69.2,0.461,21,
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,150,20,,0.605,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,150,35,,0.729,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,200,5,72.0,0.360,18,
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,200,10,,0.529,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,200,20,,0.666,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,200,35,,0.802,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,250,5,102.8,0.411,14,
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,250,10,,0.569,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,250,20,,0.717,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,250,35,,0.864,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,300,5,138.4,0.461,11,
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,300,10,,0.605,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,300,20,,0.762,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.025,300,35,,0.919,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,50,5,6.9,0.138,130,
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,50,10,9.1,0.183,147,
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,50,20,12.5,0.250,155,
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,50,35,16.7,0.334,149,
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,100,5,18.3,0.183,73,
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,100,10,25.0,0.250,77,
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,100,20,36.0,0.360,72,
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,100,35,,0.506,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,150,5,32.8,0.218,51,
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,150,10,46.0,0.307,51,
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,150,20,69.2,0.461,43,
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,150,35,,0.579,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,200,5,50.0,0.250,39,
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,200,10,72.0,0.360,36,
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,200,20,,0.529,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,200,35,,0.637,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,250,5,69.8,0.279,31,
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,250,10,102.8,0.411,27,
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,250,20,,0.569,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,250,35,,0.686,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,300,5,92.1,0.307,25,
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,300,10,138.4,0.461,21,
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,300,20,,0.605,,add support
+C4,2,"short side b (a = 2 b)","6061-T6 at 120 C",66000,0.33,0.05,300,35,,0.729,,add support
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,50,5,7.9,0.157,100,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,50,10,10.5,0.210,110,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,50,20,14.6,0.293,112,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,50,35,19.9,0.399,103,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,100,5,21.0,0.210,55,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,100,10,29.3,0.293,56,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,100,20,43.3,0.433,49,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,100,35,,0.559,,add support
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,150,5,38.1,0.254,38,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,150,10,54.7,0.364,35,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,150,20,,0.531,,add support
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,150,35,,0.640,,add support
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,200,5,58.5,0.293,28,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,200,10,86.5,0.433,25,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,200,20,,0.584,,add support
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,200,35,,0.704,,add support
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,250,5,82.3,0.329,22,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,250,10,124.9,0.499,18,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,250,20,,0.630,,add support
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,250,35,,0.759,,add support
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,300,5,109.3,0.364,18,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,300,10,,0.531,,add support
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,300,20,,0.669,,add support
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.012,300,35,,0.806,,add support
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,50,5,6.4,0.129,149,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,50,10,8.5,0.169,172,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,50,20,11.4,0.228,186,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,50,35,15.0,0.300,186,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,100,5,16.9,0.169,86,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,100,10,22.8,0.228,93,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,100,20,32.2,0.322,92,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,100,35,44.6,0.446,81,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,150,5,30.1,0.201,61,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,150,10,41.6,0.277,62,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,150,20,60.8,0.406,57,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,150,35,,0.540,,add support
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,200,5,45.7,0.228,47,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,200,10,64.4,0.322,46,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,200,20,97.2,0.486,39,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,200,35,,0.594,,add support
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,250,5,63.4,0.254,38,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,250,10,91.1,0.364,35,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,250,20,,0.531,,add support
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,250,35,,0.640,,add support
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,300,5,83.2,0.277,31,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,300,10,121.7,0.406,28,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,300,20,,0.564,,add support
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.02,300,35,,0.680,,add support
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,50,5,5.9,0.118,176,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,50,10,7.7,0.155,206,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,50,20,10.3,0.207,229,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,50,35,13.4,0.268,235,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,100,5,15.5,0.155,103,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,100,10,20.7,0.207,114,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,100,20,28.7,0.287,117,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,100,35,38.9,0.389,108,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,150,5,27.4,0.183,74,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,150,10,37.3,0.249,78,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,150,20,53.4,0.356,74,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,150,35,,0.501,,add support
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,200,5,41.3,0.207,57,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,200,10,57.3,0.287,58,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,200,20,84.4,0.422,52,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,200,35,,0.551,,add support
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,250,5,57.1,0.228,47,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,250,10,80.5,0.322,46,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,250,20,121.5,0.486,39,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,250,35,,0.594,,add support
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,300,5,74.6,0.249,39,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,300,10,106.8,0.356,37,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,300,20,,0.524,,add support
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.025,300,35,,0.631,,add support
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,50,5,4.6,0.092,293,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,50,10,5.9,0.118,353,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,50,20,7.7,0.155,412,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,50,35,9.8,0.195,451,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,100,5,11.8,0.118,176,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,100,10,15.5,0.155,206,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,100,20,20.7,0.207,229,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,100,35,26.8,0.268,235,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,150,5,20.7,0.138,129,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,150,10,27.4,0.183,147,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,150,20,37.3,0.249,156,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,150,35,49.6,0.331,152,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,200,5,30.9,0.155,103,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,200,10,41.3,0.207,114,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,200,20,57.3,0.287,117,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,200,35,77.8,0.389,108,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,250,5,42.3,0.169,86,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,250,10,57.1,0.228,93,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,250,20,80.5,0.322,92,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,250,35,111.5,0.446,81,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,300,5,54.8,0.183,74,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,300,10,74.6,0.249,78,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,300,20,106.8,0.356,74,
+C4,2,"short side b (a = 2 b)","P20 at 120 C",200000,0.29,0.05,300,35,,0.501,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.012,50,5,21.6,0.432,21,
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.012,50,10,,0.563,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.012,50,20,,0.709,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.012,50,35,,0.854,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.012,100,5,,0.563,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.012,100,10,,0.709,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.012,100,20,,0.893,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.012,100,35,,1.076,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.012,150,5,,0.644,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.012,150,10,,0.812,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.012,150,20,,1.022,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.012,150,35,,1.232,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.012,200,5,,0.709,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.012,200,10,,0.893,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.012,200,20,,1.125,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.012,200,35,,1.356,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.012,250,5,,0.764,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.012,250,10,,0.962,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.012,250,20,,1.212,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.012,250,35,,1.461,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.012,300,5,,0.812,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.012,300,10,,1.022,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.012,300,20,,1.288,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.012,300,35,,1.552,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.02,50,5,17.5,0.350,31,
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.02,50,10,23.3,0.467,35,
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.02,50,20,,0.598,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.02,50,35,,0.721,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.02,100,5,46.7,0.467,18,
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.02,100,10,,0.598,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.02,100,20,,0.753,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.02,100,35,,0.908,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.02,150,5,,0.543,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.02,150,10,,0.684,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.02,150,20,,0.862,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.02,150,35,,1.039,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.02,200,5,,0.598,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.02,200,10,,0.753,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.02,200,20,,0.949,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.02,200,35,,1.144,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.02,250,5,,0.644,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.02,250,10,,0.812,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.02,250,20,,1.022,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.02,250,35,,1.232,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.02,300,5,,0.684,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.02,300,10,,0.862,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.02,300,20,,1.087,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.02,300,35,,1.309,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.025,50,5,16.0,0.321,37,
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.025,50,10,21.2,0.424,43,
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.025,50,20,,0.555,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.025,50,35,,0.669,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.025,100,5,42.4,0.424,21,
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.025,100,10,,0.555,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.025,100,20,,0.699,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.025,100,35,,0.843,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.025,150,5,,0.504,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.025,150,10,,0.635,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.025,150,20,,0.801,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.025,150,35,,0.965,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.025,200,5,,0.555,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.025,200,10,,0.699,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.025,200,20,,0.881,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.025,200,35,,1.062,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.025,250,5,,0.598,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.025,250,10,,0.753,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.025,250,20,,0.949,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.025,250,35,,1.144,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.025,300,5,,0.635,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.025,300,10,,0.801,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.025,300,20,,1.009,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.025,300,35,,1.216,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.05,50,5,12.4,0.247,63,
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.05,50,10,16.0,0.321,75,
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.05,50,20,21.2,0.424,85,
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.05,50,35,,0.531,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.05,100,5,32.1,0.321,37,
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.05,100,10,42.4,0.424,43,
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.05,100,20,,0.555,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.05,100,35,,0.669,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.05,150,5,56.5,0.377,27,
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.05,150,10,,0.504,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.05,150,20,,0.635,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.05,150,35,,0.766,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.05,200,5,84.9,0.424,21,
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.05,200,10,,0.555,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.05,200,20,,0.699,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.05,200,35,,0.843,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.05,250,5,116.7,0.467,18,
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.05,250,10,,0.598,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.05,250,20,,0.753,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.05,250,35,,0.908,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.05,300,5,,0.504,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.05,300,10,,0.635,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.05,300,20,,0.801,,add support
+Rails,4,"rail spacing b (plate 4 b long)","6061-T6 at 120 C",66000,0.33,0.05,300,35,,0.965,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.012,50,5,13.8,0.277,50,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.012,50,10,18.1,0.361,59,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.012,50,20,24.1,0.482,66,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.012,50,35,,0.586,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.012,100,5,36.1,0.361,29,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.012,100,10,48.2,0.482,33,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.012,100,20,,0.613,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.012,100,35,,0.739,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.012,150,5,64.0,0.426,21,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.012,150,10,,0.557,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.012,150,20,,0.702,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.012,150,35,,0.845,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.012,200,5,96.4,0.482,16,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.012,200,10,,0.613,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.012,200,20,,0.772,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.012,200,35,,0.931,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.012,250,5,,0.524,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.012,250,10,,0.660,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.012,250,20,,0.832,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.012,250,35,,1.002,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.012,300,5,,0.557,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.012,300,10,,0.702,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.012,300,20,,0.884,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.012,300,35,,1.065,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.02,50,5,11.5,0.229,74,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.02,50,10,14.8,0.296,88,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.02,50,20,19.4,0.389,101,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.02,50,35,24.6,0.493,110,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.02,100,5,29.6,0.296,44,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.02,100,10,38.9,0.389,51,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.02,100,20,,0.517,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.02,100,35,,0.623,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.02,150,5,52.0,0.347,32,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.02,150,10,69.1,0.461,36,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.02,150,20,,0.592,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.02,150,35,,0.713,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.02,200,5,77.8,0.389,25,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.02,200,10,,0.517,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.02,200,20,,0.651,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.02,200,35,,0.785,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.02,250,5,106.6,0.426,21,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.02,250,10,,0.557,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.02,250,20,,0.702,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.02,250,35,,0.845,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.02,300,5,138.2,0.461,18,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.02,300,10,,0.592,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.02,300,20,,0.746,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.02,300,35,,0.898,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.025,50,5,10.6,0.211,87,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.025,50,10,13.6,0.272,104,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.025,50,20,17.8,0.356,121,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.025,50,35,22.4,0.447,134,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.025,100,5,27.2,0.272,52,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.025,100,10,35.6,0.356,61,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.025,100,20,47.4,0.474,68,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.025,100,35,,0.578,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.025,150,5,47.7,0.318,38,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.025,150,10,62.9,0.419,44,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.025,150,20,,0.549,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.025,150,35,,0.662,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.025,200,5,71.1,0.356,30,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.025,200,10,94.7,0.474,34,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.025,200,20,,0.605,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.025,200,35,,0.729,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.025,250,5,97.2,0.389,25,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.025,250,10,,0.517,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.025,250,20,,0.651,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.025,250,35,,0.785,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.025,300,5,125.7,0.419,22,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.025,300,10,,0.549,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.025,300,20,,0.692,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.025,300,35,,0.834,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.05,50,5,8.3,0.165,142,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.05,50,10,10.6,0.211,173,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.05,50,20,13.6,0.272,208,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.05,50,35,16.9,0.337,236,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.05,100,5,21.1,0.211,87,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.05,100,10,27.2,0.272,104,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.05,100,20,35.6,0.356,121,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.05,100,35,44.7,0.447,134,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.05,150,5,36.7,0.245,64,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.05,150,10,47.7,0.318,76,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.05,150,20,62.9,0.419,87,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.05,150,35,,0.525,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.05,200,5,54.5,0.272,52,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.05,200,10,71.1,0.356,61,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.05,200,20,94.7,0.474,68,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.05,200,35,,0.578,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.05,250,5,74.1,0.296,44,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.05,250,10,97.2,0.389,51,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.05,250,20,,0.517,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.05,250,35,,0.623,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.05,300,5,95.3,0.318,38,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.05,300,10,125.7,0.419,44,
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.05,300,20,,0.549,,add support
+Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.05,300,35,,0.662,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,50,5,,1.291,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,50,10,,1.769,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,50,20,,2.439,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,50,35,,3.176,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,100,5,,1.769,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,100,10,,2.439,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,100,20,,3.384,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,100,35,,4.422,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,150,5,,2.133,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,150,10,,2.952,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,150,20,,4.107,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,150,35,,5.378,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,200,5,,2.439,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,200,10,,3.384,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,200,20,,4.716,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,200,35,,6.182,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,250,5,,2.709,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,250,10,,3.764,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,250,20,,5.252,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,250,35,,6.891,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,300,5,,2.952,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,300,10,,4.107,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,300,20,,5.737,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,300,35,,7.532,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,50,5,,1.029,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,50,10,,1.402,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,50,20,,1.924,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,50,35,,2.496,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,100,5,,1.402,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,100,10,,1.924,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,100,20,,2.657,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,100,35,,3.463,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,150,5,,1.686,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,150,10,,2.322,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,150,20,,3.219,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,150,35,,4.204,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,200,5,,1.924,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,200,10,,2.657,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,200,20,,3.691,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,200,35,,4.828,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,250,5,,2.133,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,250,10,,2.952,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,250,20,,4.107,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,250,35,,5.378,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,300,5,,2.322,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,300,10,,3.219,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,300,20,,4.483,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,300,35,,5.874,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,50,5,,0.933,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,50,10,,1.268,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,50,20,,1.736,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,50,35,,2.249,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,100,5,,1.268,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,100,10,,1.736,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,100,20,,2.393,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,100,35,,3.115,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,150,5,,1.523,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,150,10,,2.093,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,150,20,,2.896,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,150,35,,3.778,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,200,5,,1.736,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,200,10,,2.393,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,200,20,,3.319,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,200,35,,4.336,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,250,5,,1.924,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,250,10,,2.657,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,250,20,,3.691,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,250,35,,4.828,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,300,5,,2.093,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,300,10,,2.896,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,300,20,,4.027,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,300,35,,5.272,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,50,5,,0.693,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,50,10,,0.933,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,50,20,,1.268,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,50,35,,1.633,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,100,5,,0.933,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,100,10,,1.268,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,100,20,,1.736,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,100,35,,2.249,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,150,5,,1.116,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,150,10,,1.523,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,150,20,,2.093,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,150,35,,2.719,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,200,5,,1.268,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,200,10,,1.736,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,200,20,,2.393,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,200,35,,3.115,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,250,5,,1.402,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,250,10,,1.924,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,250,20,,2.657,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,250,35,,3.463,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,300,5,,1.523,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,300,10,,2.093,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,300,20,,2.896,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,300,35,,3.778,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,50,5,,0.794,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,50,10,,1.073,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,50,20,,1.464,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,50,35,,1.890,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,100,5,,1.073,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,100,10,,1.464,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,100,20,,2.010,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,100,35,,2.610,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,150,5,,1.286,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,150,10,,1.761,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,150,20,,2.428,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,150,35,,3.161,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,200,5,,1.464,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,200,10,,2.010,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,200,20,,2.779,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,200,35,,3.624,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,250,5,,1.620,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,250,10,,2.230,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,250,20,,3.088,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,250,35,,4.032,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,300,5,,1.761,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,300,10,,2.428,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,300,20,,3.368,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,300,35,,4.401,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,50,5,,0.639,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,50,10,,0.858,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,50,20,,1.164,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,50,35,,1.496,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,100,5,,0.858,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,100,10,,1.164,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,100,20,,1.590,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,100,35,,2.056,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,150,5,,1.025,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,150,10,,1.396,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,150,20,,1.915,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,150,35,,2.484,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,200,5,,1.164,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,200,10,,1.590,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,200,20,,2.188,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,200,35,,2.844,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,250,5,,1.286,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,250,10,,1.761,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,250,20,,2.428,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,250,35,,3.161,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,300,5,,1.396,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,300,10,,1.915,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,300,20,,2.645,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,300,35,,3.447,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,50,5,,0.582,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,50,10,,0.780,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,50,20,,1.054,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,50,35,,1.353,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,100,5,,0.780,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,100,10,,1.054,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,100,20,,1.437,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,100,35,,1.855,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,150,5,,0.929,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,150,10,,1.262,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,150,20,,1.728,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,150,35,,2.238,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,200,5,,1.054,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,200,10,,1.437,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,200,20,,1.973,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,200,35,,2.561,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,250,5,,1.164,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,250,10,,1.590,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,250,20,,2.188,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,250,35,,2.844,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,300,5,,1.262,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,300,10,,1.728,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,300,20,,2.382,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,300,35,,3.100,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,50,5,21.2,0.424,75,
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,50,10,,0.582,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,50,20,,0.780,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,50,35,,0.994,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,100,5,,0.582,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,100,10,,0.780,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,100,20,,1.054,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,100,35,,1.353,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,150,5,,0.690,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,150,10,,0.929,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,150,20,,1.262,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,150,35,,1.626,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,200,5,,0.780,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,200,10,,1.054,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,200,20,,1.437,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,200,35,,1.855,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,250,5,,0.858,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,250,10,,1.164,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,250,20,,1.590,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,250,35,,2.056,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,300,5,,0.929,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,300,10,,1.262,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,300,20,,1.728,,add support
+Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,300,35,,2.238,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,50,5,,1.354,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,50,10,,1.857,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,50,20,,2.564,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,50,35,,3.339,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,100,5,,1.857,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,100,10,,2.564,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,100,20,,3.559,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,100,35,,4.653,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,150,5,,2.241,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,150,10,,3.104,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,150,20,,4.321,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,150,35,,5.660,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,200,5,,2.564,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,200,10,,3.559,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,200,20,,4.963,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,200,35,,6.509,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,250,5,,2.847,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,250,10,,3.959,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,250,20,,5.528,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,250,35,,7.256,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,300,5,,3.104,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,300,10,,4.321,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,300,20,,6.039,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,300,35,,7.932,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,50,5,,1.078,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,50,10,,1.471,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,50,20,,2.020,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,50,35,,2.623,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,100,5,,1.471,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,100,10,,2.020,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,100,20,,2.793,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,100,35,,3.642,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,150,5,,1.769,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,150,10,,2.440,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,150,20,,3.384,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,150,35,,4.423,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,200,5,,2.020,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,200,10,,2.793,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,200,20,,3.882,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,200,35,,5.081,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,250,5,,2.241,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,250,10,,3.104,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,250,20,,4.321,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,250,35,,5.660,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,300,5,,2.440,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,300,10,,3.384,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,300,20,,4.717,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,300,35,,6.184,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,50,5,,0.978,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,50,10,,1.330,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,50,20,,1.823,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,50,35,,2.363,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,100,5,,1.330,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,100,10,,1.823,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,100,20,,2.515,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,100,35,,3.275,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,150,5,,1.598,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,150,10,,2.199,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,150,20,,3.044,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,150,35,,3.974,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,200,5,,1.823,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,200,10,,2.515,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,200,20,,3.490,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,200,35,,4.563,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,250,5,,2.020,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,250,10,,2.793,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,250,20,,3.882,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,250,35,,5.081,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,300,5,,2.199,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,300,10,,3.044,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,300,20,,4.237,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,300,35,,5.549,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,50,5,,0.724,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,50,10,,0.978,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,50,20,,1.330,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,50,35,,1.714,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,100,5,,0.978,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,100,10,,1.330,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,100,20,,1.823,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,100,35,,2.363,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,150,5,,1.169,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,150,10,,1.598,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,150,20,,2.199,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,150,35,,2.858,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,200,5,,1.330,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,200,10,,1.823,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,200,20,,2.515,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,200,35,,3.275,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,250,5,,1.471,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,250,10,,2.020,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,250,20,,2.793,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,250,35,,3.642,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,300,5,,1.598,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,300,10,,2.199,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,300,20,,3.044,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,300,35,,3.974,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,50,5,,0.835,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,50,10,,1.132,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,50,20,,1.545,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,50,35,,1.997,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,100,5,,1.132,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,100,10,,1.545,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,100,20,,2.125,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,100,35,,2.761,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,150,5,,1.356,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,150,10,,1.860,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,150,20,,2.567,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,150,35,,3.345,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,200,5,,1.545,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,200,10,,2.125,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,200,20,,2.940,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,200,35,,3.836,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,250,5,,1.711,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,250,10,,2.357,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,250,20,,3.268,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,250,35,,4.269,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,300,5,,1.860,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,300,10,,2.567,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,300,20,,3.564,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,300,35,,4.661,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,50,5,,0.671,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,50,10,,0.904,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,50,20,,1.227,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,50,35,,1.580,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,100,5,,0.904,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,100,10,,1.227,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,100,20,,1.679,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,100,35,,2.173,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,150,5,,1.080,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,150,10,,1.473,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,150,20,,2.023,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,150,35,,2.627,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,200,5,,1.227,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,200,10,,1.679,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,200,20,,2.313,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,200,35,,3.009,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,250,5,,1.356,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,250,10,,1.860,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,250,20,,2.567,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,250,35,,3.345,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,300,5,,1.473,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,300,10,,2.023,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,300,20,,2.797,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,300,35,,3.648,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,50,5,,0.611,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,50,10,,0.821,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,50,20,,1.111,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,50,35,,1.427,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,100,5,,0.821,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,100,10,,1.111,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,100,20,,1.517,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,100,35,,1.960,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,150,5,,0.979,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,150,10,,1.332,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,150,20,,1.825,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,150,35,,2.366,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,200,5,,1.111,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,200,10,,1.517,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,200,20,,2.085,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,200,35,,2.708,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,250,5,,1.227,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,250,10,,1.679,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,250,20,,2.313,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,250,35,,3.009,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,300,5,,1.332,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,300,10,,1.825,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,300,20,,2.519,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,300,35,,3.280,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,50,5,22.6,0.451,74,
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,50,10,,0.611,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,50,20,,0.821,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,50,35,,1.048,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,100,5,,0.611,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,100,10,,0.821,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,100,20,,1.111,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,100,35,,1.427,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,150,5,,0.725,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,150,10,,0.979,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,150,20,,1.332,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,150,35,,1.717,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,200,5,,0.821,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,200,10,,1.111,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,200,20,,1.517,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,200,35,,1.960,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,250,5,,0.904,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,250,10,,1.227,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,250,20,,1.679,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,250,35,,2.173,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,300,5,,0.979,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,300,10,,1.332,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,300,20,,1.825,,add support
+Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,300,35,,2.366,,add support

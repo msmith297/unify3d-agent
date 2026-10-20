@@ -23,15 +23,17 @@ namespace SwAgent.Mold.Structural.Fe.Sweep
             ("C4", 1.0, "panel side b (square, clamped all round)"),
             ("C4", 2.0, "short side b (a = 2 b)"),
             ("Rails", 4.0, "rail spacing b (plate 4 b long)"),
-            ("Wall-C", 4.0, "loaded height h (wall L = 4 h); wall-root factor applied"),
-            ("Wall-C", 100.0, "loaded height h (long wall: strip with shear); wall-root factor applied"),
+            ("Wall-C", 4.0, "loaded height h (wall L = 4 h); t is the wall thickness w"),
+            ("Wall-C", 100.0, "loaded height h (long wall: strip with shear); t is the wall thickness w"),
         };
 
-        public static string Build(CoefficientTable table, double wallRootFactor = 1.2)
+        /// <summary>The CSV text. wallRootSlope c gives the wall-root factor 1 + c w/h (the 3D calibration, solid3d-summary.json).</summary>
+        public static string Build(CoefficientTable table, double wallRootSlope = 2.6)
         {
+            Func<double, double> root = wh => 1 + wallRootSlope * wh;
             var sb = new StringBuilder();
             sb.Append("# Required thickness t (mm) for a deflection limit: t = [f alpha(t/b) p b^4 / (E delta)]^(1/3), fixed point from coefficients.csv").Append('\n');
-            sb.Append($"# f = 1 for plates, {wallRootFactor.ToString(CultureInfo.InvariantCulture)} (wall-root factor) for walls. sigma = beta p b^2 / t^2 at that t. Over t/b = 0.5: add support (pillars, rails), do not thicken.").Append('\n');
+            sb.Append($"# f = 1 for plates; for walls the 3D-calibrated wall-root factor f = 1 + {wallRootSlope.ToString(CultureInfo.InvariantCulture)} w/h. sigma = beta p b^2 / t^2 at that t (walls: no membrane term). Over t/b = 0.5: add support (pillars, rails), do not thicken.").Append('\n');
             sb.Append("# coefficients sha256: ").Append(table.Sha256 ?? "?").Append('\n');
             sb.Append("bc,aspect,span_is,material,E_MPa,nu,delta_mm,span_mm,p_MPa,t_mm,t_over_b,sigma_MPa,note\n");
             foreach (var c in Cases)
@@ -40,8 +42,8 @@ namespace SwAgent.Mold.Structural.Fe.Sweep
                         foreach (var b in Spans)
                             foreach (var p in Pressures)
                             {
-                                double f = CoefficientSweep.IsWall(c.Bc) ? wallRootFactor : 1;
-                                double t = table.ThicknessForDeflection(c.Bc, c.Aspect, b, p, mat.E, mat.Nu, d, 1, f);
+                                bool wall = CoefficientSweep.IsWall(c.Bc);
+                                double t = table.ThicknessForDeflection(c.Bc, c.Aspect, b, p, mat.E, mat.Nu, d, 1, tau => wall ? root(tau) : 1);
                                 double tau = t / b;
                                 var (_, beta) = table.Get(c.Bc, c.Aspect, Math.Min(tau, 0.5), mat.Nu);
                                 bool over = tau > 0.5;
