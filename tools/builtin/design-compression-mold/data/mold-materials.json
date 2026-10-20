@@ -1,0 +1,3197 @@
+{
+ "schema_version": 1,
+ "generated": "2026-10-19",
+ "units": {
+  "E_GPa": "GPa",
+  "cte_per_K": "1/K",
+  "k_W_mK": "W/(m K)",
+  "density": "kg/m3",
+  "strength": "MPa",
+  "retained": "fraction of 20 C value, tested at temperature",
+  "fatigue_MPa": "stress amplitude, R=-1 unless noted"
+ },
+ "conventions": {
+  "retained_long_vs_short": "Design heated aluminium molds on the long_10000h row: a mold held at temperature 8 h/day reaches 10,000 h in ~5 years. short_0p5h is only for first heat-up checks.",
+  "max_service_C": "full_strength = design with the 20 C numbers less <=5-10%; derated = usable with the long-term retained fraction; never_above = overaging/softening/embrittlement risk.",
+  "cost_index": "per kg relative to 6061-T651 = 1.0 (~US$8/kg distributor cut plate, 2025-26); order-of-magnitude only - get quotes.",
+  "machinability": "aa_rating = Aluminum Association-style A-E letter (approx); index_1212 = AISI basis 1212=100 (steels, annealed or as noted); rel_mrr_vs_P20 = rough metal removal rate vs P20 pre-hard on a typical VMC with carbide (aluminium is usually spindle-limited).",
+  "confidence": "published | derived | estimate - estimates must be shown to the user as such.",
+  "use": "page lists: plate, insert, backing, stop; [] = not offered on the page (2024 ages and changes size above ~120 C)",
+  "short": "page label (about 300 px wide)"
+ },
+ "mold_materials": [
+  {
+   "id": "al_6061_t651",
+   "name": "6061-T6 / T651 rolled plate",
+   "family": "aluminium",
+   "spec": "ASTM B209 / AMS 4027; EN AW-6061 (EN 485)",
+   "E_GPa": 68.9,
+   "poisson": 0.33,
+   "density_kg_m3": 2700,
+   "cte_per_K": 2.36e-05,
+   "cte_range_C": "20-100",
+   "k_W_mK": 167,
+   "yield_MPa": 276,
+   "uts_MPa": 310,
+   "elongation_pct": 12,
+   "retained": {
+    "temps_C": [
+     100,
+     150,
+     200,
+     250
+    ],
+    "yield_long_10000h": [
+     0.95,
+     0.78,
+     0.4,
+     0.15
+    ],
+    "uts_long_10000h": [
+     0.94,
+     0.75,
+     0.42,
+     0.19
+    ],
+    "yield_short_0p5h": [
+     0.95,
+     0.9,
+     0.78,
+     0.55
+    ],
+    "E": [
+     0.97,
+     0.93,
+     0.86,
+     0.78
+    ],
+    "notes": "Long-term values from ASM/Kaufman typical properties after 10,000 h at temperature (24 C 310/276; 100 C 290/262; 149 C 234/214; 204 C 131/103; 260 C 51/34 MPa UTS/YS), interpolated to 150/200/250 C. MMPDS data: 100 h at 150 C gives no loss, so loss develops between ~100 h and 10,000 h. Short-time row approximate (MMPDS-style 1/2 h curves)."
+   },
+   "fatigue_MPa": {
+    "1e5": 142,
+    "1e6": 111,
+    "1e7": 101,
+    "5e8": 96.5,
+    "endurance_limit": false,
+    "basis": "Engineers Edge fit S = 14479/sqrt(N) + 96.5 MPa (R=-1, smooth); lower than MMPDS-approx 185/130/105 - verify before release"
+   },
+   "hardness": "95 HB",
+   "machinability": {
+    "aa_rating": "C (some charts B)",
+    "rel_mrr_vs_P20": 5.0,
+    "index_1212": null
+   },
+   "cost_index_per_kg": 1.0,
+   "max_service_C": {
+    "full_strength": 120,
+    "derated": 150,
+    "never_above": 175
+   },
+   "typical_use": "General cavity plates, cores, lids, backing plates for PU/epoxy/resin molds; the default aluminium choice. At 150 C design to 0.78 x yield (long-term).",
+   "sources": [
+    "ASM Handbook Vol 2; Kaufman, Properties of Aluminum Alloys (ASM 1999)",
+    "MatWeb 6061-T6",
+    "LIGO T1000564 (MMPDS citation, 150 C/100 h no loss)",
+    "EN 1999-1-2 Table 1 (E vs T)"
+   ],
+   "confidence": "published (interpolated at 200/250 C)",
+   "E_retained": null,
+   "density_lb_in3": 0.0975,
+   "cost_index_per_volume": 1.0,
+   "short": "6061-T651",
+   "use": [
+    "plate"
+   ],
+   "isDefault": true,
+   "swMaterial": "6061-T6 (SS)",
+   "skimPerFace_mm": 1.5,
+   "stockKey": "6061_T651_plate",
+   "agesDimensionally": false
+  },
+  {
+   "id": "al_7075_t651",
+   "name": "7075-T651 rolled plate",
+   "family": "aluminium",
+   "spec": "ASTM B209 / AMS 4045; EN AW-7075",
+   "E_GPa": 71.7,
+   "poisson": 0.33,
+   "density_kg_m3": 2810,
+   "cte_per_K": 2.36e-05,
+   "cte_range_C": "20-100",
+   "k_W_mK": 130,
+   "yield_MPa": 503,
+   "uts_MPa": 572,
+   "elongation_pct": 11,
+   "retained": {
+    "temps_C": [
+     100,
+     150,
+     200,
+     250
+    ],
+    "yield_long_10000h": [
+     0.89,
+     0.37,
+     0.19,
+     0.13
+    ],
+    "uts_long_10000h": [
+     0.84,
+     0.37,
+     0.2,
+     0.14
+    ],
+    "yield_short_0p5h": [
+     0.93,
+     0.85,
+     0.65,
+     0.4
+    ],
+    "E": [
+     0.97,
+     0.93,
+     0.86,
+     0.78
+    ],
+    "notes": "ASM/Kaufman after 10,000 h: 24 C 572/503; 100 C 483/448; 149 C 214/186; 204 C 110/87; 260 C 76/62 MPa. Strength collapses by overaging above ~120 C. Short-time row: Lin et al. 2020 (CJME) flow stress at 0.2% strain 536/408/305/198 MPa at 25/130/180/230 C."
+   },
+   "fatigue_MPa": {
+    "1e5": 300,
+    "1e6": 220,
+    "1e7": 175,
+    "5e8": 159,
+    "endurance_limit": false,
+    "basis": "R=-1 smooth; 5e8 value 159 MPa (ASM/MatWeb); others read from S-N curves (approx)"
+   },
+   "hardness": "150 HB",
+   "machinability": {
+    "aa_rating": "B",
+    "rel_mrr_vs_P20": 5.0,
+    "index_1212": null
+   },
+   "cost_index_per_kg": 2.2,
+   "max_service_C": {
+    "full_strength": 100,
+    "derated": 120,
+    "never_above": 135
+   },
+   "typical_use": "High-pressure cavity/core plates and thin ribs for LOW temperature work only (RTV, PU, epoxy <= 100 C). Do not use for rubber or hot-cure resin (>= 130 C).",
+   "sources": [
+    "ASM Handbook Vol 2; Kaufman (ASM 1999)",
+    "MatWeb 7075-T651",
+    "Lin et al., Chin. J. Mech. Eng. 33 (2020) doi:10.1186/s10033-020-00494-8"
+   ],
+   "confidence": "published",
+   "E_retained": null,
+   "density_lb_in3": 0.102,
+   "cost_index_per_volume": 2.3,
+   "short": "7075-T651",
+   "use": [
+    "plate"
+   ],
+   "isDefault": false,
+   "swMaterial": null,
+   "skimPerFace_mm": 1.5,
+   "stockKey": "7075_T651_plate",
+   "agesDimensionally": false
+  },
+  {
+   "id": "al_mic6",
+   "name": "MIC-6 cast tool & jig plate (Alcoa/Arconic, now Howmet/Kaiser distributors)",
+   "family": "aluminium",
+   "spec": "proprietary cast, stress-relieved; ~7xxx-type chemistry",
+   "E_GPa": 71.0,
+   "poisson": 0.33,
+   "density_kg_m3": 2700,
+   "cte_per_K": 2.36e-05,
+   "cte_range_C": "20-100 (24.5e-6 for 20-200)",
+   "k_W_mK": 142,
+   "yield_MPa": 105,
+   "uts_MPa": 166,
+   "elongation_pct": 3,
+   "retained": {
+    "temps_C": [
+     100,
+     150,
+     200,
+     250
+    ],
+    "yield_long_10000h": [
+     0.97,
+     0.85,
+     0.65,
+     0.45
+    ],
+    "uts_long_10000h": [
+     0.95,
+     0.82,
+     0.62,
+     0.42
+    ],
+    "yield_short_0p5h": [
+     0.98,
+     0.92,
+     0.8,
+     0.62
+    ],
+    "E": [
+     0.97,
+     0.93,
+     0.86,
+     0.78
+    ],
+    "notes": "ESTIMATE. No published elevated-temperature curve found; already stress-relieved and low strength, so it is dimensionally stable but has little strength to lose. Treat as estimate until supplier data is obtained."
+   },
+   "fatigue_MPa": {
+    "1e5": 90,
+    "1e6": 70,
+    "1e7": 55,
+    "endurance_limit": false,
+    "basis": "ESTIMATE ~0.33 x UTS at 1e7 (typical for cast aluminium)"
+   },
+   "hardness": "65 HB",
+   "machinability": {
+    "aa_rating": "B",
+    "rel_mrr_vs_P20": 5.0,
+    "index_1212": null
+   },
+   "cost_index_per_kg": 1.4,
+   "max_service_C": {
+    "full_strength": 150,
+    "derated": 200,
+    "never_above": 250
+   },
+   "typical_use": "Flat, stable backing plates, heater/thermal plates, lids and fixture plates where flatness (0.015 in max) and +/-0.005 in thickness matter more than strength. Low thread strength: tapped holes need inserts or through-bolts.",
+   "sources": [
+    "Upmet MIC-6 datasheet (upmet.com/products/aluminum/mic-6)",
+    "Knowde Alcoa KAMA MIC-6",
+    "McMaster-Carr MIC6 listings (tolerances)"
+   ],
+   "confidence": "published at 20 C; elevated & fatigue estimated",
+   "E_retained": null,
+   "density_lb_in3": 0.0975,
+   "cost_index_per_volume": 1.4,
+   "short": "MIC-6 cast plate",
+   "use": [
+    "plate",
+    "backing"
+   ],
+   "isDefault": false,
+   "swMaterial": null,
+   "skimPerFace_mm": 0.0,
+   "stockKey": "mic6_cast_plate",
+   "agesDimensionally": false
+  },
+  {
+   "id": "al_qc10",
+   "name": "QC-10 mold plate (Alcoa -> Arconic, sold via voestalpine HPM)",
+   "family": "aluminium",
+   "spec": "proprietary 7xxx high-strength mold alloy (ASM Alloy Digest Al-423)",
+   "E_GPa": 71.7,
+   "poisson": 0.33,
+   "density_kg_m3": 2830,
+   "cte_per_K": 2.47e-05,
+   "cte_range_C": "not stated (13.7e-6/F per Arconic)",
+   "k_W_mK": 159,
+   "yield_MPa": 490,
+   "uts_MPa": 530,
+   "elongation_pct": 7,
+   "retained": {
+    "temps_C": [
+     100,
+     150,
+     200,
+     250
+    ],
+    "yield_long_10000h": [
+     0.9,
+     0.55,
+     0.25,
+     0.15
+    ],
+    "uts_long_10000h": [
+     0.88,
+     0.55,
+     0.27,
+     0.17
+    ],
+    "yield_short_0p5h": [
+     0.93,
+     0.85,
+     0.7,
+     0.45
+    ],
+    "E": [
+     0.97,
+     0.93,
+     0.86,
+     0.78
+    ],
+    "notes": "ESTIMATE based on overaged 7xxx (7050-T74-like) behaviour. Supplier positions QC-10 for injection molds (40-120 C). Get supplier data before using above 120 C."
+   },
+   "fatigue_MPa": {
+    "1e5": 270,
+    "1e6": 200,
+    "1e7": 160,
+    "endurance_limit": false,
+    "basis": "ESTIMATE from 7050-T7451 class data"
+   },
+   "hardness": "150-170 HB",
+   "machinability": {
+    "aa_rating": "A/B",
+    "rel_mrr_vs_P20": 5.0,
+    "index_1212": null
+   },
+   "cost_index_per_kg": 2.6,
+   "max_service_C": {
+    "full_strength": 100,
+    "derated": 120,
+    "never_above": 150
+   },
+   "typical_use": "Production aluminium cavity blocks in thick sections (properties uniform through 1-24 in); replaces P20 where temperature <= 120 C. Hard steel inserts/bushings at all bolt-down, dowel and wear contacts (Arconic fact sheet).",
+   "sources": [
+    "Arconic QC-10 Mold & Tooling Fact Sheet 2016 (CTE 13.7e-6/F, 4-5x P20 conductivity)",
+    "Total Materia QC-10 (UTS 500-565 MPa, 150-170 HB, k~160)",
+    "PlasticsToday NPE 2006 launch article"
+   ],
+   "confidence": "partly published; yield and elevated values estimated",
+   "E_retained": null,
+   "density_lb_in3": 0.102,
+   "cost_index_per_volume": 2.7,
+   "short": "QC-10",
+   "use": [
+    "plate"
+   ],
+   "isDefault": false,
+   "swMaterial": null,
+   "skimPerFace_mm": 1.5,
+   "stockKey": null,
+   "agesDimensionally": false
+  },
+  {
+   "id": "al_alumold500",
+   "name": "Alumold 500 mold plate (Constellium)",
+   "family": "aluminium",
+   "spec": "proprietary 7xxx mold alloy, rolled 1-8 in / forged 10-27 in",
+   "E_GPa": 73.1,
+   "poisson": 0.33,
+   "density_kg_m3": 2823,
+   "cte_per_K": 2.38e-05,
+   "cte_range_C": "not stated (13.2e-6/F per Alro)",
+   "k_W_mK": 152,
+   "yield_MPa": 538,
+   "uts_MPa": 586,
+   "elongation_pct": 10,
+   "thickness_dependence": [
+    {
+     "t_in": "1-3",
+     "ys_ksi": 78,
+     "uts_ksi": 85,
+     "HB": 185
+    },
+    {
+     "t_in": "3-5",
+     "ys_ksi": 76,
+     "uts_ksi": 84,
+     "HB": 185
+    },
+    {
+     "t_in": "5-6",
+     "ys_ksi": 75,
+     "uts_ksi": 82,
+     "HB": 180
+    },
+    {
+     "t_in": "6-8",
+     "ys_ksi": 73,
+     "uts_ksi": 80,
+     "HB": 180
+    },
+    {
+     "t_in": "10-11 forged",
+     "ys_ksi": 67,
+     "uts_ksi": 76,
+     "HB": 180
+    },
+    {
+     "t_in": "17-27 forged",
+     "ys_ksi": 60,
+     "uts_ksi": 70,
+     "HB": 165
+    }
+   ],
+   "retained": {
+    "temps_C": [
+     100,
+     150,
+     200,
+     250
+    ],
+    "yield_long_10000h": [
+     0.9,
+     0.55,
+     0.25,
+     0.15
+    ],
+    "uts_long_10000h": [
+     0.88,
+     0.55,
+     0.27,
+     0.17
+    ],
+    "yield_short_0p5h": [
+     0.93,
+     0.85,
+     0.7,
+     0.45
+    ],
+    "E": [
+     0.97,
+     0.93,
+     0.86,
+     0.78
+    ],
+    "notes": "ESTIMATE (same as QC-10, 7xxx overaging). Use <= 120 C."
+   },
+   "fatigue_MPa": {
+    "1e5": 280,
+    "1e6": 210,
+    "1e7": 165,
+    "endurance_limit": false,
+    "basis": "ESTIMATE"
+   },
+   "hardness": "165-185 HB",
+   "machinability": {
+    "aa_rating": "A/B",
+    "rel_mrr_vs_P20": 5.0,
+    "index_1212": null
+   },
+   "cost_index_per_kg": 2.6,
+   "max_service_C": {
+    "full_strength": 100,
+    "derated": 120,
+    "never_above": 150
+   },
+   "typical_use": "Same role as QC-10. Alro stocks up to 20 in thick.",
+   "sources": [
+    "Alro Alumold 500 sheet (Mar 2025): YS/UTS/HB by thickness, k 88 BTU/ft-hr-F, CTE 13.2e-6/F, 0.102 lb/in3, E 10.6e6 psi",
+    "Constellium mold plates page"
+   ],
+   "confidence": "published at 20 C; elevated & fatigue estimated",
+   "E_retained": null,
+   "density_lb_in3": 0.102,
+   "cost_index_per_volume": 2.7,
+   "short": "Alumold 500",
+   "use": [
+    "plate"
+   ],
+   "isDefault": false,
+   "swMaterial": null,
+   "skimPerFace_mm": 1.5,
+   "stockKey": null,
+   "agesDimensionally": false
+  },
+  {
+   "id": "al_2024_t351",
+   "name": "2024-T351 plate",
+   "family": "aluminium",
+   "spec": "ASTM B209 / AMS 4037; EN AW-2024",
+   "E_GPa": 73.1,
+   "poisson": 0.33,
+   "density_kg_m3": 2780,
+   "cte_per_K": 2.32e-05,
+   "cte_range_C": "20-100",
+   "k_W_mK": 121,
+   "yield_MPa": 324,
+   "uts_MPa": 469,
+   "elongation_pct": 19,
+   "retained": {
+    "temps_C": [
+     100,
+     150,
+     200,
+     250
+    ],
+    "yield_long_10000h": [
+     0.96,
+     0.9,
+     0.41,
+     0.2
+    ],
+    "uts_long_10000h": [
+     0.94,
+     0.78,
+     0.38,
+     0.17
+    ],
+    "yield_short_0p5h": [
+     0.95,
+     0.9,
+     0.8,
+     0.6
+    ],
+    "E": [
+     0.97,
+     0.93,
+     0.86,
+     0.78
+    ],
+    "notes": "ASM 2024-T3 after 10,000 h (approx 24 C 483/345; 100 C ~455/330; 149 C 379/310; 204 C 186/138; 260 C 76/62 MPa). WARNING: T3/T351 artificially ages above ~120 C; it holds strength at 150 C but changes dimensions and loses toughness while doing so. Use 2024-T851 or 2219/2618 for hot service."
+   },
+   "fatigue_MPa": {
+    "1e5": 280,
+    "1e6": 200,
+    "1e7": 160,
+    "5e8": 138,
+    "endurance_limit": false,
+    "basis": "R=-1; 5e8 value 138 MPa (ASM/MatWeb); others approx S-N"
+   },
+   "hardness": "120 HB",
+   "machinability": {
+    "aa_rating": "B",
+    "rel_mrr_vs_P20": 4.5,
+    "index_1212": null
+   },
+   "cost_index_per_kg": 2.2,
+   "max_service_C": {
+    "full_strength": 100,
+    "derated": 120,
+    "never_above": 150
+   },
+   "typical_use": "Rarely used in molds: tough and fatigue-resistant clamp bars or levers at <= 100 C. Poor corrosion resistance, does not anodize well. Not a cavity material.",
+   "sources": [
+    "ASM Handbook Vol 2; Kaufman (ASM 1999)",
+    "MatWeb 2024-T351"
+   ],
+   "confidence": "published (elevated values approximate)",
+   "E_retained": null,
+   "density_lb_in3": 0.1,
+   "cost_index_per_volume": 2.3,
+   "short": "2024-T351",
+   "use": [],
+   "isDefault": false,
+   "swMaterial": null,
+   "skimPerFace_mm": 1.5,
+   "stockKey": null,
+   "agesDimensionally": true
+  },
+  {
+   "id": "al_5083",
+   "name": "5083-O / H116 plate, or cast 5083 tooling plate",
+   "family": "aluminium",
+   "spec": "ASTM B209 / B928; EN AW-5083; cast tooling plates (e.g. Alpase M-1, ACP 5080, ALCA PLUS)",
+   "E_GPa": 70.3,
+   "poisson": 0.33,
+   "density_kg_m3": 2660,
+   "cte_per_K": 2.38e-05,
+   "cte_range_C": "20-100",
+   "k_W_mK": 117,
+   "yield_MPa": 145,
+   "uts_MPa": 290,
+   "elongation_pct": 20,
+   "alt_tempers": {
+    "H116": {
+     "yield_MPa": 228,
+     "uts_MPa": 317
+    },
+    "cast_tooling_plate": {
+     "yield_MPa": 120,
+     "uts_MPa": 260,
+     "note": "approx; varies by brand"
+    }
+   },
+   "retained": {
+    "temps_C": [
+     100,
+     150,
+     200,
+     250
+    ],
+    "yield_long_10000h": [
+     1.0,
+     0.9,
+     0.8,
+     0.56
+    ],
+    "uts_long_10000h": [
+     0.95,
+     0.74,
+     0.53,
+     0.41
+    ],
+    "yield_short_0p5h": [
+     1.0,
+     0.92,
+     0.82,
+     0.6
+    ],
+    "E": [
+     0.97,
+     0.93,
+     0.86,
+     0.78
+    ],
+    "notes": "ASM 5083-O after 10,000 h (24 C 290/145; 100 C 275/145; 149 C 215/130; 204 C 150/115; 260 C 115/75 MPa). Non-heat-treatable, so no overaging: the most stable aluminium here. H116 strain-hardening anneals out progressively above ~150 C. Sensitization (beta phase) above 65 C makes it prone to intergranular/stress corrosion if wet."
+   },
+   "fatigue_MPa": {
+    "1e5": 190,
+    "1e6": 155,
+    "1e7": 140,
+    "endurance_limit": false,
+    "basis": "approx (MatWeb 5083-H321 ~160 MPa at 5e8)"
+   },
+   "hardness": "75 HB (O), 85 HB (H116)",
+   "machinability": {
+    "aa_rating": "D (gummy)",
+    "rel_mrr_vs_P20": 2.5,
+    "index_1212": null
+   },
+   "cost_index_per_kg": 1.1,
+   "max_service_C": {
+    "full_strength": 200,
+    "derated": 250,
+    "never_above": 300
+   },
+   "typical_use": "Large, light, stable platens and lid frames at higher temperatures where strength needs are low; weldable. Cast 5083 tooling plate is a flat, stress-free alternative to MIC-6.",
+   "sources": [
+    "ASM Handbook Vol 2; Kaufman (ASM 1999)",
+    "ASTM B928 (65 C sensitization limit)",
+    "MatWeb 5083-O"
+   ],
+   "confidence": "published",
+   "E_retained": null,
+   "density_lb_in3": 0.0961,
+   "cost_index_per_volume": 1.1,
+   "short": "5083",
+   "use": [
+    "plate",
+    "backing"
+   ],
+   "isDefault": false,
+   "swMaterial": null,
+   "skimPerFace_mm": 1.5,
+   "stockKey": null,
+   "agesDimensionally": false
+  },
+  {
+   "id": "st_p20",
+   "name": "P20 / 1.2311 pre-hardened (e.g. Uddeholm Impax Supreme, Bohler M200)",
+   "family": "steel",
+   "spec": "AISI P20; DIN 1.2311 (1.2738 with Ni for large blocks)",
+   "E_GPa": 205,
+   "poisson": 0.29,
+   "density_kg_m3": 7800,
+   "cte_per_K": 1.27e-05,
+   "cte_range_C": "20-200",
+   "k_W_mK": 29,
+   "yield_MPa": 900,
+   "uts_MPa": 1020,
+   "elongation_pct": 14,
+   "retained": {
+    "temps_C": [
+     100,
+     150,
+     200,
+     250
+    ],
+    "yield_long_10000h": [
+     0.95,
+     0.92,
+     0.89,
+     0.87
+    ],
+    "uts_long_10000h": [
+     0.96,
+     0.93,
+     0.91,
+     0.89
+    ],
+    "E": [
+     0.99,
+     0.98,
+     0.975,
+     0.965
+    ],
+    "notes": "Uddeholm Impax Supreme (325 HB): Rp0.2 900 -> 800 MPa and Rm 1020 -> 930 MPa from 20 to 200 C; tempered ~550-600 C so no time effect below ~400 C. 100/150/250 C interpolated/extrapolated."
+   },
+   "fatigue_MPa": {
+    "1e5": 620,
+    "1e6": 510,
+    "1e7": 510,
+    "basis": "derived: Shigley estimate, R=-1 rotating-beam polished; apply Marin factors (machined ka~0.7-0.8) and Goodman for R=0 press loading",
+    "endurance_limit": true
+   },
+   "hardness": "290-330 HB (28-34 HRC)",
+   "machinability": {
+    "aa_rating": null,
+    "rel_mrr_vs_P20": 1.0,
+    "index_1212": 45
+   },
+   "cost_index_per_kg": 1.0,
+   "max_service_C": {
+    "full_strength": 250,
+    "derated": 350,
+    "never_above": 450
+   },
+   "typical_use": "Production cavities and cores for rubber/silicone/PU compression molds up to ~200 C; textures and polishes; can be nitrided.",
+   "sources": [
+    "Uddeholm Impax Supreme technical datasheet (2024 ed.)",
+    "MatWeb AISI P20"
+   ],
+   "confidence": "published",
+   "E_retained": null,
+   "density_lb_in3": 0.282,
+   "cost_index_per_volume": 2.9,
+   "short": "P20 pre-hard",
+   "use": [
+    "plate",
+    "insert"
+   ],
+   "isDefault": true,
+   "swMaterial": null,
+   "skimPerFace_mm": 2.0,
+   "stockKey": "p20_prehard",
+   "agesDimensionally": false
+  },
+  {
+   "id": "st_4140_ph",
+   "name": "4140 pre-hardened (28-32 HRC, 'HT' or 'PH')",
+   "family": "steel",
+   "spec": "AISI 4140 Q&T; DIN 1.7225 (42CrMo4)",
+   "E_GPa": 205,
+   "poisson": 0.29,
+   "density_kg_m3": 7850,
+   "cte_per_K": 1.23e-05,
+   "cte_range_C": "20-100",
+   "k_W_mK": 42.6,
+   "yield_MPa": 850,
+   "uts_MPa": 1000,
+   "elongation_pct": 15,
+   "retained": {
+    "temps_C": [
+     100,
+     150,
+     200,
+     250
+    ],
+    "yield_long_10000h": [
+     0.95,
+     0.92,
+     0.89,
+     0.86
+    ],
+    "uts_long_10000h": [
+     0.96,
+     0.93,
+     0.91,
+     0.89
+    ],
+    "E": [
+     0.99,
+     0.98,
+     0.975,
+     0.965
+    ],
+    "notes": "Tempered ~540-600 C, so stable; ratios taken as for P20 (similar chemistry)."
+   },
+   "fatigue_MPa": {
+    "1e5": 608,
+    "1e6": 500,
+    "1e7": 500,
+    "basis": "derived: Shigley estimate, R=-1 rotating-beam polished; apply Marin factors (machined ka~0.7-0.8) and Goodman for R=0 press loading",
+    "endurance_limit": true
+   },
+   "hardness": "28-32 HRC (270-300 HB)",
+   "machinability": {
+    "aa_rating": null,
+    "rel_mrr_vs_P20": 1.1,
+    "index_1212": 50
+   },
+   "cost_index_per_kg": 0.6,
+   "max_service_C": {
+    "full_strength": 300,
+    "derated": 400,
+    "never_above": 450
+   },
+   "typical_use": "Cheaper alternative to P20 for clamp plates, backing plates, support plates and simple cavities; hardness less uniform in thick sections; can be nitrided.",
+   "sources": [
+    "MatWeb AISI 4140 Q&T",
+    "ASM Handbook Vol 1"
+   ],
+   "confidence": "published (typical)",
+   "E_retained": null,
+   "density_lb_in3": 0.284,
+   "cost_index_per_volume": 1.7,
+   "short": "4140 pre-hard",
+   "use": [
+    "plate",
+    "insert",
+    "backing"
+   ],
+   "isDefault": false,
+   "swMaterial": null,
+   "skimPerFace_mm": 2.0,
+   "stockKey": "p20_prehard",
+   "agesDimensionally": false
+  },
+  {
+   "id": "st_a36",
+   "name": "A36 hot-rolled structural plate",
+   "family": "steel",
+   "spec": "ASTM A36; EN 10025 S235/S275 equivalent",
+   "E_GPa": 200,
+   "poisson": 0.26,
+   "density_kg_m3": 7850,
+   "cte_per_K": 1.17e-05,
+   "cte_range_C": "20-100",
+   "k_W_mK": 51.9,
+   "yield_MPa": 250,
+   "uts_MPa": 400,
+   "elongation_pct": 20,
+   "retained": {
+    "temps_C": [
+     100,
+     150,
+     200,
+     250
+    ],
+    "yield_long_10000h": [
+     1.0,
+     0.95,
+     0.9,
+     0.84
+    ],
+    "uts_long_10000h": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ],
+    "E": [
+     1.0,
+     0.95,
+     0.9,
+     0.85
+    ],
+    "notes": "EN 1993-1-2 0.2%-proof reduction (Annex E) and kE. UTS of carbon steel rises slightly 200-300 C (blue brittleness range); held at 1.0. Minimum values (250/400 MPa), typical is ~290/450."
+   },
+   "fatigue_MPa": {
+    "1e5": 243,
+    "1e6": 200,
+    "1e7": 200,
+    "basis": "derived: Shigley estimate, R=-1 rotating-beam polished; apply Marin factors (machined ka~0.7-0.8) and Goodman for R=0 press loading",
+    "endurance_limit": true
+   },
+   "hardness": "120-160 HB",
+   "machinability": {
+    "aa_rating": null,
+    "rel_mrr_vs_P20": 1.3,
+    "index_1212": 72
+   },
+   "cost_index_per_kg": 0.25,
+   "max_service_C": {
+    "full_strength": 300,
+    "derated": 350,
+    "never_above": 425
+   },
+   "typical_use": "Frames, rails, lifting lugs, press adapter plates, support pillars. Not for cavities (porosity/inclusions, poor polish). Mill scale and flatness need machining allowance.",
+   "sources": [
+    "ASTM A36",
+    "EN 1993-1-2",
+    "MatWeb A36"
+   ],
+   "confidence": "published (minimums)",
+   "E_retained": null,
+   "density_lb_in3": 0.284,
+   "cost_index_per_volume": 0.73,
+   "short": "A36",
+   "use": [
+    "backing"
+   ],
+   "isDefault": false,
+   "swMaterial": null,
+   "skimPerFace_mm": 2.0,
+   "stockKey": null,
+   "agesDimensionally": false
+  },
+  {
+   "id": "st_1018_cd",
+   "name": "1018 cold-drawn bar/flat",
+   "family": "steel",
+   "spec": "AISI 1018 CD; EN C15/C18",
+   "E_GPa": 205,
+   "poisson": 0.29,
+   "density_kg_m3": 7870,
+   "cte_per_K": 1.19e-05,
+   "cte_range_C": "20-100",
+   "k_W_mK": 51.9,
+   "yield_MPa": 370,
+   "uts_MPa": 440,
+   "elongation_pct": 15,
+   "retained": {
+    "temps_C": [
+     100,
+     150,
+     200,
+     250
+    ],
+    "yield_long_10000h": [
+     1.0,
+     0.95,
+     0.9,
+     0.84
+    ],
+    "uts_long_10000h": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ],
+    "E": [
+     1.0,
+     0.95,
+     0.9,
+     0.85
+    ],
+    "notes": "As A36 (EN 1993-1-2). Cold-drawn work hardening is stable below ~400 C."
+   },
+   "fatigue_MPa": {
+    "1e5": 268,
+    "1e6": 220,
+    "1e7": 220,
+    "basis": "derived: Shigley estimate, R=-1 rotating-beam polished; apply Marin factors (machined ka~0.7-0.8) and Goodman for R=0 press loading",
+    "endurance_limit": true
+   },
+   "hardness": "126 HB",
+   "machinability": {
+    "aa_rating": null,
+    "rel_mrr_vs_P20": 1.5,
+    "index_1212": 78
+   },
+   "cost_index_per_kg": 0.35,
+   "max_service_C": {
+    "full_strength": 300,
+    "derated": 350,
+    "never_above": 425
+   },
+   "typical_use": "Small frame parts, spacers, keys, clamp straps, handles; case-hardenable for wear pads.",
+   "sources": [
+    "MatWeb AISI 1018 CD",
+    "Machinery's Handbook machinability table"
+   ],
+   "confidence": "published",
+   "E_retained": null,
+   "density_lb_in3": 0.284,
+   "cost_index_per_volume": 1.0,
+   "short": "1018 CD",
+   "use": [
+    "backing"
+   ],
+   "isDefault": false,
+   "swMaterial": null,
+   "skimPerFace_mm": 1.0,
+   "stockKey": null,
+   "agesDimensionally": false
+  },
+  {
+   "id": "st_h13",
+   "name": "H13 / 1.2344 hardened 44-50 HRC (e.g. Uddeholm Orvar, Bohler W302)",
+   "family": "steel",
+   "spec": "AISI H13; DIN 1.2344",
+   "E_GPa": 210,
+   "poisson": 0.3,
+   "density_kg_m3": 7800,
+   "cte_per_K": 1.15e-05,
+   "cte_range_C": "20-200 (published 10.4-12.6 depending on range)",
+   "k_W_mK": 25,
+   "yield_MPa": 1380,
+   "uts_MPa": 1590,
+   "elongation_pct": 9,
+   "retained": {
+    "temps_C": [
+     100,
+     150,
+     200,
+     250
+    ],
+    "yield_long_10000h": [
+     0.97,
+     0.95,
+     0.93,
+     0.91
+    ],
+    "uts_long_10000h": [
+     0.97,
+     0.95,
+     0.93,
+     0.91
+    ],
+    "E": [
+     0.99,
+     0.98,
+     0.975,
+     0.965
+    ],
+    "notes": "Secondary-hardening hot-work steel tempered 550-620 C; no time effect below ~500 C. Values at ~46 HRC."
+   },
+   "fatigue_MPa": {
+    "1e5": 888,
+    "1e6": 700,
+    "1e7": 700,
+    "basis": "derived: Shigley estimate, R=-1 rotating-beam polished; apply Marin factors (machined ka~0.7-0.8) and Goodman for R=0 press loading",
+    "endurance_limit": true
+   },
+   "hardness": "44-50 HRC (supplied annealed ~200 HB, or pre-hardened 40-46 HRC)",
+   "machinability": {
+    "aa_rating": null,
+    "rel_mrr_vs_P20": 0.4,
+    "index_1212": 50,
+    "note": "50% is annealed; hardened needs hard-milling/EDM/grinding"
+   },
+   "cost_index_per_kg": 1.5,
+   "max_service_C": {
+    "full_strength": 500,
+    "derated": 540,
+    "never_above": 600
+   },
+   "typical_use": "Hot cavities and inserts for rubber/silicone at 160-200 C, pinch-off and flash-land inserts, steel inserts for fragile features in aluminium molds; nitride for wear.",
+   "sources": [
+    "Uddeholm Orvar Supreme datasheet",
+    "MatWeb AISI H13",
+    "ASM Handbook Vol 1 (tool steels)"
+   ],
+   "confidence": "published (typical)",
+   "E_retained": null,
+   "density_lb_in3": 0.282,
+   "cost_index_per_volume": 4.3,
+   "short": "H13 44-50 HRC",
+   "use": [
+    "plate",
+    "insert",
+    "stop"
+   ],
+   "isDefault": false,
+   "swMaterial": null,
+   "skimPerFace_mm": 2.0,
+   "stockKey": null,
+   "agesDimensionally": false
+  },
+  {
+   "id": "st_s7",
+   "name": "S7 shock-resisting tool steel, hardened 54-56 HRC",
+   "family": "steel",
+   "spec": "AISI S7; DIN ~1.2357",
+   "E_GPa": 207,
+   "poisson": 0.29,
+   "density_kg_m3": 7830,
+   "cte_per_K": 1.26e-05,
+   "cte_range_C": "20-200",
+   "k_W_mK": 28,
+   "yield_MPa": 1600,
+   "uts_MPa": 2000,
+   "elongation_pct": 6,
+   "retained": {
+    "temps_C": [
+     100,
+     150,
+     200,
+     250
+    ],
+    "yield_long_10000h": [
+     0.97,
+     0.95,
+     0.9,
+     0.85
+    ],
+    "uts_long_10000h": [
+     0.97,
+     0.95,
+     0.9,
+     0.85
+    ],
+    "E": [
+     0.99,
+     0.98,
+     0.975,
+     0.965
+    ],
+    "notes": "Depends on tempering temperature: at 54-56 HRC S7 is tempered ~200-260 C, so service above ~175 C keeps tempering it (softening, size change). For hot molds temper at ~540 C (~48-50 HRC) instead. Strength from hardness conversion (ASTM A370/E140), approximate."
+   },
+   "fatigue_MPa": {
+    "1e5": 959,
+    "1e6": 700,
+    "1e7": 700,
+    "basis": "derived: Shigley estimate, R=-1 rotating-beam polished; apply Marin factors (machined ka~0.7-0.8) and Goodman for R=0 press loading",
+    "endurance_limit": true
+   },
+   "hardness": "54-56 HRC (or 48-50 HRC high-tempered)",
+   "machinability": {
+    "aa_rating": null,
+    "rel_mrr_vs_P20": 0.4,
+    "index_1212": 45,
+    "note": "annealed"
+   },
+   "cost_index_per_kg": 2.0,
+   "max_service_C": {
+    "full_strength": 175,
+    "derated": 200,
+    "never_above": 425,
+    "note": "low-temper condition; ~425 C if tempered at 540 C"
+   },
+   "typical_use": "Tough inserts: pinch-offs, cutting lands, cores that see impact or side load, ejector/stripper pins.",
+   "sources": [
+    "ASM Handbook Vol 1 (tool steels)",
+    "MatWeb AISI S7",
+    "ASTM E140 hardness conversion"
+   ],
+   "confidence": "typical / approximate",
+   "E_retained": null,
+   "density_lb_in3": 0.283,
+   "cost_index_per_volume": 5.8,
+   "short": "S7 54-56 HRC",
+   "use": [
+    "insert",
+    "stop"
+   ],
+   "isDefault": false,
+   "swMaterial": null,
+   "skimPerFace_mm": 2.0,
+   "stockKey": null,
+   "agesDimensionally": false
+  },
+  {
+   "id": "st_a2",
+   "name": "A2 air-hardening tool steel, 57-62 HRC",
+   "family": "steel",
+   "spec": "AISI A2; DIN 1.2363",
+   "E_GPa": 203,
+   "poisson": 0.29,
+   "density_kg_m3": 7860,
+   "cte_per_K": 1.07e-05,
+   "cte_range_C": "20-100",
+   "k_W_mK": 26,
+   "yield_MPa": 1700,
+   "uts_MPa": 2100,
+   "elongation_pct": 2,
+   "retained": {
+    "temps_C": [
+     100,
+     150,
+     200,
+     250
+    ],
+    "yield_long_10000h": [
+     0.97,
+     0.95,
+     0.88,
+     0.82
+    ],
+    "uts_long_10000h": [
+     0.97,
+     0.95,
+     0.88,
+     0.82
+    ],
+    "E": [
+     0.99,
+     0.98,
+     0.975,
+     0.965
+    ],
+    "notes": "At 60 HRC A2 is tempered ~175-200 C; service near that temperature softens it. Double-temper at ~500 C (~57 HRC) for hot molds. Tensile values approximate (brittle; compressive yield ~2200 MPa)."
+   },
+   "fatigue_MPa": {
+    "1e5": 975,
+    "1e6": 700,
+    "1e7": 700,
+    "basis": "derived: Shigley estimate, R=-1 rotating-beam polished; apply Marin factors (machined ka~0.7-0.8) and Goodman for R=0 press loading",
+    "endurance_limit": true
+   },
+   "hardness": "57-62 HRC",
+   "machinability": {
+    "aa_rating": null,
+    "rel_mrr_vs_P20": 0.4,
+    "index_1212": 42,
+    "note": "annealed"
+   },
+   "cost_index_per_kg": 1.5,
+   "max_service_C": {
+    "full_strength": 150,
+    "derated": 175,
+    "never_above": 400,
+    "note": "low-temper condition; ~400 C if tempered at 500 C"
+   },
+   "typical_use": "Wear plates, flash-cutting lands, locating/interlock blocks, guide wear strips.",
+   "sources": [
+    "ASM Handbook Vol 1",
+    "MatWeb AISI A2"
+   ],
+   "confidence": "typical / approximate",
+   "E_retained": null,
+   "density_lb_in3": 0.284,
+   "cost_index_per_volume": 4.4,
+   "short": "A2 57-62 HRC",
+   "use": [
+    "insert",
+    "stop"
+   ],
+   "isDefault": false,
+   "swMaterial": null,
+   "skimPerFace_mm": 2.0,
+   "stockKey": null,
+   "agesDimensionally": false
+  },
+  {
+   "id": "st_420_ph",
+   "name": "420 stainless pre-hardened 29-34 HRC (e.g. Bohler M303, Uddeholm Ramax HH/Mirrax; Stavax ESR when hardened)",
+   "family": "steel",
+   "spec": "AISI 420 mod.; DIN 1.2083 / 1.2316",
+   "E_GPa": 200,
+   "poisson": 0.28,
+   "density_kg_m3": 7740,
+   "cte_per_K": 1.08e-05,
+   "cte_range_C": "20-200",
+   "k_W_mK": 22,
+   "yield_MPa": 880,
+   "uts_MPa": 1050,
+   "elongation_pct": 12,
+   "retained": {
+    "temps_C": [
+     100,
+     150,
+     200,
+     250
+    ],
+    "yield_long_10000h": [
+     0.96,
+     0.94,
+     0.92,
+     0.9
+    ],
+    "uts_long_10000h": [
+     0.96,
+     0.94,
+     0.92,
+     0.9
+    ],
+    "E": [
+     0.99,
+     0.98,
+     0.975,
+     0.965
+    ],
+    "notes": "Pre-hardened grades are tempered >= 550-600 C; stable to ~300 C. Avoid the 425-550 C temper-embrittlement range. Conductivity 16-25 W/mK depending on grade (Stavax ESR low end)."
+   },
+   "fatigue_MPa": {
+    "1e5": 639,
+    "1e6": 525,
+    "1e7": 525,
+    "basis": "derived: Shigley estimate, R=-1 rotating-beam polished; apply Marin factors (machined ka~0.7-0.8) and Goodman for R=0 press loading",
+    "endurance_limit": true
+   },
+   "hardness": "29-34 HRC (Stavax ESR hardened 45-52 HRC)",
+   "machinability": {
+    "aa_rating": null,
+    "rel_mrr_vs_P20": 0.8,
+    "index_1212": 40
+   },
+   "cost_index_per_kg": 2.5,
+   "max_service_C": {
+    "full_strength": 250,
+    "derated": 300,
+    "never_above": 400
+   },
+   "typical_use": "Corrosion-resistant cavities: moisture-curing PU, PVC, latex, aggressive release agents, humid shops; mirror polish; no plating needed.",
+   "sources": [
+    "Uddeholm Stavax ESR / Ramax HH datasheets",
+    "Bohler M303 datasheet",
+    "MatWeb AISI 420"
+   ],
+   "confidence": "typical",
+   "E_retained": null,
+   "density_lb_in3": 0.28,
+   "cost_index_per_volume": 7.2,
+   "short": "420 SS pre-hard",
+   "use": [
+    "plate",
+    "insert"
+   ],
+   "isDefault": false,
+   "swMaterial": null,
+   "skimPerFace_mm": 2.0,
+   "stockKey": "p20_prehard",
+   "agesDimensionally": false
+  },
+  {
+   "id": "st_17_4ph",
+   "name": "17-4PH (UNS S17400) H1025",
+   "family": "steel",
+   "spec": "ASTM A564 / A693 Type 630",
+   "E_GPa": 197,
+   "poisson": 0.27,
+   "density_kg_m3": 7780,
+   "cte_per_K": 1.08e-05,
+   "cte_range_C": "20-100",
+   "k_W_mK": 18.3,
+   "yield_MPa": 1000,
+   "uts_MPa": 1070,
+   "elongation_pct": 12,
+   "retained": {
+    "temps_C": [
+     100,
+     150,
+     200,
+     250
+    ],
+    "yield_long_10000h": [
+     0.95,
+     0.92,
+     0.9,
+     0.88
+    ],
+    "uts_long_10000h": [
+     0.95,
+     0.92,
+     0.9,
+     0.88
+    ],
+    "E": [
+     0.99,
+     0.98,
+     0.975,
+     0.965
+    ],
+    "notes": "ASTM A564 minimums for H1025 (1070/1000 MPa, 35 HRC). Long exposure 300-400 C embrittles (475 C embrittlement); H1150 more stable."
+   },
+   "fatigue_MPa": {
+    "1e5": 651,
+    "1e6": 535,
+    "1e7": 535,
+    "basis": "derived: Shigley estimate, R=-1 rotating-beam polished; apply Marin factors (machined ka~0.7-0.8) and Goodman for R=0 press loading",
+    "endurance_limit": true
+   },
+   "hardness": "35 HRC min (H1025); H900 40-44 HRC",
+   "machinability": {
+    "aa_rating": null,
+    "rel_mrr_vs_P20": 0.7,
+    "index_1212": 35
+   },
+   "cost_index_per_kg": 2.7,
+   "max_service_C": {
+    "full_strength": 300,
+    "derated": 315,
+    "never_above": 350
+   },
+   "typical_use": "Corrosion-resistant inserts and cores that must be machined finished then age-hardened with almost no distortion.",
+   "sources": [
+    "ASTM A564",
+    "AK Steel 17-4PH product data bulletin",
+    "MatWeb 17-4PH H1025"
+   ],
+   "confidence": "published (minimums)",
+   "E_retained": null,
+   "density_lb_in3": 0.281,
+   "cost_index_per_volume": 7.8,
+   "short": "17-4PH H1025",
+   "use": [
+    "insert"
+   ],
+   "isDefault": false,
+   "swMaterial": null,
+   "skimPerFace_mm": 2.0,
+   "stockKey": null,
+   "agesDimensionally": false
+  }
+ ],
+ "fasteners_common": {
+  "inch_spec": "ASTM A574 alloy-steel SHCS (ASME B18.3 dimensions). Proof stress 140 ksi (<=1/2 in), 135 ksi (>1/2 in); min UTS 180/170 ksi.",
+  "metric_spec": "ISO 4762 SHCS, property class 12.9 (ISO 898-1).",
+  "preload_rule": "Fi = 0.75 x proof load (Fastenal/Unbrako practice for re-usable joints). For steel bolts in hot aluminium start lower, see thermal_preload.",
+  "torque_formula": "T = K * d * Fi, K = 0.15 lubricated (oil/anti-seize), 0.16 as-received black oxide, 0.20 dry. Torque is an indirect measure: +/-25% preload scatter.",
+  "head_bearing": "Allowable surface pressure under the head is ~UTS of the clamped material (VDI 2230 Table A9 values are roughly 0.9-1.2 x Rm). 12.9 SHCS at 75% proof put ~400-700 MPa under the head (see head_bearing_pressure_at_preload_MPa) - above 6061 (310 MPa, ~230 hot) and far above MIC-6 (166). Use through-hardened washers (ASTM F436 / ISO 7089-300HV or DIN 6340) or SHCS with larger heads, or reduce preload, on ALL aluminium clamped faces.",
+  "thread_engagement": {
+   "formula": "Le/D >= 0.5 * Su_bolt / Su_parent (min 1.0). Derived: internal-thread shear area/length ~2.25 D, parent shear strength 0.6 Su, As ~0.57 D^2, 1.2 margin so the bolt breaks before the tapped thread strips. Use Su_parent at operating temperature (long-term).",
+   "by_material": [
+    {
+     "material_id": "al_6061_t651",
+     "uts_20C_MPa": 310,
+     "LeD_min_20C": 2.0,
+     "LeD_min_100C_long": 2.1,
+     "LeD_min_150C_long": 2.6,
+     "LeD_min_200C_long": 4.7,
+     "rule": "Pick the column for the press temperature. <=1.5: tap directly at 1.0-1.5 D. 1.5-2.5: tap directly at that length, inserts where screws come out often. >2.5: key-locking insert, 2D Heli-Coil (re-check with the insert's larger shear diameter) or through-bolt with nut."
+    },
+    {
+     "material_id": "al_7075_t651",
+     "uts_20C_MPa": 572,
+     "LeD_min_20C": 1.1,
+     "LeD_min_100C_long": 1.3,
+     "LeD_min_150C_long": 2.9,
+     "LeD_min_200C_long": 5.3,
+     "rule": "Pick the column for the press temperature. <=1.5: tap directly at 1.0-1.5 D. 1.5-2.5: tap directly at that length, inserts where screws come out often. >2.5: key-locking insert, 2D Heli-Coil (re-check with the insert's larger shear diameter) or through-bolt with nut."
+    },
+    {
+     "material_id": "al_mic6",
+     "uts_20C_MPa": 166,
+     "LeD_min_20C": 3.7,
+     "LeD_min_100C_long": 3.9,
+     "LeD_min_150C_long": 4.5,
+     "LeD_min_200C_long": 5.9,
+     "rule": "Pick the column for the press temperature. <=1.5: tap directly at 1.0-1.5 D. 1.5-2.5: tap directly at that length, inserts where screws come out often. >2.5: key-locking insert, 2D Heli-Coil (re-check with the insert's larger shear diameter) or through-bolt with nut."
+    },
+    {
+     "material_id": "al_qc10",
+     "uts_20C_MPa": 530,
+     "LeD_min_20C": 1.2,
+     "LeD_min_100C_long": 1.3,
+     "LeD_min_150C_long": 2.1,
+     "LeD_min_200C_long": 4.3,
+     "rule": "Pick the column for the press temperature. <=1.5: tap directly at 1.0-1.5 D. 1.5-2.5: tap directly at that length, inserts where screws come out often. >2.5: key-locking insert, 2D Heli-Coil (re-check with the insert's larger shear diameter) or through-bolt with nut."
+    },
+    {
+     "material_id": "al_alumold500",
+     "uts_20C_MPa": 586,
+     "LeD_min_20C": 1.0,
+     "LeD_min_100C_long": 1.2,
+     "LeD_min_150C_long": 1.9,
+     "LeD_min_200C_long": 3.9,
+     "rule": "Pick the column for the press temperature. <=1.5: tap directly at 1.0-1.5 D. 1.5-2.5: tap directly at that length, inserts where screws come out often. >2.5: key-locking insert, 2D Heli-Coil (re-check with the insert's larger shear diameter) or through-bolt with nut."
+    },
+    {
+     "material_id": "al_2024_t351",
+     "uts_20C_MPa": 469,
+     "LeD_min_20C": 1.3,
+     "LeD_min_100C_long": 1.4,
+     "LeD_min_150C_long": 1.7,
+     "LeD_min_200C_long": 3.4,
+     "rule": "Pick the column for the press temperature. <=1.5: tap directly at 1.0-1.5 D. 1.5-2.5: tap directly at that length, inserts where screws come out often. >2.5: key-locking insert, 2D Heli-Coil (re-check with the insert's larger shear diameter) or through-bolt with nut."
+    },
+    {
+     "material_id": "al_5083",
+     "uts_20C_MPa": 290,
+     "LeD_min_20C": 2.1,
+     "LeD_min_100C_long": 2.2,
+     "LeD_min_150C_long": 2.8,
+     "LeD_min_200C_long": 4.0,
+     "rule": "Pick the column for the press temperature. <=1.5: tap directly at 1.0-1.5 D. 1.5-2.5: tap directly at that length, inserts where screws come out often. >2.5: key-locking insert, 2D Heli-Coil (re-check with the insert's larger shear diameter) or through-bolt with nut."
+    },
+    {
+     "material_id": "st_p20",
+     "uts_20C_MPa": 1020,
+     "LeD_min_20C": 1.0,
+     "LeD_min_100C_long": 1.0,
+     "LeD_min_150C_long": 1.0,
+     "LeD_min_200C_long": 1.0,
+     "rule": "Pick the column for the press temperature. <=1.5: tap directly at 1.0-1.5 D. 1.5-2.5: tap directly at that length, inserts where screws come out often. >2.5: key-locking insert, 2D Heli-Coil (re-check with the insert's larger shear diameter) or through-bolt with nut."
+    },
+    {
+     "material_id": "st_4140_ph",
+     "uts_20C_MPa": 1000,
+     "LeD_min_20C": 1.0,
+     "LeD_min_100C_long": 1.0,
+     "LeD_min_150C_long": 1.0,
+     "LeD_min_200C_long": 1.0,
+     "rule": "Pick the column for the press temperature. <=1.5: tap directly at 1.0-1.5 D. 1.5-2.5: tap directly at that length, inserts where screws come out often. >2.5: key-locking insert, 2D Heli-Coil (re-check with the insert's larger shear diameter) or through-bolt with nut."
+    },
+    {
+     "material_id": "st_a36",
+     "uts_20C_MPa": 400,
+     "LeD_min_20C": 1.5,
+     "LeD_min_100C_long": 1.5,
+     "LeD_min_150C_long": 1.5,
+     "LeD_min_200C_long": 1.5,
+     "rule": "Pick the column for the press temperature. <=1.5: tap directly at 1.0-1.5 D. 1.5-2.5: tap directly at that length, inserts where screws come out often. >2.5: key-locking insert, 2D Heli-Coil (re-check with the insert's larger shear diameter) or through-bolt with nut."
+    },
+    {
+     "material_id": "st_1018_cd",
+     "uts_20C_MPa": 440,
+     "LeD_min_20C": 1.4,
+     "LeD_min_100C_long": 1.4,
+     "LeD_min_150C_long": 1.4,
+     "LeD_min_200C_long": 1.4,
+     "rule": "Pick the column for the press temperature. <=1.5: tap directly at 1.0-1.5 D. 1.5-2.5: tap directly at that length, inserts where screws come out often. >2.5: key-locking insert, 2D Heli-Coil (re-check with the insert's larger shear diameter) or through-bolt with nut."
+    },
+    {
+     "material_id": "st_h13",
+     "uts_20C_MPa": 1590,
+     "LeD_min_20C": 1.0,
+     "LeD_min_100C_long": 1.0,
+     "LeD_min_150C_long": 1.0,
+     "LeD_min_200C_long": 1.0,
+     "rule": "Pick the column for the press temperature. <=1.5: tap directly at 1.0-1.5 D. 1.5-2.5: tap directly at that length, inserts where screws come out often. >2.5: key-locking insert, 2D Heli-Coil (re-check with the insert's larger shear diameter) or through-bolt with nut."
+    },
+    {
+     "material_id": "st_s7",
+     "uts_20C_MPa": 2000,
+     "LeD_min_20C": 1.0,
+     "LeD_min_100C_long": 1.0,
+     "LeD_min_150C_long": 1.0,
+     "LeD_min_200C_long": 1.0,
+     "rule": "Pick the column for the press temperature. <=1.5: tap directly at 1.0-1.5 D. 1.5-2.5: tap directly at that length, inserts where screws come out often. >2.5: key-locking insert, 2D Heli-Coil (re-check with the insert's larger shear diameter) or through-bolt with nut."
+    },
+    {
+     "material_id": "st_a2",
+     "uts_20C_MPa": 2100,
+     "LeD_min_20C": 1.0,
+     "LeD_min_100C_long": 1.0,
+     "LeD_min_150C_long": 1.0,
+     "LeD_min_200C_long": 1.0,
+     "rule": "Pick the column for the press temperature. <=1.5: tap directly at 1.0-1.5 D. 1.5-2.5: tap directly at that length, inserts where screws come out often. >2.5: key-locking insert, 2D Heli-Coil (re-check with the insert's larger shear diameter) or through-bolt with nut."
+    },
+    {
+     "material_id": "st_420_ph",
+     "uts_20C_MPa": 1050,
+     "LeD_min_20C": 1.0,
+     "LeD_min_100C_long": 1.0,
+     "LeD_min_150C_long": 1.0,
+     "LeD_min_200C_long": 1.0,
+     "rule": "Pick the column for the press temperature. <=1.5: tap directly at 1.0-1.5 D. 1.5-2.5: tap directly at that length, inserts where screws come out often. >2.5: key-locking insert, 2D Heli-Coil (re-check with the insert's larger shear diameter) or through-bolt with nut."
+    },
+    {
+     "material_id": "st_17_4ph",
+     "uts_20C_MPa": 1070,
+     "LeD_min_20C": 1.0,
+     "LeD_min_100C_long": 1.0,
+     "LeD_min_150C_long": 1.0,
+     "LeD_min_200C_long": 1.0,
+     "rule": "Pick the column for the press temperature. <=1.5: tap directly at 1.0-1.5 D. 1.5-2.5: tap directly at that length, inserts where screws come out often. >2.5: key-locking insert, 2D Heli-Coil (re-check with the insert's larger shear diameter) or through-bolt with nut."
+    }
+   ]
+  },
+  "thermal_preload": {
+   "formula": "dF = (alpha_clamped - alpha_bolt) * dT * L_grip / (L_grip/(E_b*A_b) + L_grip/(E_c*A_c_eq))  [N]; A_c_eq = VDI 2230 equivalent clamped-cone area (~3-5 x bolt As for typical plates). Also include E(T) for both parts. Heating ADDS preload when the clamped part expands more (aluminium); cooling below assembly temperature removes it.",
+   "examples": [
+    {
+     "case": "M10 12.9, 50 mm grip, 6061 plates, 20->150 C (E_Al at 150 C)",
+     "kb_kN_per_mm": 280.0,
+     "kc_kN_per_mm": 384.0,
+     "free_mismatch_mm": 0.0787,
+     "dF_kN": 12.7,
+     "preload_cold_kN": 42.2,
+     "preload_hot_kN": 54.9,
+     "hot_preload_pct_of_proof": 98
+    },
+    {
+     "case": "M10 12.9, 50 mm grip, P20 plates, 20->150 C",
+     "kb_kN_per_mm": 280.0,
+     "kc_kN_per_mm": 1210.0,
+     "free_mismatch_mm": 0.0078,
+     "dF_kN": 1.77,
+     "preload_cold_kN": 42.2,
+     "preload_hot_kN": 44.0,
+     "hot_preload_pct_of_proof": 78
+    }
+   ],
+   "consequences": [
+    "12.9 SHCS torqued to 75% proof in 6061 reaches ~100% of proof load at 150 C - near yield. Torque aluminium joints to ~60-65% proof, or use a reduced-shank / long-grip bolt (lower kb), or spacer sleeves.",
+    "Aluminium under the head and in the threads then creeps/relaxes at 150 C, so preload drops over the first few cycles: re-torque hot after the first 2-3 heat cycles and specify hardened washers.",
+    "Steel clamping steel (P20) changes little (~5% of preload)."
+   ]
+  },
+  "stock_lengths_in": [
+   0.5,
+   0.625,
+   0.75,
+   0.875,
+   1.0,
+   1.25,
+   1.5,
+   1.75,
+   2.0,
+   2.25,
+   2.5,
+   2.75,
+   3.0,
+   3.25,
+   3.5,
+   3.75,
+   4.0,
+   4.5,
+   5.0,
+   5.5,
+   6.0
+  ],
+  "stock_lengths_mm": [
+   8,
+   10,
+   12,
+   16,
+   20,
+   25,
+   30,
+   35,
+   40,
+   45,
+   50,
+   55,
+   60,
+   65,
+   70,
+   80,
+   90,
+   100,
+   110,
+   120,
+   130,
+   140,
+   150,
+   160,
+   180,
+   200
+  ],
+  "washer_rule": "Hardened washers on every aluminium clamped face. A hardened washer does not fit a standard SHCS counterbore: counterbore = washer OD + 0.5 mm (critique E2)."
+ },
+ "fasteners_inch": [
+  {
+   "size": "#10-24",
+   "d_in": 0.19,
+   "tpi": 24,
+   "d_mm": 4.826,
+   "tensile_stress_area_in2": 0.0175,
+   "tensile_stress_area_mm2": 11.3,
+   "proof_stress_ksi": 140,
+   "min_uts_ksi": 180,
+   "proof_load_lbf": 2450,
+   "proof_load_kN": 10.9,
+   "preload_75pct_lbf": 1838,
+   "preload_75pct_kN": 8.17,
+   "min_break_lbf": 3150,
+   "torque_K015_lubricated": {
+    "in_lbf": 52,
+    "ft_lbf": 4.36,
+    "N_m": 5.92
+   },
+   "torque_K016_as_received": {
+    "ft_lbf": 4.66,
+    "N_m": 6.31
+   },
+   "torque_K020_dry": {
+    "in_lbf": 70,
+    "ft_lbf": 5.82,
+    "N_m": 7.89
+   },
+   "head_dia_in": 0.312,
+   "head_height_in": 0.19,
+   "hex_key_in": "5/32",
+   "cbore_dia_in": 0.375,
+   "cbore_depth_in": 0.2,
+   "clearance_close_in": 0.201,
+   "clearance_normal_in": 0.219,
+   "tap_drill": "#25",
+   "tap_drill_in": 0.1495,
+   "head_bearing_area_in2": 0.0388,
+   "head_bearing_pressure_at_preload_MPa": 327,
+   "washer": {
+    "spec": "hardened SAE #10 (F436 starts at 1/4 in)",
+    "id_in": 0.219,
+    "od_in": 0.438,
+    "t_in": 0.049,
+    "cbore_for_washer_in": 0.4577
+   },
+   "minor_dia_in": 0.1389
+  },
+  {
+   "size": "#10-32",
+   "d_in": 0.19,
+   "tpi": 32,
+   "d_mm": 4.826,
+   "tensile_stress_area_in2": 0.02,
+   "tensile_stress_area_mm2": 12.9,
+   "proof_stress_ksi": 140,
+   "min_uts_ksi": 180,
+   "proof_load_lbf": 2800,
+   "proof_load_kN": 12.5,
+   "preload_75pct_lbf": 2100,
+   "preload_75pct_kN": 9.34,
+   "min_break_lbf": 3600,
+   "torque_K015_lubricated": {
+    "in_lbf": 60,
+    "ft_lbf": 4.99,
+    "N_m": 6.76
+   },
+   "torque_K016_as_received": {
+    "ft_lbf": 5.32,
+    "N_m": 7.21
+   },
+   "torque_K020_dry": {
+    "in_lbf": 80,
+    "ft_lbf": 6.65,
+    "N_m": 9.02
+   },
+   "head_dia_in": 0.312,
+   "head_height_in": 0.19,
+   "hex_key_in": "5/32",
+   "cbore_dia_in": 0.375,
+   "cbore_depth_in": 0.2,
+   "clearance_close_in": 0.201,
+   "clearance_normal_in": 0.219,
+   "tap_drill": "#21",
+   "tap_drill_in": 0.159,
+   "head_bearing_area_in2": 0.0388,
+   "head_bearing_pressure_at_preload_MPa": 373,
+   "washer": {
+    "spec": "hardened SAE #10 (F436 starts at 1/4 in)",
+    "id_in": 0.219,
+    "od_in": 0.438,
+    "t_in": 0.049,
+    "cbore_for_washer_in": 0.4577
+   },
+   "minor_dia_in": 0.1517
+  },
+  {
+   "size": "1/4-20",
+   "d_in": 0.25,
+   "tpi": 20,
+   "d_mm": 6.35,
+   "tensile_stress_area_in2": 0.0318,
+   "tensile_stress_area_mm2": 20.5,
+   "proof_stress_ksi": 140,
+   "min_uts_ksi": 180,
+   "proof_load_lbf": 4452,
+   "proof_load_kN": 19.8,
+   "preload_75pct_lbf": 3339,
+   "preload_75pct_kN": 14.9,
+   "min_break_lbf": 5724,
+   "torque_K015_lubricated": {
+    "in_lbf": 125,
+    "ft_lbf": 10.4,
+    "N_m": 14.1
+   },
+   "torque_K016_as_received": {
+    "ft_lbf": 11.1,
+    "N_m": 15.1
+   },
+   "torque_K020_dry": {
+    "in_lbf": 167,
+    "ft_lbf": 13.9,
+    "N_m": 18.9
+   },
+   "head_dia_in": 0.375,
+   "head_height_in": 0.25,
+   "hex_key_in": "3/16",
+   "cbore_dia_in": 0.438,
+   "cbore_depth_in": 0.26,
+   "clearance_close_in": 0.266,
+   "clearance_normal_in": 0.281,
+   "tap_drill": "#7",
+   "tap_drill_in": 0.201,
+   "head_bearing_area_in2": 0.0484,
+   "head_bearing_pressure_at_preload_MPa": 475,
+   "washer": {
+    "spec": "ASTM F436",
+    "id_in": 0.281,
+    "od_in": 0.625,
+    "t_in": 0.122,
+    "cbore_for_washer_in": 0.6447
+   },
+   "minor_dia_in": 0.1887
+  },
+  {
+   "size": "5/16-18",
+   "d_in": 0.3125,
+   "tpi": 18,
+   "d_mm": 7.938,
+   "tensile_stress_area_in2": 0.0524,
+   "tensile_stress_area_mm2": 33.8,
+   "proof_stress_ksi": 140,
+   "min_uts_ksi": 180,
+   "proof_load_lbf": 7336,
+   "proof_load_kN": 32.6,
+   "preload_75pct_lbf": 5502,
+   "preload_75pct_kN": 24.5,
+   "min_break_lbf": 9432,
+   "torque_K015_lubricated": {
+    "in_lbf": 258,
+    "ft_lbf": 21.5,
+    "N_m": 29.1
+   },
+   "torque_K016_as_received": {
+    "ft_lbf": 22.9,
+    "N_m": 31.1
+   },
+   "torque_K020_dry": {
+    "in_lbf": 344,
+    "ft_lbf": 28.7,
+    "N_m": 38.9
+   },
+   "head_dia_in": 0.469,
+   "head_height_in": 0.3125,
+   "hex_key_in": "1/4",
+   "cbore_dia_in": 0.531,
+   "cbore_depth_in": 0.322,
+   "clearance_close_in": 0.328,
+   "clearance_normal_in": 0.344,
+   "tap_drill": "F",
+   "tap_drill_in": 0.257,
+   "head_bearing_area_in2": 0.0798,
+   "head_bearing_pressure_at_preload_MPa": 475,
+   "washer": {
+    "spec": "ASTM F436",
+    "id_in": 0.344,
+    "od_in": 0.688,
+    "t_in": 0.122,
+    "cbore_for_washer_in": 0.7077
+   },
+   "minor_dia_in": 0.2443
+  },
+  {
+   "size": "3/8-16",
+   "d_in": 0.375,
+   "tpi": 16,
+   "d_mm": 9.525,
+   "tensile_stress_area_in2": 0.0775,
+   "tensile_stress_area_mm2": 50.0,
+   "proof_stress_ksi": 140,
+   "min_uts_ksi": 180,
+   "proof_load_lbf": 10850,
+   "proof_load_kN": 48.3,
+   "preload_75pct_lbf": 8138,
+   "preload_75pct_kN": 36.2,
+   "min_break_lbf": 13950,
+   "torque_K015_lubricated": {
+    "in_lbf": 458,
+    "ft_lbf": 38.1,
+    "N_m": 51.7
+   },
+   "torque_K016_as_received": {
+    "ft_lbf": 40.7,
+    "N_m": 55.2
+   },
+   "torque_K020_dry": {
+    "in_lbf": 610,
+    "ft_lbf": 50.9,
+    "N_m": 69.0
+   },
+   "head_dia_in": 0.562,
+   "head_height_in": 0.375,
+   "hex_key_in": "5/16",
+   "cbore_dia_in": 0.625,
+   "cbore_depth_in": 0.385,
+   "clearance_close_in": 0.391,
+   "clearance_normal_in": 0.406,
+   "tap_drill": "5/16",
+   "tap_drill_in": 0.3125,
+   "head_bearing_area_in2": 0.119,
+   "head_bearing_pressure_at_preload_MPa": 473,
+   "washer": {
+    "spec": "ASTM F436",
+    "id_in": 0.406,
+    "od_in": 0.813,
+    "t_in": 0.122,
+    "cbore_for_washer_in": 0.8327
+   },
+   "minor_dia_in": 0.2983
+  },
+  {
+   "size": "7/16-14",
+   "d_in": 0.4375,
+   "tpi": 14,
+   "d_mm": 11.11,
+   "tensile_stress_area_in2": 0.1063,
+   "tensile_stress_area_mm2": 68.6,
+   "proof_stress_ksi": 140,
+   "min_uts_ksi": 180,
+   "proof_load_lbf": 14882,
+   "proof_load_kN": 66.2,
+   "preload_75pct_lbf": 11162,
+   "preload_75pct_kN": 49.6,
+   "min_break_lbf": 19134,
+   "torque_K015_lubricated": {
+    "in_lbf": 732,
+    "ft_lbf": 61.0,
+    "N_m": 82.8
+   },
+   "torque_K016_as_received": {
+    "ft_lbf": 65.1,
+    "N_m": 88.3
+   },
+   "torque_K020_dry": {
+    "in_lbf": 977,
+    "ft_lbf": 81.4,
+    "N_m": 110.0
+   },
+   "head_dia_in": 0.656,
+   "head_height_in": 0.4375,
+   "hex_key_in": "3/8",
+   "cbore_dia_in": 0.719,
+   "cbore_depth_in": 0.447,
+   "clearance_close_in": 0.453,
+   "clearance_normal_in": 0.469,
+   "tap_drill": "U",
+   "tap_drill_in": 0.368,
+   "head_bearing_area_in2": 0.165,
+   "head_bearing_pressure_at_preload_MPa": 466,
+   "washer": {
+    "spec": "ASTM F436",
+    "id_in": 0.469,
+    "od_in": 0.922,
+    "t_in": 0.122,
+    "cbore_for_washer_in": 0.9417
+   },
+   "minor_dia_in": 0.3499
+  },
+  {
+   "size": "1/2-13",
+   "d_in": 0.5,
+   "tpi": 13,
+   "d_mm": 12.7,
+   "tensile_stress_area_in2": 0.1419,
+   "tensile_stress_area_mm2": 91.5,
+   "proof_stress_ksi": 140,
+   "min_uts_ksi": 180,
+   "proof_load_lbf": 19866,
+   "proof_load_kN": 88.4,
+   "preload_75pct_lbf": 14900,
+   "preload_75pct_kN": 66.3,
+   "min_break_lbf": 25542,
+   "torque_K015_lubricated": {
+    "in_lbf": 1117,
+    "ft_lbf": 93.1,
+    "N_m": 126.0
+   },
+   "torque_K016_as_received": {
+    "ft_lbf": 99.3,
+    "N_m": 135.0
+   },
+   "torque_K020_dry": {
+    "in_lbf": 1490,
+    "ft_lbf": 124.0,
+    "N_m": 168.0
+   },
+   "head_dia_in": 0.75,
+   "head_height_in": 0.5,
+   "hex_key_in": "3/8",
+   "cbore_dia_in": 0.812,
+   "cbore_depth_in": 0.51,
+   "clearance_close_in": 0.516,
+   "clearance_normal_in": 0.531,
+   "tap_drill": "27/64",
+   "tap_drill_in": 0.4219,
+   "head_bearing_area_in2": 0.22,
+   "head_bearing_pressure_at_preload_MPa": 466,
+   "washer": {
+    "spec": "ASTM F436",
+    "id_in": 0.531,
+    "od_in": 1.063,
+    "t_in": 0.122,
+    "cbore_for_washer_in": 1.0827
+   },
+   "minor_dia_in": 0.4056
+  },
+  {
+   "size": "5/8-11",
+   "d_in": 0.625,
+   "tpi": 11,
+   "d_mm": 15.88,
+   "tensile_stress_area_in2": 0.226,
+   "tensile_stress_area_mm2": 146.0,
+   "proof_stress_ksi": 135,
+   "min_uts_ksi": 170,
+   "proof_load_lbf": 30510,
+   "proof_load_kN": 136.0,
+   "preload_75pct_lbf": 22882,
+   "preload_75pct_kN": 102.0,
+   "min_break_lbf": 38420,
+   "torque_K015_lubricated": {
+    "in_lbf": 2145,
+    "ft_lbf": 179.0,
+    "N_m": 242.0
+   },
+   "torque_K016_as_received": {
+    "ft_lbf": 191.0,
+    "N_m": 259.0
+   },
+   "torque_K020_dry": {
+    "in_lbf": 2860,
+    "ft_lbf": 238.0,
+    "N_m": 323.0
+   },
+   "head_dia_in": 0.938,
+   "head_height_in": 0.625,
+   "hex_key_in": "1/2",
+   "cbore_dia_in": 1.0,
+   "cbore_depth_in": 0.635,
+   "clearance_close_in": 0.641,
+   "clearance_normal_in": 0.656,
+   "tap_drill": "17/32",
+   "tap_drill_in": 0.5312,
+   "head_bearing_area_in2": 0.353,
+   "head_bearing_pressure_at_preload_MPa": 447,
+   "washer": {
+    "spec": "ASTM F436",
+    "id_in": 0.688,
+    "od_in": 1.313,
+    "t_in": 0.122,
+    "cbore_for_washer_in": 1.3327
+   },
+   "minor_dia_in": 0.5135
+  },
+  {
+   "size": "3/4-10",
+   "d_in": 0.75,
+   "tpi": 10,
+   "d_mm": 19.05,
+   "tensile_stress_area_in2": 0.3345,
+   "tensile_stress_area_mm2": 216.0,
+   "proof_stress_ksi": 135,
+   "min_uts_ksi": 170,
+   "proof_load_lbf": 45158,
+   "proof_load_kN": 201.0,
+   "preload_75pct_lbf": 33868,
+   "preload_75pct_kN": 151.0,
+   "min_break_lbf": 56865,
+   "torque_K015_lubricated": {
+    "in_lbf": 3810,
+    "ft_lbf": 318.0,
+    "N_m": 430.0
+   },
+   "torque_K016_as_received": {
+    "ft_lbf": 339.0,
+    "N_m": 459.0
+   },
+   "torque_K020_dry": {
+    "in_lbf": 5080,
+    "ft_lbf": 423.0,
+    "N_m": 574.0
+   },
+   "head_dia_in": 1.125,
+   "head_height_in": 0.75,
+   "hex_key_in": "5/8",
+   "cbore_dia_in": 1.188,
+   "cbore_depth_in": 0.76,
+   "clearance_close_in": 0.766,
+   "clearance_normal_in": 0.781,
+   "tap_drill": "21/32",
+   "tap_drill_in": 0.6562,
+   "head_bearing_area_in2": 0.515,
+   "head_bearing_pressure_at_preload_MPa": 453,
+   "washer": {
+    "spec": "ASTM F436",
+    "id_in": 0.813,
+    "od_in": 1.469,
+    "t_in": 0.122,
+    "cbore_for_washer_in": 1.4887
+   },
+   "minor_dia_in": 0.6273
+  }
+ ],
+ "fasteners_metric": [
+  {
+   "size": "M5",
+   "d_mm": 5,
+   "pitch_mm": 0.8,
+   "tensile_stress_area_mm2": 14.2,
+   "class": "12.9 (ISO 898-1: Rm 1220 MPa min, Rp0.2 1100 MPa min, Sp 970 MPa)",
+   "proof_load_kN": 13.8,
+   "preload_75pct_kN": 10.3,
+   "min_break_kN": 17.3,
+   "torque_K015_lubricated_N_m": 7.75,
+   "torque_K020_dry_N_m": 10.3,
+   "vdi2230_torque_mu012_N_m_approx": 9.5,
+   "head_dia_mm": 8.5,
+   "head_height_mm": 5,
+   "hex_key_mm": 4,
+   "cbore_dia_mm": 10,
+   "cbore_depth_mm": 5.4,
+   "clearance_fine_mm": 5.3,
+   "clearance_medium_mm": 5.5,
+   "tap_drill_mm": 4.2,
+   "head_bearing_area_mm2": 33.0,
+   "head_bearing_pressure_at_preload_MPa": 313,
+   "washer": {
+    "spec": "ISO 7089 300HV",
+    "id_mm": 5.3,
+    "od_mm": 10,
+    "t_mm": 1.0,
+    "cbore_for_washer_mm": 10.5
+   },
+   "minor_dia_mm": 4.019
+  },
+  {
+   "size": "M6",
+   "d_mm": 6,
+   "pitch_mm": 1.0,
+   "tensile_stress_area_mm2": 20.1,
+   "class": "12.9 (ISO 898-1: Rm 1220 MPa min, Rp0.2 1100 MPa min, Sp 970 MPa)",
+   "proof_load_kN": 19.5,
+   "preload_75pct_kN": 14.6,
+   "min_break_kN": 24.5,
+   "torque_K015_lubricated_N_m": 13.2,
+   "torque_K020_dry_N_m": 17.5,
+   "vdi2230_torque_mu012_N_m_approx": 16.5,
+   "head_dia_mm": 10,
+   "head_height_mm": 6,
+   "hex_key_mm": 5,
+   "cbore_dia_mm": 11,
+   "cbore_depth_mm": 6.4,
+   "clearance_fine_mm": 6.4,
+   "clearance_medium_mm": 6.6,
+   "tap_drill_mm": 5.0,
+   "head_bearing_area_mm2": 44.3,
+   "head_bearing_pressure_at_preload_MPa": 330,
+   "washer": {
+    "spec": "ISO 7089 300HV",
+    "id_mm": 6.4,
+    "od_mm": 12,
+    "t_mm": 1.6,
+    "cbore_for_washer_mm": 12.5
+   },
+   "minor_dia_mm": 4.773
+  },
+  {
+   "size": "M8",
+   "d_mm": 8,
+   "pitch_mm": 1.25,
+   "tensile_stress_area_mm2": 36.6,
+   "class": "12.9 (ISO 898-1: Rm 1220 MPa min, Rp0.2 1100 MPa min, Sp 970 MPa)",
+   "proof_load_kN": 35.5,
+   "preload_75pct_kN": 26.6,
+   "min_break_kN": 44.7,
+   "torque_K015_lubricated_N_m": 32.0,
+   "torque_K020_dry_N_m": 42.6,
+   "vdi2230_torque_mu012_N_m_approx": 40,
+   "head_dia_mm": 13,
+   "head_height_mm": 8,
+   "hex_key_mm": 6,
+   "cbore_dia_mm": 15,
+   "cbore_depth_mm": 8.6,
+   "clearance_fine_mm": 8.4,
+   "clearance_medium_mm": 9.0,
+   "tap_drill_mm": 6.8,
+   "head_bearing_area_mm2": 69.1,
+   "head_bearing_pressure_at_preload_MPa": 385,
+   "washer": {
+    "spec": "ISO 7089 300HV",
+    "id_mm": 8.4,
+    "od_mm": 16,
+    "t_mm": 1.6,
+    "cbore_for_washer_mm": 16.5
+   },
+   "minor_dia_mm": 6.466
+  },
+  {
+   "size": "M10",
+   "d_mm": 10,
+   "pitch_mm": 1.5,
+   "tensile_stress_area_mm2": 58.0,
+   "class": "12.9 (ISO 898-1: Rm 1220 MPa min, Rp0.2 1100 MPa min, Sp 970 MPa)",
+   "proof_load_kN": 56.3,
+   "preload_75pct_kN": 42.2,
+   "min_break_kN": 70.8,
+   "torque_K015_lubricated_N_m": 63.3,
+   "torque_K020_dry_N_m": 84.4,
+   "vdi2230_torque_mu012_N_m_approx": 79,
+   "head_dia_mm": 16,
+   "head_height_mm": 10,
+   "hex_key_mm": 8,
+   "cbore_dia_mm": 18,
+   "cbore_depth_mm": 10.6,
+   "clearance_fine_mm": 10.5,
+   "clearance_medium_mm": 11.0,
+   "tap_drill_mm": 8.5,
+   "head_bearing_area_mm2": 106.0,
+   "head_bearing_pressure_at_preload_MPa": 398,
+   "washer": {
+    "spec": "ISO 7089 300HV",
+    "id_mm": 10.5,
+    "od_mm": 20,
+    "t_mm": 2.0,
+    "cbore_for_washer_mm": 20.5
+   },
+   "minor_dia_mm": 8.16
+  },
+  {
+   "size": "M12",
+   "d_mm": 12,
+   "pitch_mm": 1.75,
+   "tensile_stress_area_mm2": 84.3,
+   "class": "12.9 (ISO 898-1: Rm 1220 MPa min, Rp0.2 1100 MPa min, Sp 970 MPa)",
+   "proof_load_kN": 81.8,
+   "preload_75pct_kN": 61.3,
+   "min_break_kN": 103.0,
+   "torque_K015_lubricated_N_m": 110.0,
+   "torque_K020_dry_N_m": 147.0,
+   "vdi2230_torque_mu012_N_m_approx": 136,
+   "head_dia_mm": 18,
+   "head_height_mm": 12,
+   "hex_key_mm": 10,
+   "cbore_dia_mm": 20,
+   "cbore_depth_mm": 12.6,
+   "clearance_fine_mm": 13.0,
+   "clearance_medium_mm": 13.5,
+   "tap_drill_mm": 10.2,
+   "head_bearing_area_mm2": 111.0,
+   "head_bearing_pressure_at_preload_MPa": 551,
+   "washer": {
+    "spec": "ISO 7089 300HV",
+    "id_mm": 13.0,
+    "od_mm": 24,
+    "t_mm": 2.5,
+    "cbore_for_washer_mm": 24.5
+   },
+   "minor_dia_mm": 9.853
+  },
+  {
+   "size": "M14",
+   "d_mm": 14,
+   "pitch_mm": 2.0,
+   "tensile_stress_area_mm2": 115,
+   "class": "12.9 (ISO 898-1: Rm 1220 MPa min, Rp0.2 1100 MPa min, Sp 970 MPa)",
+   "proof_load_kN": 112.0,
+   "preload_75pct_kN": 83.7,
+   "min_break_kN": 140.0,
+   "torque_K015_lubricated_N_m": 176.0,
+   "torque_K020_dry_N_m": 234.0,
+   "vdi2230_torque_mu012_N_m_approx": 217,
+   "head_dia_mm": 21,
+   "head_height_mm": 14,
+   "hex_key_mm": 12,
+   "cbore_dia_mm": 24,
+   "cbore_depth_mm": 14.6,
+   "clearance_fine_mm": 15.0,
+   "clearance_medium_mm": 15.5,
+   "tap_drill_mm": 12.0,
+   "head_bearing_area_mm2": 158.0,
+   "head_bearing_pressure_at_preload_MPa": 531,
+   "washer": {
+    "spec": "ISO 7089 300HV",
+    "id_mm": 15.0,
+    "od_mm": 28,
+    "t_mm": 2.5,
+    "cbore_for_washer_mm": 28.5
+   },
+   "minor_dia_mm": 11.546
+  },
+  {
+   "size": "M16",
+   "d_mm": 16,
+   "pitch_mm": 2.0,
+   "tensile_stress_area_mm2": 157,
+   "class": "12.9 (ISO 898-1: Rm 1220 MPa min, Rp0.2 1100 MPa min, Sp 970 MPa)",
+   "proof_load_kN": 152.0,
+   "preload_75pct_kN": 114.0,
+   "min_break_kN": 192.0,
+   "torque_K015_lubricated_N_m": 274.0,
+   "torque_K020_dry_N_m": 365.0,
+   "vdi2230_torque_mu012_N_m_approx": 333,
+   "head_dia_mm": 24,
+   "head_height_mm": 16,
+   "hex_key_mm": 14,
+   "cbore_dia_mm": 26,
+   "cbore_depth_mm": 16.6,
+   "clearance_fine_mm": 17.0,
+   "clearance_medium_mm": 17.5,
+   "tap_drill_mm": 14.0,
+   "head_bearing_area_mm2": 212.0,
+   "head_bearing_pressure_at_preload_MPa": 539,
+   "washer": {
+    "spec": "ISO 7089 300HV",
+    "id_mm": 17.0,
+    "od_mm": 30,
+    "t_mm": 3.0,
+    "cbore_for_washer_mm": 30.5
+   },
+   "minor_dia_mm": 13.546
+  },
+  {
+   "size": "M20",
+   "d_mm": 20,
+   "pitch_mm": 2.5,
+   "tensile_stress_area_mm2": 245,
+   "class": "12.9 (ISO 898-1: Rm 1220 MPa min, Rp0.2 1100 MPa min, Sp 970 MPa)",
+   "proof_load_kN": 238.0,
+   "preload_75pct_kN": 178.0,
+   "min_break_kN": 299.0,
+   "torque_K015_lubricated_N_m": 535.0,
+   "torque_K020_dry_N_m": 713.0,
+   "vdi2230_torque_mu012_N_m_approx": 649,
+   "head_dia_mm": 30,
+   "head_height_mm": 20,
+   "hex_key_mm": 17,
+   "cbore_dia_mm": 33,
+   "cbore_depth_mm": 20.6,
+   "clearance_fine_mm": 21.0,
+   "clearance_medium_mm": 22.0,
+   "tap_drill_mm": 17.5,
+   "head_bearing_area_mm2": 327.0,
+   "head_bearing_pressure_at_preload_MPa": 546,
+   "washer": {
+    "spec": "ISO 7089 300HV",
+    "id_mm": 21.0,
+    "od_mm": 37,
+    "t_mm": 3.0,
+    "cbore_for_washer_mm": 37.5
+   },
+   "minor_dia_mm": 16.933
+  }
+ ],
+ "inserts": {
+  "when_to_use": [
+   "Tapped hole in aluminium where the screw is removed often (lids, clamp bars, cavity inserts changed for maintenance): aluminium threads wear and gall.",
+   "Required L_e/D for a direct tapped thread exceeds what the plate thickness allows (see thread_engagement).",
+   "Any preloaded thread in MIC-6, 5083-O or cast plate (UTS < ~300 MPa), and any aluminium thread that runs hot (>= 150 C) for long periods.",
+   "Repair of stripped threads.",
+   "Hot runner / heated-platen contact points and dowel/bolt-down locations in 7xxx mold plate (Arconic QC-10 guidance: hardened steel inserts/bushings at all such contacts)."
+  ],
+  "helical_wire_free_running": {
+   "brands": "Heli-Coil (Stanley Engineered Fastening), Recoil, Bollhoff HELICOIL Plus; ASME B18.29.1 (inch), NASM/MS21209, DIN 8140 (metric)",
+   "material": "304 stainless wire (standard), Inconel X-750 for >430 C",
+   "lengths": "1.0D, 1.5D, 2.0D, 2.5D, 3.0D nominal; use 2.0D in aluminium for structural joints",
+   "needs": "STI tap (not a standard tap); tap depth = insert length + ~1/4 turn + tap chamfer",
+   "effect": "Parent-material shear diameter rises from D to ~D + 1.3 P (about 1.2 D for 1/2-13); spreads load more evenly; stainless wire stops galling",
+   "inch": [
+    {
+     "thread": "#10-24",
+     "sti_drill": "13/64",
+     "sti_drill_in": 0.2031
+    },
+    {
+     "thread": "#10-32",
+     "sti_drill": "13/64",
+     "sti_drill_in": 0.2031
+    },
+    {
+     "thread": "1/4-20",
+     "sti_drill": "17/64",
+     "sti_drill_in": 0.2656
+    },
+    {
+     "thread": "5/16-18",
+     "sti_drill": "Q",
+     "sti_drill_in": 0.332
+    },
+    {
+     "thread": "3/8-16",
+     "sti_drill": "X (Y per some charts)",
+     "sti_drill_in": 0.397
+    },
+    {
+     "thread": "7/16-14",
+     "sti_drill": "29/64",
+     "sti_drill_in": 0.4531
+    },
+    {
+     "thread": "1/2-13",
+     "sti_drill": "17/32",
+     "sti_drill_in": 0.5312
+    },
+    {
+     "thread": "5/8-11",
+     "sti_drill": "21/32",
+     "sti_drill_in": 0.6562
+    },
+    {
+     "thread": "3/4-10",
+     "sti_drill": "25/32",
+     "sti_drill_in": 0.7812
+    }
+   ],
+   "metric": [
+    {
+     "thread": "M5x0.8",
+     "sti_drill_mm": "5.2-5.4"
+    },
+    {
+     "thread": "M6x1",
+     "sti_drill_mm": "6.3-6.4"
+    },
+    {
+     "thread": "M8x1.25",
+     "sti_drill_mm": "8.4-8.5"
+    },
+    {
+     "thread": "M10x1.5",
+     "sti_drill_mm": "10.5-10.7"
+    },
+    {
+     "thread": "M12x1.75",
+     "sti_drill_mm": "12.5-12.8"
+    },
+    {
+     "thread": "M14x2",
+     "sti_drill_mm": "14.5-15.0"
+    },
+    {
+     "thread": "M16x2",
+     "sti_drill_mm": "16.5-17.0"
+    },
+    {
+     "thread": "M20x2.5",
+     "sti_drill_mm": "20.75-21.2"
+    }
+   ],
+   "drill_note": "Drill sizes vary by maker and hole tolerance class; the tool must read the chosen maker's table. Values above: Heli-Coil inch catalog practice / DIN 8140 range; Albany County Fasteners chart (2025) gives Q for 5/16-18, Y for 3/8-16, 17/32 for 1/2-13."
+  },
+  "key_locking_solid": {
+   "brands": "Keensert (Howmet/Camloc; distributed by Clinserts, Bollhoff), Tridair/TICO key-locking, MS51830/MS51831 (mil-spec)",
+   "material": "303 stainless or 4140 alloy steel (heavy duty), solid body with 2-4 keys driven into parent",
+   "effect": "Much larger external thread (e.g. 1/4-20 inside -> 3/8-16 light, 7/16-14 heavy, 1/2-13 extra-heavy) so parent shear diameter is 1.5-2.0 D; highest pull-out; removable by drilling out keys",
+   "series_1_4_20_example": [
+    {
+     "part": "KN420J (light, non-locking)",
+     "external": "3/8-16",
+     "tap_drill_in": 0.332,
+     "countersink_in": 0.385,
+     "min_depth_in": 0.43
+    },
+    {
+     "part": "KNL420J (light, locking)",
+     "external": "3/8-16",
+     "tap_drill_in": 0.332
+    },
+    {
+     "part": "KNHL420J (heavy, locking)",
+     "external": "7/16-14",
+     "tap_drill_in": 0.397,
+     "countersink_in": 0.447,
+     "min_depth_in": 0.43
+    },
+    {
+     "part": "KNHXH420J (extra heavy)",
+     "external": "1/2-13",
+     "tap_drill_in": 0.453,
+     "countersink_in": 0.51,
+     "min_depth_in": 0.44
+    }
+   ],
+   "larger_size_example": {
+    "part": "5/8-11 internal",
+    "tap_drill_in": 0.578,
+    "countersink_in": 0.63,
+    "min_depth_in": 0.68
+   },
+   "sizing_rule": "Heavy-duty external thread ~ next standard size 1.5-1.75 x internal D; drill/tap with STANDARD taps for the external thread; read Clinserts/Keensert tables per part number.",
+   "use_when": "MIC-6/5083/cast plate, frequently-removed lid and clamp screws, high-preload joints in 6061 that cannot get 2D engagement, hot (>= 150 C) aluminium."
+  },
+  "sources": [
+   "Albany County Fasteners Thread Repair Sizing Chart (2025)",
+   "ASME B18.29.1 (amesweb.info summary)",
+   "Clinserts.com KN420J/KNL420J/KNHL420J/KNHXH420J pages",
+   "Arconic QC-10 fact sheet (2016)"
+  ]
+ },
+ "dowels": {
+  "inch_hardened_ground": {
+   "standard": "ASME B18.8.2 hardened ground machine dowel pins (alloy steel, 58 HRC min surface, typ 60-64; core 47-58 HRC)",
+   "standard_tolerance": "nominal +0.0002 +/- 0.0001 in (oversize series: nominal +0.001 +/- 0.0001 in for repair)",
+   "sizes": [
+    {
+     "nominal": "1/8",
+     "d_in": 0.125,
+     "standard_pin_in": [
+      0.1251,
+      0.1253
+     ],
+     "oversize_pin_in": [
+      0.1259,
+      0.1261
+     ],
+     "slip_hole_in": [
+      0.1255,
+      0.126
+     ],
+     "press_hole_steel_in": [
+      0.1247,
+      0.125
+     ],
+     "press_hole_aluminium_150C_in": [
+      0.1246,
+      0.1248
+     ]
+    },
+    {
+     "nominal": "3/16",
+     "d_in": 0.1875,
+     "standard_pin_in": [
+      0.1876,
+      0.1878
+     ],
+     "oversize_pin_in": [
+      0.1884,
+      0.1886
+     ],
+     "slip_hole_in": [
+      0.188,
+      0.1885
+     ],
+     "press_hole_steel_in": [
+      0.1872,
+      0.1875
+     ],
+     "press_hole_aluminium_150C_in": [
+      0.187,
+      0.1872
+     ]
+    },
+    {
+     "nominal": "1/4",
+     "d_in": 0.25,
+     "standard_pin_in": [
+      0.2501,
+      0.2503
+     ],
+     "oversize_pin_in": [
+      0.2509,
+      0.2511
+     ],
+     "slip_hole_in": [
+      0.2505,
+      0.251
+     ],
+     "press_hole_steel_in": [
+      0.2497,
+      0.25
+     ],
+     "press_hole_aluminium_150C_in": [
+      0.2494,
+      0.2496
+     ]
+    },
+    {
+     "nominal": "5/16",
+     "d_in": 0.3125,
+     "standard_pin_in": [
+      0.3126,
+      0.3128
+     ],
+     "oversize_pin_in": [
+      0.3134,
+      0.3136
+     ],
+     "slip_hole_in": [
+      0.313,
+      0.3135
+     ],
+     "press_hole_steel_in": [
+      0.3122,
+      0.3125
+     ],
+     "press_hole_aluminium_150C_in": [
+      0.3118,
+      0.312
+     ]
+    },
+    {
+     "nominal": "3/8",
+     "d_in": 0.375,
+     "standard_pin_in": [
+      0.3751,
+      0.3753
+     ],
+     "oversize_pin_in": [
+      0.3759,
+      0.3761
+     ],
+     "slip_hole_in": [
+      0.3755,
+      0.376
+     ],
+     "press_hole_steel_in": [
+      0.3747,
+      0.375
+     ],
+     "press_hole_aluminium_150C_in": [
+      0.3742,
+      0.3744
+     ]
+    },
+    {
+     "nominal": "1/2",
+     "d_in": 0.5,
+     "standard_pin_in": [
+      0.5001,
+      0.5003
+     ],
+     "oversize_pin_in": [
+      0.5009,
+      0.5011
+     ],
+     "slip_hole_in": [
+      0.5005,
+      0.501
+     ],
+     "press_hole_steel_in": [
+      0.4997,
+      0.5
+     ],
+     "press_hole_aluminium_150C_in": [
+      0.499,
+      0.4992
+     ]
+    },
+    {
+     "nominal": "5/8",
+     "d_in": 0.625,
+     "standard_pin_in": [
+      0.6251,
+      0.6253
+     ],
+     "oversize_pin_in": [
+      0.6259,
+      0.6261
+     ],
+     "slip_hole_in": [
+      0.6255,
+      0.626
+     ],
+     "press_hole_steel_in": [
+      0.6247,
+      0.625
+     ],
+     "press_hole_aluminium_150C_in": [
+      0.6238,
+      0.624
+     ]
+    },
+    {
+     "nominal": "3/4",
+     "d_in": 0.75,
+     "standard_pin_in": [
+      0.7501,
+      0.7503
+     ],
+     "oversize_pin_in": [
+      0.7509,
+      0.7511
+     ],
+     "slip_hole_in": [
+      0.7505,
+      0.751
+     ],
+     "press_hole_steel_in": [
+      0.7497,
+      0.75
+     ],
+     "press_hole_aluminium_150C_in": [
+      0.7486,
+      0.7488
+     ]
+    },
+    {
+     "nominal": "1",
+     "d_in": 1.0,
+     "standard_pin_in": [
+      1.0001,
+      1.0003
+     ],
+     "oversize_pin_in": [
+      1.0009,
+      1.0011
+     ],
+     "slip_hole_in": [
+      1.0005,
+      1.001
+     ],
+     "press_hole_steel_in": [
+      0.9997,
+      1.0
+     ],
+     "press_hole_aluminium_150C_in": [
+      0.9982,
+      0.9984
+     ]
+    }
+   ]
+  },
+  "metric_hardened": {
+   "standard": "ISO 8734 (hardened, m6) / ISO 2338 (unhardened m6 or h8); Misumi MSTH/MSTM (m6), Misumi dual-fit p6/g6, HASCO Z25, DME",
+   "sizes": [
+    {
+     "d_mm": 2,
+     "pin_m6_um": [
+      2,
+      8
+     ],
+     "hole_H7_um": [
+      0,
+      10
+     ],
+     "slip_hole_mm": [
+      2.01,
+      2.025
+     ],
+     "press_hole_steel": "H7 gives a light transition fit with m6; for positive press use N7/P7 hole (or p6 pin in H7)",
+     "press_hole_aluminium_150C_mm": [
+      1.992,
+      1.997
+     ]
+    },
+    {
+     "d_mm": 3,
+     "pin_m6_um": [
+      2,
+      8
+     ],
+     "hole_H7_um": [
+      0,
+      10
+     ],
+     "slip_hole_mm": [
+      3.01,
+      3.025
+     ],
+     "press_hole_steel": "H7 gives a light transition fit with m6; for positive press use N7/P7 hole (or p6 pin in H7)",
+     "press_hole_aluminium_150C_mm": [
+      2.99,
+      2.995
+     ]
+    },
+    {
+     "d_mm": 4,
+     "pin_m6_um": [
+      4,
+      12
+     ],
+     "hole_H7_um": [
+      0,
+      12
+     ],
+     "slip_hole_mm": [
+      4.01,
+      4.025
+     ],
+     "press_hole_steel": "H7 gives a light transition fit with m6; for positive press use N7/P7 hole (or p6 pin in H7)",
+     "press_hole_aluminium_150C_mm": [
+      3.989,
+      3.994
+     ]
+    },
+    {
+     "d_mm": 5,
+     "pin_m6_um": [
+      4,
+      12
+     ],
+     "hole_H7_um": [
+      0,
+      12
+     ],
+     "slip_hole_mm": [
+      5.01,
+      5.025
+     ],
+     "press_hole_steel": "H7 gives a light transition fit with m6; for positive press use N7/P7 hole (or p6 pin in H7)",
+     "press_hole_aluminium_150C_mm": [
+      4.987,
+      4.992
+     ]
+    },
+    {
+     "d_mm": 6,
+     "pin_m6_um": [
+      4,
+      12
+     ],
+     "hole_H7_um": [
+      0,
+      12
+     ],
+     "slip_hole_mm": [
+      6.01,
+      6.025
+     ],
+     "press_hole_steel": "H7 gives a light transition fit with m6; for positive press use N7/P7 hole (or p6 pin in H7)",
+     "press_hole_aluminium_150C_mm": [
+      5.985,
+      5.99
+     ]
+    },
+    {
+     "d_mm": 8,
+     "pin_m6_um": [
+      6,
+      15
+     ],
+     "hole_H7_um": [
+      0,
+      15
+     ],
+     "slip_hole_mm": [
+      8.01,
+      8.025
+     ],
+     "press_hole_steel": "H7 gives a light transition fit with m6; for positive press use N7/P7 hole (or p6 pin in H7)",
+     "press_hole_aluminium_150C_mm": [
+      7.982,
+      7.987
+     ]
+    },
+    {
+     "d_mm": 10,
+     "pin_m6_um": [
+      6,
+      15
+     ],
+     "hole_H7_um": [
+      0,
+      15
+     ],
+     "slip_hole_mm": [
+      10.01,
+      10.025
+     ],
+     "press_hole_steel": "H7 gives a light transition fit with m6; for positive press use N7/P7 hole (or p6 pin in H7)",
+     "press_hole_aluminium_150C_mm": [
+      9.979,
+      9.984
+     ]
+    },
+    {
+     "d_mm": 12,
+     "pin_m6_um": [
+      7,
+      18
+     ],
+     "hole_H7_um": [
+      0,
+      18
+     ],
+     "slip_hole_mm": [
+      12.015,
+      12.03
+     ],
+     "press_hole_steel": "H7 gives a light transition fit with m6; for positive press use N7/P7 hole (or p6 pin in H7)",
+     "press_hole_aluminium_150C_mm": [
+      11.976,
+      11.981
+     ]
+    },
+    {
+     "d_mm": 16,
+     "pin_m6_um": [
+      7,
+      18
+     ],
+     "hole_H7_um": [
+      0,
+      18
+     ],
+     "slip_hole_mm": [
+      16.015,
+      16.03
+     ],
+     "press_hole_steel": "H7 gives a light transition fit with m6; for positive press use N7/P7 hole (or p6 pin in H7)",
+     "press_hole_aluminium_150C_mm": [
+      15.969,
+      15.974
+     ]
+    },
+    {
+     "d_mm": 20,
+     "pin_m6_um": [
+      8,
+      21
+     ],
+     "hole_H7_um": [
+      0,
+      21
+     ],
+     "slip_hole_mm": [
+      20.015,
+      20.03
+     ],
+     "press_hole_steel": "H7 gives a light transition fit with m6; for positive press use N7/P7 hole (or p6 pin in H7)",
+     "press_hole_aluminium_150C_mm": [
+      19.963,
+      19.968
+     ]
+    },
+    {
+     "d_mm": 25,
+     "pin_m6_um": [
+      8,
+      21
+     ],
+     "hole_H7_um": [
+      0,
+      21
+     ],
+     "slip_hole_mm": [
+      25.015,
+      25.03
+     ],
+     "press_hole_steel": "H7 gives a light transition fit with m6; for positive press use N7/P7 hole (or p6 pin in H7)",
+     "press_hole_aluminium_150C_mm": [
+      24.955,
+      24.96
+     ]
+    }
+   ]
+  },
+  "fit_rules": [
+   "Each located pair of parts: ONE round dowel (press in one part, slip in the other) + ONE diamond/relieved pin or a slot oriented radially from the round pin. Never two tight round dowels across a hot aluminium/steel joint.",
+   "Dowel holes depth: ~1.5-2.0 D in each part; through holes or a pull-out thread (tapped dowels) on blind holes so they can be extracted.",
+   "Press in the plate that stays put, slip in the plate that comes apart. Slip-fit L/D >= 1.0 for repeatability."
+  ],
+  "steel_pin_in_aluminium_temperature_effect": {
+   "formula": "loss of interference (diametral) = (alpha_Al - alpha_steel) * dT * d",
+   "examples_mm": [
+    {
+     "d_mm": 6,
+     "dT_K": 130,
+     "loss_mm": 0.00944
+    },
+    {
+     "d_mm": 10,
+     "dT_K": 130,
+     "loss_mm": 0.0157
+    },
+    {
+     "d_mm": 20,
+     "dT_K": 130,
+     "loss_mm": 0.0315
+    },
+    {
+     "d_mm": 25,
+     "dT_K": 160,
+     "loss_mm": 0.0484
+    }
+   ],
+   "rule": "Loss is ~0.0016 mm per mm of diameter at 20->150 C (~0.0016 in/in). A standard light press fit (0.005-0.02 mm) of a 10 mm pin in aluminium is gone by ~80-120 C. Either (a) build in interference >= loss (the press_hole_aluminium_150C columns give ~0.0016 x d + the pin's own m6/+0.0002 in allowance; contact pressure ~90 MPa, von Mises ~150 MPa in the aluminium at 20 C - fine for 6061/7075/QC-10, NOT for MIC-6/5083-O) - install by shrink fit (heat plate to 150-180 C or chill pin), because pressing a hardened pin into aluminium at that interference shaves and galls the bore, (b) shrink-fit by heating the plate to 150-180 C, (c) use a steel bushing that is retained by flange+screws or a high-temperature retaining compound (Loctite 620 rated to 230 C; 638/648 to ~175-180 C), or (d) treat the pin as a slip fit and capture it."
+  },
+  "guide_pins_and_bushings": {
+   "products": "Leader/guide pins and bushings: DME, Progressive Components, HASCO Z00/Z10, Misumi GPA/GBA, Meusburger E1000",
+   "inch_diameters_in": [
+    0.5,
+    0.625,
+    0.75,
+    0.875,
+    1.0,
+    1.25,
+    1.5,
+    2.0
+   ],
+   "metric_diameters_mm": [
+    12,
+    16,
+    20,
+    25,
+    30,
+    35,
+    40,
+    50
+   ],
+   "fit": "pin g6/h6, bushing bore H7: running clearance ~0.01-0.04 mm diametral at assembly temperature",
+   "count_and_layout": "4 pins for lids larger than ~250 mm; one offset (or one different diameter) so the lid only goes on one way; pins long enough to engage >= 1 D before any cavity/core contact.",
+   "thermal_mismatch": {
+    "formula": "mismatch between pin centres = L * |alpha_1 * dT_1 - alpha_2 * dT_2|  (L = distance from the datum pin, or half the pin spacing if centred)",
+    "example_same_material": "Both halves 6061 at the same temperature: no mismatch. A 10 K difference between lid and base at L = 200 mm: 200 * 23.6e-6 * 10 = 0.047 mm -> more than the 0.01-0.04 mm running clearance; lid binds.",
+    "example_mixed": "Steel lid on 6061 base, both 20->150 C, L = 200 mm: 200 * (23.6-12.7)e-6 * 130 = 0.28 mm. Do NOT mix lid/base materials with round pins.",
+    "recommendation": "Use round pin + radially-slotted (or diamond) bushing so growth is free along the line to the datum; add tapered/side interlocks (2-5 deg, hardened, ~0.01-0.02 mm preload at temperature) for final cavity-to-core registration; size guide clearance for the worst plate-to-plate temperature difference the heated platens allow (typically 5-15 K)."
+   },
+   "bushing_in_aluminium": "Hardened steel or bronze bushings in all aluminium guide bores (aluminium galls against steel pins). Press with ~0.002 x d interference for 150 C service, or flange-and-screw retained."
+  }
+ },
+ "stock_thickness": {
+  "6061_T651_plate": {
+   "inch": [
+    0.25,
+    0.3125,
+    0.375,
+    0.5,
+    0.625,
+    0.75,
+    0.875,
+    1.0,
+    1.125,
+    1.25,
+    1.5,
+    1.75,
+    2.0,
+    2.25,
+    2.5,
+    2.75,
+    3.0,
+    3.5,
+    4.0,
+    4.5,
+    5.0,
+    5.5,
+    6.0,
+    7.0,
+    8.0
+   ],
+   "metric_mm": [
+    5,
+    6,
+    8,
+    10,
+    12,
+    15,
+    16,
+    20,
+    25,
+    30,
+    35,
+    40,
+    45,
+    50,
+    55,
+    60,
+    65,
+    70,
+    75,
+    80,
+    90,
+    100,
+    110,
+    120,
+    130,
+    140,
+    150,
+    160,
+    180,
+    200
+   ],
+   "notes": "Rolled plate is supplied OVER nominal (ANSI H35.2 / EN 485-4 tolerances, roughly +0.5-3% on thick plate); plan to skim both faces: finished thickness ~ nominal - 0.03 to 0.06 in (0.8-1.5 mm). Above 6-8 in buy 6061-T6 forged block or switch to Alumold/QC-10. Metric plate in Europe is often 6082-T651 (similar properties)."
+  },
+  "mic6_cast_plate": {
+   "inch": [
+    0.25,
+    0.3125,
+    0.375,
+    0.5,
+    0.625,
+    0.75,
+    1.0,
+    1.25,
+    1.5,
+    1.75,
+    2.0,
+    2.5,
+    3.0,
+    3.5,
+    4.0
+   ],
+   "metric_mm": [
+    5,
+    6,
+    8,
+    10,
+    12,
+    15,
+    20,
+    25,
+    30,
+    35,
+    40,
+    45,
+    50,
+    60,
+    70,
+    80,
+    90,
+    100
+   ],
+   "notes": "Sold to finished decimal thickness +/-0.005 in (+/-0.13 mm), both faces machined, flatness ~0.015 in max; no skim needed. Common stock to 2.5 in (Speedy Metals), thicker by order. Metric column is generic cast tooling plate (5083-type ALCA/ACP/Alpase), +/-0.1 mm typical."
+  },
+  "7075_T651_plate": {
+   "inch": [
+    0.25,
+    0.3125,
+    0.375,
+    0.5,
+    0.625,
+    0.75,
+    1.0,
+    1.25,
+    1.5,
+    1.75,
+    2.0,
+    2.5,
+    3.0,
+    3.5,
+    4.0,
+    4.5,
+    5.0,
+    6.0
+   ],
+   "metric_mm": [
+    5,
+    6,
+    8,
+    10,
+    12,
+    15,
+    20,
+    25,
+    30,
+    35,
+    40,
+    45,
+    50,
+    60,
+    70,
+    80,
+    90,
+    100,
+    120,
+    150
+   ],
+   "notes": "T651 to ~4-6 in; thicker sections T7351/T7451 (lower strength, better stress-corrosion). Over-nominal like 6061."
+  },
+  "qc10_alumold500": {
+   "inch": "1-24 (QC-10); 1-8 rolled, 10-27 forged (Alumold 500; Alro stocks to 20 in), sawn to order",
+   "notes": "Mold-block alloys sold cut-to-size; buy finished-size + ~0.06-0.12 in per face."
+  },
+  "p20_prehard": {
+   "inch": [
+    0.75,
+    1.0,
+    1.25,
+    1.5,
+    1.75,
+    2.0,
+    2.25,
+    2.5,
+    2.75,
+    3.0,
+    3.5,
+    4.0,
+    4.5,
+    5.0,
+    5.5,
+    6.0,
+    7.0,
+    8.0,
+    9.0,
+    10.0,
+    12.0
+   ],
+   "metric_mm": [
+    20,
+    25,
+    30,
+    35,
+    40,
+    45,
+    50,
+    60,
+    70,
+    80,
+    90,
+    100,
+    120,
+    150,
+    200,
+    250,
+    300
+   ],
+   "notes": "Distributor sawn plate/blocks, any size to ~24 in / 600 mm; supplied rough (+0.06-0.125 in over) with decarb, so allow ~1.5-3 mm per face. Standard mold-base plates (DME inch A/B plates 0.875, 1.375, 1.875, 2.375, 2.875, 3.375, 3.875 in...; HASCO K-plates 22, 27, 36, 46, 56, 66, 76, 96, 116, 136, 156, 196 mm) come finish-ground and are often the cheapest P20 for a standard footprint - verify against catalogs."
+  },
+  "sources": [
+   "Speedy Metals cast plate list / tolerance",
+   "McMaster-Carr MIC6 and cast plate tables",
+   "Alro Alumold 500 sheet",
+   "Upmet MIC-6",
+   "ANSI H35.2 / EN 485-4 (dimensional tolerances)",
+   "DME and HASCO mold-base catalogs (plate series - verify)"
+  ]
+ },
+ "hooks": {
+  "machinability_sim": "mold_materials[].id + machinability{} + hardness are the inputs a future MCP machinability checker should receive.",
+  "process_sim": "mold_materials[].k_W_mK, density, cte, retained.E are the thermal/structural inputs for a future process/demolding simulator."
+ },
+ "schema": "unify3d.mold-materials/1",
+ "generator": "tools/dev/mold-data/build_mold_materials.py"
+}

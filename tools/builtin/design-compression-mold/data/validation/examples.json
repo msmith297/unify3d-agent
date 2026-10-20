@@ -1,0 +1,448 @@
+{
+ "schema": "unify3d.mold-examples/1",
+ "generated": "2026-10-19",
+ "generator": "tools/dev/mold-data/examples_check.py",
+ "coefficients": "version: 0.1.0-provisional",
+ "note": "Expected values come from this independent script; 'hand' holds the hand-derived or published figures they were checked against.",
+ "examples": [
+  {
+   "id": "E1",
+   "title": "Class B press: 8.00 in ram, 3,000 psi gauge, 2 cavities 6 x 4 in, land not counted",
+   "kind": "press",
+   "input": {
+    "class": "B",
+    "ramArea_mm2": 32429.278662239853,
+    "gauge_MPa": 20.684271879504,
+    "cavities": 2,
+    "area_mm2": 15483.839999999997,
+    "perimeter_mm": 508.0,
+    "land_mm": 0
+   },
+   "expected": {
+    "ramArea_mm2": 32429.278662239853,
+    "force_N": 670776.0167059669,
+    "pLC1_MPa": 21.66051886050124,
+    "pLC1_psi": 3141.592653589794,
+    "gaugeFor1000psiOnPart_psi": 954.9296585513719,
+    "pLC1On12inRam_psi": 7068.583470577035
+   },
+   "hand": {
+    "ramArea_in2": 50.27,
+    "force_lbf": 150796,
+    "force_kN": 670.8,
+    "pLC1_psi": 3142,
+    "gauge_psi": 955,
+    "ram12_psi": 7069
+   },
+   "tolerancePct": 0.5
+  },
+  {
+   "id": "E7",
+   "title": "Press 'on the part' 1,000 psi, 48 in\u00b2, 8 in ram",
+   "kind": "press-onpart",
+   "input": {
+    "class": "B",
+    "ramArea_mm2": 32429.278662239853,
+    "onPart_MPa": 6.894757293168,
+    "cavities": 2,
+    "area_mm2": 15483.839999999997,
+    "perimeter_mm": 508.0,
+    "land_mm": 0
+   },
+   "expected": {
+    "gaugeForInput_psi": 954.9296585513719
+   },
+   "hand": {
+    "gauge_psi": 955
+   },
+   "tolerancePct": 0.5
+  },
+  {
+   "id": "E2",
+   "title": "Class A, the user's typical job: TDI-ether 90A, 2 cavities 6 x 4 x 1 in, 6061 at 100 C, 50 US ton at 3,000 psi run at 2,000 psi gauge, N = 5,000, sharp floor corner",
+   "kind": "design",
+   "design": {
+    "units": {
+     "display": "imperial"
+    },
+    "layout": {
+     "patternRequest": "2x1"
+    },
+    "inputs": {
+     "press_pressure": 13.789514586336,
+     "press_pressure_is": "Gauge reading",
+     "press_rated_force": 444.82216152604997,
+     "press_rated_gauge": 20.684271879504,
+     "press_temp": 100,
+     "cavities": 2,
+     "cycle_life": 5000,
+     "mold_material": "Aluminium + steel inserts",
+     "mold_grade": "al_6061_t651",
+     "part_grade": "pu-tdi-ether-90a",
+     "shrink_basis": "Supplier datasheet (steel mold)",
+     "max_plate_mass": 23,
+     "max_plate_size": [
+      600,
+      400,
+      150
+     ]
+    },
+    "part": {
+     "volume_mm3": 393289.53599999996,
+     "projectedArea_mm2": 15483.839999999997,
+     "perimeter_mm": 508.0,
+     "box_mm": [
+      152.39999999999998,
+      101.6,
+      25.4
+     ],
+     "floorRadius_mm": 0
+    }
+   },
+   "expected": {
+    "shrink.scale[0]": 1.0142880698094792,
+    "shrink.effectivePct": 1.4086796675192081,
+    "process.charge.perCavity_g": 454.24941408,
+    "process.charge.shot_g": 953.923769568,
+    "process.overflowRequired_mm3": 39328.95359999999,
+    "press.ramArea_mm2": 21505.33333333446,
+    "press.force_kN": 296.54810768403337,
+    "press.aProj_mm2": 35130.82922195823,
+    "press.pLC1_MPa": 1.5513203909628,
+    "press.pLC1x_MPa": 8.44124987231097,
+    "press.fReq_kN": 68.1239646543195,
+    "press.gauge.recommended_MPa": 3.1677706919670747,
+    "structural.inputs.deltaGap_mm": 0.01,
+    "structural.inputs.deltaWall_mm": 0.03125,
+    "wall.V-B.w_struct_mm": 8.406646028499653,
+    "wall.U-B.w_struct_mm": 8.00645332059661,
+    "wall.V-B.w_drawn_mm": 43.72416605367846,
+    "wall.U-B.w_drawn_mm": 38.099999999999994,
+    "wall.V-B.sigma_MPa": 3.4405695089306794,
+    "wall.U-B.sigma_MPa": 5.051422219863554,
+    "wall.V-B.allow_MPa": 68.89965604624633,
+    "wall.V-B.Sa_MPa": 186.40822571257885,
+    "wall.V-B.sigmaMaxR0_MPa": 227.36886495261294,
+    "layout.footprint_mm[0]": 431.79999999999995,
+    "layout.footprint_mm[1]": 190.5,
+    "plates.base.t_mm": 44.449999999999996,
+    "plates.lid.t_mm": 22.224999999999998,
+    "pieces.BASE-1.mass_kg": 7.656078043914511,
+    "pieces.LID-1.mass_kg": 4.936090934249999,
+    "bearing.stress_MPa": 9.923476011828777,
+    "bearing.gaugeMax_MPa": 182.17460898920365,
+    "gauge.max_MPa": 20.684271879504,
+    "lid.limit_kg": 11.0
+   },
+   "hand": {
+    "A_ram_in2": 33.33,
+    "F_lbf": 66667,
+    "pLC1_psi": 225,
+    "E_GPa": 66.8,
+    "Sy_MPa": 262.2,
+    "Su_MPa": 291.4,
+    "Sa_MPa": 186.4,
+    "smax_MPa": 227.4,
+    "Kf": 2.2,
+    "edge_in": 1.6404,
+    "footprint_in": [
+     17.0,
+     7.5
+    ],
+    "base_in": 1.75,
+    "lid_in": 0.875,
+    "floor_rule_mm": 18.35,
+    "charge_g": 454.2
+   },
+   "notes": "The user's side-by-side layout (2 columns x 1 row) is requested; left to itself the layout picks 1 x 2 (9.5 x 13 in, a smaller footprint). Re-derived (critique A4, A9, A11, A5): the long wall is L/h ~ 6 and uses its own row (not the L/h = 4 row); walls are limited by 0.25 x the default +-0.125 mm width tolerance; the gap budget is 0.020 - 0.010 mm land flatness; areas use the scaled cavity; the shrink is on the datasheet basis given here (the 90A row now defaults to the hot-cavity basis).",
+   "tolerancePct": 0.5,
+   "tableDependentTolerancePct": 2.0,
+   "tableDependent": [
+    "wall.V-B.w_struct_mm",
+    "wall.U-B.w_struct_mm",
+    "wall.V-B.sigma_MPa",
+    "wall.U-B.sigma_MPa"
+   ]
+  },
+  {
+   "id": "E3",
+   "title": "Class B wall: p = 10.3 MPa, h = 25 mm, L = 150 mm (L/h = 6), delta = 0.05 mm, K_f = 1.5, membrane off, N = 1e5",
+   "kind": "wall",
+   "input": {
+    "p": 10.3,
+    "h": 25,
+    "L": 150,
+    "bPerp": 0,
+    "delta": 0.05,
+    "kf": 1.5,
+    "N": 100000.0
+   },
+   "expected": {
+    "Al.E_MPa": 64077.0,
+    "Al.Sy_MPa": 215.28,
+    "Al.wDefl_noRoot_mm": 13.106975222127,
+    "Al.wDefl_mm": 14.114695941440527,
+    "Al.allowFatigue_MPa": 60.328917313841934,
+    "Al.wStruct_mm": 17.873701490015645,
+    "P20.wDefl_mm": 9.07531566748684,
+    "P20.sigmaAtDefl_MPa": 233.3671334048009,
+    "P20.allow1e5_MPa": 230.90950487691032,
+    "P20.wStruct1e5_mm": 9.123632411063603,
+    "P20.allow1e6_MPa": 168.49628012636907,
+    "P20.wStruct1e6_mm": 10.68669340834179
+   },
+   "flags": {
+    "Al.stocky": true
+   },
+   "notes": "Re-derived for the L/h = 6 row (critique A4). Before: the L/h = 4 row gave 13.3 / 16.9 mm (Al) and 8.65 mm at 232 MPa against 231 MPa (P20, critique H1: fails by 0.4% -> 8.66 mm). The aluminium wall is still stocky (w/h > 0.5): prefer P20 or a 3D check.",
+   "tolerancePct": 1.0,
+   "tableDependentTolerancePct": 2.0
+  },
+  {
+   "id": "E4",
+   "title": "Bolted frame corner: 1/2-13 A574, grip 2.0 in, aluminium joint (E 10e6 psi), dT = 100 K (k_T at 100 C), 28.25 kip per corner",
+   "kind": "bolt",
+   "input": {
+    "size": "1/2-13",
+    "grip_mm": 50.8,
+    "P_N_per4": 31415.565157777277,
+    "memberE_MPa": 68947.57293168,
+    "tempC": 100,
+    "deltaT": 100,
+    "scatter": 0.25
+   },
+   "expected": {
+    "Fp_N": 88368.37060876045,
+    "C": 0.31104635527334706,
+    "dF_N": 15386.52876717021,
+    "at060.hotPctHotProof": 108.91549250631408,
+    "at060.n0": 1.6535487050534137,
+    "four.windowExists": false,
+    "six.fractionHi": 0.4857300234424071,
+    "six.fractionLo": 0.48380794442589947,
+    "five8x4.fractionHi": 0.4820460411546068,
+    "five8x4.fractionLo": 0.4697122207293033
+   },
+   "hand": {
+    "design_nominal": "0.60 F_p: hot 88% F_p, n0 2.19 (passes) - ignores scatter",
+    "critique": "+-25% scatter, k_T 0.95: 108% of hot proof, n0 1.64: fails",
+    "first_passing": "6 x 1/2-13 at about 0.49 F_p, or 4 x 5/8-11 at about 0.47 F_p"
+   },
+   "notes": "Bolt E = 205 GPa (C = 0.311; the design used 29e6 psi, C = 0.306). The head bearing with an F436 washer also passes in the window.",
+   "tolerancePct": 0.5
+  },
+  {
+   "id": "E5",
+   "title": "M10 12.9, grip 50 mm, 6061 plates, 20 -> 150 C",
+   "kind": "bolt-thermal",
+   "input": {
+    "size": "M10",
+    "grip_mm": 50,
+    "memberE_MPa": 64077.0,
+    "tempC": 150,
+    "deltaT": 130,
+    "memberSu_MPa": 232.5
+   },
+   "expected": {
+    "kb_N_mm": 237800.0,
+    "km_N_mm": 579998.4873866464,
+    "dF_N": 13045.259610761812,
+    "at060.hot_N": 55240.259610761816,
+    "at060.hotPctProof": 98.18745042794492,
+    "at060.hotPctHotProof": 106.7254895955923,
+    "fractionHi": 0.4665037215357804,
+    "fractionHiHot": 0.4769003965764408,
+    "fractionHiHead": 0.4665037215357804,
+    "chosen": 0.465
+   },
+   "hand": {
+    "kb_kN_mm": 237.8,
+    "km_kN_mm": 580,
+    "dF_kN": 13.05,
+    "design": "0.60 F_p nominal: 83% - passed; with +25% scatter 98% of F_p = 107% of hot proof: fails"
+   },
+   "notes": "Critique A1: the aluminium-joint preload drops to the highest fraction that passes (here the washer bearing on hot 6061 governs, about 0.47 F_p).",
+   "tolerancePct": 0.5
+  },
+  {
+   "id": "E6",
+   "title": "Shrink 1.5%, datasheet (steel) basis, aluminium cavity, 170 C",
+   "kind": "shrink",
+   "input": {
+    "pct": 1.5,
+    "basis": "Supplier datasheet (steel mold)",
+    "tempC": 170,
+    "alphaCavity": 2.36e-05
+   },
+   "expected": {
+    "scale": 1.0134681602760744,
+    "effectivePct": 1.3289179476941526,
+    "hotCavityAt100": 1.0133152871338305,
+    "measured": 1.015228426395939,
+    "v1": 1.015
+   },
+   "hand": {
+    "scale": 1.013468,
+    "effectivePct": 1.33,
+    "hotCavityAt100": 1.013315
+   },
+   "tolerancePct": 0.01
+  },
+  {
+   "id": "E8",
+   "title": "Thread engagement, 6061 at 150 C, 12.9 screw",
+   "kind": "thread",
+   "input": {
+    "size": "M10",
+    "grade": "al_6061_t651",
+    "tempC": 150
+   },
+   "expected": {
+    "LeOverD": 2.6236559139784945,
+    "insert": true,
+    "helicalNeedD": 2.186379928315412,
+    "helicalLengthD": 2.5
+   },
+   "hand": {
+    "LeOverD": 2.62
+   },
+   "notes": "Re-checked at the helical insert's 1.2 d shear diameter: 2.18 d needed, so the 2.5 d stock length (2 d is not enough).",
+   "tolerancePct": 0.5
+  },
+  {
+   "id": "E9",
+   "title": "T16 thickness: SS4, a/b = 1, p = 10 MPa, b = 100 mm, E = 66 GPa, delta = 0.025 mm",
+   "kind": "span",
+   "input": {
+    "bc": "SS4",
+    "aspect": 1,
+    "b": 100,
+    "p": 10,
+    "E": 66000,
+    "delta": 0.025
+   },
+   "expected": {
+    "t_mm": 35.40554662932219
+   },
+   "hand": {
+    "t_mm": 35.4
+   },
+   "tolerancePct": 0.5,
+   "tableDependentTolerancePct": 1.0
+  },
+  {
+   "id": "E10",
+   "title": "Steel insert 25 mm in aluminium, dT = 140 K (alpha 23.6e-6 / 12.8e-6)",
+   "kind": "fit",
+   "input": {
+    "d": 25,
+    "alphaHub": 2.36e-05,
+    "alphaInsert": 1.28e-05,
+    "dT": 140
+   },
+   "expected": {
+    "interference_mm": 0.03767552008165024
+   },
+   "hand": {
+    "interference_mm": 0.0377
+   },
+   "tolerancePct": 0.5
+  },
+  {
+   "id": "E11",
+   "title": "Split: base 30 x 14 x 2.5 in, 6061, 2 rows x 3 columns of 6 x 4 x 1 in cavities (U = -9, 0, 9 in; V = +-3 in), m_plate 23 kg, 600 x 400 x 150 mm",
+   "kind": "split",
+   "input": {
+    "L": 762.0,
+    "W": 355.59999999999997,
+    "T": 63.5,
+    "maxMass": 23,
+    "maxBox": [
+     600,
+     400,
+     150
+    ],
+    "cavities": [
+     {
+      "id": "C1",
+      "u": -228.6,
+      "v": 76.19999999999999,
+      "su": 152.39999999999998,
+      "sv": 101.6,
+      "depth": 25.4
+     },
+     {
+      "id": "C2",
+      "u": 0.0,
+      "v": 76.19999999999999,
+      "su": 152.39999999999998,
+      "sv": 101.6,
+      "depth": 25.4
+     },
+     {
+      "id": "C3",
+      "u": 228.6,
+      "v": 76.19999999999999,
+      "su": 152.39999999999998,
+      "sv": 101.6,
+      "depth": 25.4
+     },
+     {
+      "id": "C4",
+      "u": -228.6,
+      "v": -76.19999999999999,
+      "su": 152.39999999999998,
+      "sv": 101.6,
+      "depth": 25.4
+     },
+     {
+      "id": "C5",
+      "u": 0.0,
+      "v": -76.19999999999999,
+      "su": 152.39999999999998,
+      "sv": 101.6,
+      "depth": 25.4
+     },
+     {
+      "id": "C6",
+      "u": 228.6,
+      "v": -76.19999999999999,
+      "su": 152.39999999999998,
+      "sv": 101.6,
+      "depth": 25.4
+     }
+    ]
+   },
+   "expected": {
+    "options": 3,
+    "opt1.pieces": 3,
+    "opt1.cutsU": [
+     -114.3,
+     114.3
+    ],
+    "opt1.cutsV": [],
+    "opt1.masses": [
+     14.1363007596,
+     11.813434437599998,
+     14.1363007596
+    ],
+    "opt1.subplate_t": 22.224999999999998,
+    "opt1.subplate_cutsU": [
+     0.0
+    ],
+    "opt1.subplate_mass": 8.130032127,
+    "opt2.pieces": 4,
+    "opt2.heaviest": 12.974867598599998,
+    "opt3.pieces": 6,
+    "opt3.heaviest": 7.0681503798
+   },
+   "hand": {
+    "opt1": "3 pieces 14.136 / 11.813 / 14.136 kg (cuts at U = +-4.5 in)",
+    "subplate": "0.875 in, split at U = 0: 2 x 8.130 kg",
+    "rejected": "V cut alone: 762 mm long, box fails; one U cut: 25.95 kg piece"
+   },
+   "notes": "Critique H2: derived by hand (see the header of this script), not with the implementation under test.",
+   "tolerancePct": 0.1
+  }
+ ]
+}
