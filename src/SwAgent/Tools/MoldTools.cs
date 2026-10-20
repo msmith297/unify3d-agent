@@ -199,7 +199,7 @@ namespace SwAgent.Tools
                 Pull = input.Pull,
                 Fill = string.IsNullOrWhiteSpace(input.Fill) ? "base" : input.Fill.Trim().ToLowerInvariant(),
                 TiltDeg = input.TiltDeg ?? 0,
-                MinDraftDeg = input.MinDraftDeg ?? RecordNumber(record, "inputs.draft_min_deg.value", "inputs.draft_min_deg", "materials.part.used.draftMinDeg") ?? 0.5,
+                MinDraftDeg = input.MinDraftDeg ?? RecordNumber(record, "materials.part.used.draftMinDeg") ?? PageDraftDeg(record) ?? 0.5,
                 SampleMm = Math.Max(0.1, input.SampleMm ?? 1.0),
                 Sg = input.Sg ?? RecordNumber(record, "materials.part.used.sg", "inputs.sg.value"),
                 Vents = (input.Vents ?? new double[0][]).Where(v => v != null && v.Length >= 3).Select(v => new[] { v[0] / 1000, v[1] / 1000, v[2] / 1000 }).ToList(),
@@ -278,6 +278,30 @@ namespace SwAgent.Tools
             var bodies = BodyReport.List(model, frame);
             return (bodies.FirstOrDefault(b => string.Equals(b.Id, which, StringComparison.OrdinalIgnoreCase)) ??
                     bodies.FirstOrDefault(b => string.Equals(b.Name, which, StringComparison.Ordinal)))?.Body;
+        }
+
+        /// <summary>
+        /// The page's minimum draft from the record's inputs, in degrees. Page angles reach macros in radians, so a bare
+        /// value is radians unless it says "deg" (a draft in radians is far below 0.2).
+        /// </summary>
+        private static double? PageDraftDeg(MoldRecord record)
+        {
+            try
+            {
+                var t = record?.Json?.SelectToken("inputs.draft_min_deg");
+                if (t == null) return null;
+                var unit = (t as JObject)?["unit"]?.ToString();
+                var v = t is JObject o ? o["value"] : t;
+                if (v == null || (v.Type != JTokenType.Float && v.Type != JTokenType.Integer)) return null;
+                var x = (double)v;
+                if (unit != null && unit.StartsWith("deg", StringComparison.OrdinalIgnoreCase)) return x;
+                if (unit != null && unit.StartsWith("rad", StringComparison.OrdinalIgnoreCase)) return x * 180 / Math.PI;
+                return x < 0.2 ? x * 180 / Math.PI : x;
+            }
+            catch (NotImplementedException)
+            {
+                return null;
+            }
         }
 
         private static double? RecordNumber(MoldRecord record, params string[] paths)
@@ -599,7 +623,10 @@ namespace SwAgent.Tools
                         t = null;
                     }
                 }
-                return t != null && t.Count == 3 ? t.Select(x => (double)x).ToArray() : null;
+                if (t == null || t.Count != 3) return null;
+                var v = t.Select(x => (double)x).ToArray();
+                // Page lengths are meters (a plate is never under 5 mm): convert to mm.
+                return v.All(x => x < 5) ? v.Select(x => x * 1000).ToArray() : v;
             }
             return new BodyReport.Limits
             {
