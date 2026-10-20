@@ -1,0 +1,156 @@
+{
+ "schema": "unify3d.mold-shop/1",
+ "note": "Lengths are {\"in\": x} or {\"mm\": x}; the loader accepts either. A shop override file with the same name in %APPDATA%\\SwAgent\\tools\\builtin-data\\design-compression-mold\\ is merged key by key.",
+ "flash": {
+  "styleClassA": "moat",
+  "lip": {
+   "in": 0.125
+  },
+  "grooveWidth": {
+   "in": 0.5
+  },
+  "grooveDepth": {
+   "in": 0.125
+  },
+  "runnerPitch": {
+   "in": 2.0
+  },
+  "runnerPastEdge": {
+   "in": 0.1
+  },
+  "cornerRadius": {
+   "in": 0.25
+  },
+  "lipCornerRule": "min(0.25 in, cavity corner R + lip)",
+  "featureClearance": {
+   "in": 0.25
+  },
+  "separateMoatGap": {
+   "in": 1.5
+  },
+  "partialMoatWidth": {
+   "in": 0.25
+  },
+  "noDeadEnds": true,
+  "seams": "runners leave only through the assembled outer edge, may cross a seam at 90 deg, never run along one (>= 0.25 in); seam edges not filleted"
+ },
+ "plates": {
+  "roundLW": {
+   "in": 0.5
+  },
+  "roundT": {
+   "in": 0.125
+  },
+  "roundTMetric": {
+   "mm": 1.0
+  },
+  "warnBelow": {
+   "in": 0.25
+  },
+  "blankAllowancePerSide": {
+   "mm": 3
+  },
+  "blankAllowanceThicknessPerSide": {
+   "mm": 1.5
+  },
+  "skimPerFace": {
+   "mm": 1.5
+  }
+ },
+ "dowels": {
+  "diameter": {
+   "in": 0.5
+  },
+  "inset": {
+   "in": 0.625
+  },
+  "keyOffset": {
+   "in": 0.25
+  },
+  "count": 4,
+  "scheme": "round_plus_radial_slots",
+  "schemeNote": "critique D1: one round dowel plus the others slotted along radial lines from it (or round + diamond + two relieved). Confirm against how the shop's existing 4 dowels are fitted before overriding the shop standard."
+ },
+ "prySlots": {
+  "width": {
+   "in": 1.0
+  },
+  "reach": {
+   "in": 0.375
+  },
+  "depth": {
+   "in": 0.125
+  }
+ },
+ "chamfer": {
+  "size": {
+   "in": 0.06
+  },
+  "angleDeg": 45,
+  "where": "base bottom outer edges and lid top outer edges"
+ },
+ "thermocouple": {
+  "diameter": {
+   "in": 0.25
+  },
+  "depth": {
+   "in": 2.0
+  },
+  "endFromCavity": {
+   "mm": 9
+  },
+  "perPiece": 1
+ },
+ "handlesAbove": {
+  "kg": 5
+ },
+ "handles": {
+  "rule": "outside the platen outline, or wholly below the lid's platen face (critique D2, acceptance A16)"
+ },
+ "pour": {
+  "massRate_g_per_s": 10,
+  "handlingSecondsPerCavity": 15,
+  "holdUpPct": 5,
+  "note": "critique D3: t_pour per cavity = charge / mass rate + handling time"
+ },
+ "slideIn": {
+  "locatingStop": true,
+  "basePullHandles": true,
+  "nothingProudBelowBase": true,
+  "note": "critique E4: a positive stop lands the mold centred under the ram every cycle (makes S8 true)"
+ },
+ "washers": {
+  "hardenedOnAluminium": true,
+  "cboreOverWasherOd": {
+   "mm": 0.5
+  }
+ },
+ "machining": {
+  "defaultTolerance": {
+   "mm": 0.125
+  },
+  "platenFaceFlatness": {
+   "mm": 0.05
+  },
+  "subplateParallelism": {
+   "mm": 0.02
+  },
+  "shutOffRecess": {
+   "mm": [
+    0.01,
+    0.03
+   ]
+  },
+  "tappedReliefD": 0.5,
+  "cornerReliefOverCutterRadius": 1.1,
+  "finishDefault": "as machined, 1.6 um Ra on cavity faces unless the drawing says otherwise"
+ },
+ "customProperties": [
+  "MoldNumber",
+  "Resin",
+  "CureTime_min",
+  "PressTemp_F"
+ ],
+ "materialFallback": "6061-T6 (SS)",
+ "designLibrary": "W:\\Solidworks-library\\library-features"
+}

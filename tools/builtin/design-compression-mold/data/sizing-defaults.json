@@ -1,0 +1,316 @@
+{
+ "schema": "unify3d.mold-sizing/1",
+ "sfStatic": 2.0,
+ "sfFatigue": 1.5,
+ "bearingDivisor": {
+  "highCycle": 3.0,
+  "lowCycle": 2.0,
+  "highCycleFrom": 100000,
+  "aluminiumHot": 4.0,
+  "aluminiumHotAboveC": 150,
+  "note": "critique A8: aluminium lands and stops creep under sustained bearing above ~120 C; D_b = 4 above 150 C until 10,000 h creep data is loaded"
+ },
+ "wallRootFactor": 1.2,
+ "lateralPressureFactor": 1.0,
+ "tauMax": 0.5,
+ "deltaFlash_mm": {
+  "liquidBelow1000cP": 0.012,
+  "liquid1000to10000cP": 0.02,
+  "liquidAbove10000cP": 0.025,
+  "paste_lsr": 0.005,
+  "rubber": 0.05,
+  "compound": 0.025,
+  "melt": 0.025,
+  "no_flow": 0.025
+ },
+ "landFlatness_mm": {
+  "liquidBelow1000cP": 0.006,
+  "liquid1000to10000cP": 0.01,
+  "liquidAbove10000cP": 0.012,
+  "paste_lsr": 0.0025,
+  "rubber": 0.03,
+  "compound": 0.012,
+  "melt": 0.012,
+  "no_flow": 0.012,
+  "note": "critique A11 gap budget: delta_allow = delta_flash - land flatness - platen parallelism. These flatness values leave the deflection at about half the gap (design-rules 13.2.1); they go on the machining sheet"
+ },
+ "platenParallelism_mm": 0.0,
+ "deltaFromTolerance": 0.25,
+ "wallWidthTolFraction": 0.25,
+ "defaultTolerance_mm": 0.125,
+ "telescopingClearanceFraction": 0.5,
+ "classA": {
+  "pressureFactorOnTableMax": 1.5,
+  "minDesignPressure_MPa": 0.35,
+  "closeForceReserve": 1.25,
+  "abuseSf": 1.0,
+  "abuseSeparationMin": 1.0
+ },
+ "thermosetDepthAdder_MPa_per_25mm": 4.1,
+ "pressReserve": 1.25,
+ "excessForceFlag": 1.5,
+ "offCentre": 0.05,
+ "platenEdgeMargin_mm": 25,
+ "daylightMargin_mm": 25,
+ "strokeMargin_mm": 5,
+ "minFloor_mm": {
+  "aluminium": 12,
+  "steel": 10
+ },
+ "minFloorDepthFraction": 0.25,
+ "minPlateFractionOfLongestSide": 0.05,
+ "minPlate_mm": {
+  "aluminium": 12,
+  "steel": 10
+ },
+ "minWallClassB_mm": {
+  "aluminium": 15,
+  "steel": 10
+ },
+ "steelAroundTcWell_mm": 6,
+ "platenCoverageForCaseA": 0.8,
+ "bolts": {
+  "preloadSteelJoint": 0.75,
+  "preloadAluminiumJoint": 0.6,
+  "hotMaxOfProof": 0.9,
+  "separationMin": 2.0,
+  "loadFactorMin": 1.5,
+  "embedmentLossAluminium": 0.1,
+  "kDry": 0.2,
+  "kLubed": 0.15,
+  "edgeDistanceD": 1.5,
+  "minSpacingD": 4.0,
+  "maxSpacingD": 6.0,
+  "insertAboveLeD": 2.5,
+  "alphaBolt_perK": 1.17e-05,
+  "boltE_GPa": 205,
+  "enduranceInchA574_MPa": 160,
+  "enduranceMetric129_MPa": 190,
+  "headBearingOfUts": 0.9,
+  "utsInchA574_MPa": 1241,
+  "utsMetric129_MPa": 1220,
+  "tighteningScatter": 0.25,
+  "tighteningScatterAngleOrDti": 0.1,
+  "hotProofFactor": {
+   "tempsC": [
+    20,
+    100,
+    150,
+    200,
+    250
+   ],
+   "factor": [
+    1.0,
+    0.95,
+    0.92,
+    0.89,
+    0.86
+   ],
+   "note": "critique A1: stand-in from P20/4140 retained yield until supplier data for A574/12.9 is found"
+  },
+  "minPerPlate": 4,
+  "minPerJointEnd": 2,
+  "washerSpreadDeg": 45,
+  "note": "preload fractions are ceilings: the sizing picks the highest preload that passes the hot and separation checks with tightening scatter"
+ },
+ "fatigue": {
+  "kaAluminium": 0.9,
+  "kbSteel": 0.8,
+  "keSteel": 0.868,
+  "qAluminium": 0.8,
+  "qSteel": 0.95,
+  "ktByFilletRatio": [
+   [
+    0.2,
+    1.5
+   ],
+   [
+    0.1,
+    1.8
+   ],
+   [
+    0.05,
+    2.2
+   ],
+   [
+    0.0,
+    2.5
+   ]
+  ],
+  "ktHoleInBentPlate": 2.5
+ },
+ "keys": {
+  "minStep_mm": 9.5,
+  "bearingSf": 2.5,
+  "shearSf": 2.0
+ },
+ "pins": {
+  "lateralImbalance": 0.5,
+  "insertIfDiameterBelow_mm": 3.0,
+  "insertIfHeightOverD": 2.0,
+  "insertIfSteelWallBelow_mm": 3.0,
+  "shutOffRecess_mm": [
+   0.01,
+   0.03
+  ],
+  "eulerK": 2.0,
+  "eulerKGuided": 0.7,
+  "axialSf": 2.0,
+  "note": "critique A12: shut-off faces sit 0.01-0.03 mm below the land, never proud; the axial check assumes the pin ends proud by the full height tolerance"
+ },
+ "threads": {
+  "insertShearFactorHelical": 1.2,
+  "insertShearFactorKeyLocking": 1.75,
+  "helicalLengthsD": [
+   1.5,
+   2.0,
+   2.5,
+   3.0
+  ],
+  "minHelicalInAluminiumD": 2.0,
+  "stripThreadFill": 0.75,
+  "tappedReliefD": 0.5
+ },
+ "thermal": {
+  "alphaRefSteel_perK": 1.2e-05,
+  "lidBaseGradient_K": 10,
+  "lidBaseGradientSlideIn_K": 30,
+  "runningClearance_mm": 0.02,
+  "pinEngagementBeforeEntry_mm": 12
+ },
+ "cure": {
+  "alphaThermal_m2_s": 1e-07,
+  "alphaThermalThermoset_m2_s": 1.3e-07
+ },
+ "charge": {
+  "holdUpPctLiquids": 5,
+  "overflowFactorClassA": 2.0,
+  "overflowFactorClassB": 1.5,
+  "tolerancePct": 2
+ },
+ "lifting": {
+  "loadConstant_kg": 23,
+  "unknownLid_kg": 11,
+  "occasionalPlate_kg": 23,
+  "locations": {
+   "table": {
+    "H_cm": 40,
+    "V_cm": 90,
+    "D_cm": 25,
+    "coupling": 1.0
+   },
+   "press": {
+    "H_cm": 55,
+    "V_cm": 100,
+    "D_cm": 25,
+    "coupling": 0.9
+   }
+  },
+  "workHours": 8,
+  "frequencyMultiplier": {
+   "liftsPerMin": [
+    0.2,
+    0.5,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15
+   ],
+   "upTo1h": [
+    1.0,
+    0.97,
+    0.94,
+    0.91,
+    0.88,
+    0.84,
+    0.8,
+    0.75,
+    0.7,
+    0.6,
+    0.52,
+    0.45,
+    0.41,
+    0.37,
+    0.34,
+    0.31,
+    0.28
+   ],
+   "upTo2h": [
+    0.95,
+    0.92,
+    0.88,
+    0.84,
+    0.79,
+    0.72,
+    0.6,
+    0.5,
+    0.42,
+    0.35,
+    0.3,
+    0.26,
+    0.23,
+    0.21,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "upTo8h": [
+    0.85,
+    0.81,
+    0.75,
+    0.65,
+    0.55,
+    0.45,
+    0.35,
+    0.27,
+    0.22,
+    0.18,
+    0.15,
+    0.13,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "note": "Waters et al. 1993 (NIOSH 94-110) Table 5, V >= 75 cm columns"
+  },
+  "note": "critique A2: RWL = 23 (25/H)(1 - 0.003|V-75|)(0.82 + 4.5/D) FM CM; 11 kg (25 lb) when the three lifting answers are unknown"
+ },
+ "cycleTiers": [
+  {
+   "upTo": 500,
+   "tier": "T1"
+  },
+  {
+   "upTo": 10000,
+   "tier": "T2"
+  },
+  {
+   "upTo": 100000,
+   "tier": "T3"
+  },
+  {
+   "upTo": 1000000000000.0,
+   "tier": "T4"
+  }
+ ],
+ "splitClearanceFromCavity_mm": 15,
+ "limitedTemperature": {
+  "stressRatioMax": 0.5,
+  "maxCycles": 10000,
+  "note": "critique A8: a 'limited' temperature is allowed when every governing stress is <= 0.5 x the derated allowable"
+ },
+ "maxDataTemperature_C": 250
+}
