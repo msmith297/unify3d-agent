@@ -1,0 +1,275 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+
+namespace SwAgent.Mold.Structural.Fe.Solid
+{
+    /// <summary>
+    /// Axisymmetric linear-elastic solid on a structured r-z grid (bilinear quads, 2x2 Gauss, strains [er, ez, etheta, grz]),
+    /// with an optional unilateral contact plane: nodes on z = 0 rest on a frictionless rigid plane (which is also the mirror plane
+    /// of a symmetric two-member joint) and lift off where the contact would pull. Banded LDL^T. Forces in N for the full ring (2 pi).
+    /// Used for the bolted-joint member stiffness check against Wileman and the cone models.
+    /// </summary>
+    public sealed class AxisymmetricModel
+    {
+        public double[] Rs, Zs;
+        public double E = 1, Nu = 0.3;
+        /// <summary>Pressures on the top face z = Zs[last] between radii (r1, r2), pushing -z.</summary>
+        public List<(double R1, double R2, double P)> TopPressures = new List<(double, double, double)>();
+        /// <summary>Pressure on the inner face r = Rs[0] pushing +r (Lame check).</summary>
+        public double InnerPressure;
+        /// <summary>z = 0 plane: none, bonded (uz = 0 everywhere) or unilateral contact.</summary>
+        public BottomCondition Bottom = BottomCondition.Contact;
+        /// <summary>Hold uz = 0 on the top face too (plane-strain slab for the Lame check).</summary>
+        public bool TopFixedZ;
+        /// <summary>A rigid flat punch on the top face between radii (r1, r2): uz = -Depth there (penalty springs), radial motion free.</summary>
+        public (double R1, double R2, double Depth)? TopPunch;
+        public int MaxContactPasses = 30;
+    }
+
+    public enum BottomCondition { None, Bonded, Contact }
+
+    public sealed class AxisymmetricResult
+    {
+        public double[] Rs, Zs;
+        public double[,] Ur, Uz;
+        public int Passes;
+        /// <summary>Outer radius of the contact zone around the hole on z = 0 (where the plates first open, moving outward).</summary>
+        public double ContactRadius;
+        public double ContactForce, AppliedForce;
+        /// <summary>Force the rigid punch pushes with (N), when there is one.</summary>
+        public double PunchForce;
+
+        /// <summary>Area-weighted mean uz on the top face between r1 and r2 (the displacement conjugate to a uniform pressure there).</summary>
+        public double MeanTopUz(double r1, double r2)
+        {
+            int k = Zs.Length - 1;
+            double num = 0, den = 0;
+            for (int i = 0; i + 1 < Rs.Length; i++)
+            {
+                double a = Math.Max(r1, Rs[i]), b = Math.Min(r2, Rs[i + 1]);
+                if (b <= a) continue;
+                // linear uz over the element, weight r dr (quadratic: two Gauss points are exact)
+                double h = Rs[i + 1] - Rs[i];
+                Func<double, double> uz = r => Uz[i, k] + (Uz[i + 1, k] - Uz[i, k]) * (r - Rs[i]) / h;
+                num += AxisymmetricSolver.Gauss2(a, b, r => uz(r) * r);
+                den += (b * b - a * a) / 2;
+            }
+            return num / den;
+        }
+    }
+
+    public static class AxisymmetricSolver
+    {
+        public static AxisymmetricResult Solve(AxisymmetricModel m, CancellationToken ct = default)
+        {
+            var rs = m.Rs; var zs = m.Zs;
+            int nr = rs.Length, nz = zs.Length;
+            if (rs[0] <= 0) throw new ArgumentException("Inner radius must be positive (a bolt hole).");
+            int Node(int i, int k) => i * nz + k; // z fastest (the grid is taller in r)
+            int ndof = 2 * nr * nz;
+            double e = m.E, nu = m.Nu, f = e / ((1 + nu) * (1 - 2 * nu));
+            var d = new double[4, 4]
+            {
+                { f * (1 - nu), f * nu, f * nu, 0 },
+                { f * nu, f * (1 - nu), f * nu, 0 },
+                { f * nu, f * nu, f * (1 - nu), 0 },
+                { 0, 0, 0, f * (1 - 2 * nu) / 2 },
+            };
+            var load = new double[ndof];
+            int top = nz - 1;
+            foreach (var (r1, r2, p) in m.TopPressures)
+                for (int i = 0; i + 1 < nr; i++)
+                {
+                    double a = Math.Max(r1, rs[i]), b = Math.Min(r2, rs[i + 1]);
+                    if (b <= a) continue;
+                    double h = rs[i + 1] - rs[i];
+                    // integral of N_i r dr and N_(i+1) r dr over [a, b], N linear on [rs[i], rs[i+1]]
+                    double I(Func<double, double> g) => Gauss2(a, b, r => g(r) * r); // quadratic integrand: exact
+                    double fi = I(r => (rs[i + 1] - r) / h), fj = I(r => (r - rs[i]) / h);
+                    load[2 * Node(i, top) + 1] -= 2 * Math.PI * p * fi;
+                    load[2 * Node(i + 1, top) + 1] -= 2 * Math.PI * p * fj;
+                }
+            if (m.InnerPressure != 0)
+                for (int k = 0; k + 1 < nz; k++)
+                {
+                    double h = zs[k + 1] - zs[k], fr = 2 * Math.PI * rs[0] * m.InnerPressure * h / 2;
+                    load[2 * Node(0, k)] += fr; load[2 * Node(0, k + 1)] += fr;
+                }
+
+            // rigid punch: stiff springs pulling the top nodes under it to uz = -Depth
+            var spring = new double[ndof];
+            if (m.TopPunch is var punch && punch.HasValue)
+            {
+                double kp = 1e7 * e * (rs[nr - 1] - rs[0]);
+                for (int i = 0; i < nr; i++)
+                    if (rs[i] >= punch.Value.R1 - 1e-12 && rs[i] <= punch.Value.R2 + 1e-12)
+                    {
+                        int dz = 2 * Node(i, top) + 1;
+                        spring[dz] = kp; load[dz] -= kp * punch.Value.Depth;
+                    }
+            }
+            var fixedZ0 = new bool[nr];
+            if (m.Bottom != BottomCondition.None) for (int i = 0; i < nr; i++) fixedZ0[i] = true;
+            var res = new AxisymmetricResult { Rs = rs, Zs = zs, AppliedForce = -load.Where((v, idx) => idx % 2 == 1 && spring[idx] == 0).Sum() };
+            double[] u = null;
+            double[] ku = null;
+            for (int pass = 1; pass <= Math.Max(1, m.MaxContactPasses); pass++)
+            {
+                res.Passes = pass;
+                var fix = new bool[ndof];
+                for (int i = 0; i < nr; i++) if (fixedZ0[i]) fix[2 * Node(i, 0) + 1] = true;
+                if (m.TopFixedZ) for (int i = 0; i < nr; i++) fix[2 * Node(i, top) + 1] = true;
+                if (m.Bottom == BottomCondition.None && !m.TopFixedZ) throw new InvalidOperationException("Axial rigid-body motion is free.");
+                u = SolveOnce(m, d, load, fix, spring, Node, ct, out ku);
+                if (m.TopPunch.HasValue)
+                {
+                    double pf = 0;
+                    for (int q = 0; q < ndof; q++) if (spring[q] > 0) pf += spring[q] * (u[q] + m.TopPunch.Value.Depth);
+                    res.PunchForce = pf; res.AppliedForce = pf;
+                }
+                if (m.Bottom != BottomCondition.Contact) break;
+                bool changed = false;
+                for (int i = 0; i < nr; i++)
+                {
+                    int dz = 2 * Node(i, 0) + 1;
+                    if (fixedZ0[i])
+                    {
+                        double reaction = ku[dz] - load[dz]; // support force on the member along +z
+                        if (reaction < -1e-12 * res.AppliedForce) { fixedZ0[i] = false; changed = true; }
+                    }
+                    else if (u[dz] < 0) { fixedZ0[i] = true; changed = true; }
+                }
+                if (!changed) break;
+            }
+            res.Ur = new double[nr, nz]; res.Uz = new double[nr, nz];
+            for (int i = 0; i < nr; i++)
+                for (int k = 0; k < nz; k++) { res.Ur[i, k] = u[2 * Node(i, k)]; res.Uz[i, k] = u[2 * Node(i, k) + 1]; }
+            bool inner = true;
+            for (int i = 0; i < nr; i++)
+            {
+                if (!fixedZ0[i] || m.Bottom == BottomCondition.None) { inner = false; continue; }
+                int dz = 2 * Node(i, 0) + 1;
+                res.ContactForce += ku[dz] - load[dz];
+                if (inner) res.ContactRadius = rs[i];
+            }
+            return res;
+        }
+
+        static double[] SolveOnce(AxisymmetricModel m, double[,] d, double[] load, bool[] fix, double[] spring, Func<int, int, int> node, CancellationToken ct, out double[] ku)
+        {
+            var rs = m.Rs; var zs = m.Zs;
+            int nr = rs.Length, nz = zs.Length, ndof = 2 * nr * nz;
+            var eq = new int[ndof];
+            int neq = 0;
+            for (int q = 0; q < ndof; q++) eq[q] = fix[q] ? -1 : neq++;
+            int band = 0;
+            for (int i = 0; i + 1 < nr; i++)
+                for (int k = 0; k + 1 < nz; k++)
+                {
+                    var dofs = Dofs(i, k, node);
+                    int lo = int.MaxValue, hi = -1;
+                    foreach (var q in dofs) if (eq[q] >= 0) { lo = Math.Min(lo, eq[q]); hi = Math.Max(hi, eq[q]); }
+                    if (hi >= 0) band = Math.Max(band, hi - lo);
+                }
+            var k8 = new BandedLdlt(neq, band);
+            var elems = new List<(int[] dofs, double[] ke)>();
+            for (int i = 0; i + 1 < nr; i++)
+                for (int k = 0; k + 1 < nz; k++)
+                {
+                    var ke = Element(rs[i], rs[i + 1], zs[k], zs[k + 1], d);
+                    var dofs = Dofs(i, k, node);
+                    elems.Add((dofs, ke));
+                    for (int r = 0; r < 8; r++)
+                    {
+                        int er = eq[dofs[r]];
+                        if (er < 0) continue;
+                        for (int c = r; c < 8; c++)
+                        {
+                            int ec = eq[dofs[c]];
+                            if (ec < 0) continue;
+                            k8.Add(er, ec, ke[r * 8 + c]);
+                        }
+                    }
+                }
+            for (int q = 0; q < ndof; q++) if (spring[q] != 0 && eq[q] >= 0) k8.Add(eq[q], eq[q], spring[q]);
+            var rhs = new double[neq];
+            for (int q = 0; q < ndof; q++) if (eq[q] >= 0) rhs[eq[q]] = load[q];
+            k8.Factor(ct);
+            var x = k8.Solve(rhs);
+            var u = new double[ndof];
+            for (int q = 0; q < ndof; q++) if (eq[q] >= 0) u[q] = x[eq[q]];
+            ku = new double[ndof];
+            foreach (var (dofs, ke) in elems)
+                for (int r = 0; r < 8; r++)
+                {
+                    double s = 0;
+                    for (int c = 0; c < 8; c++) s += ke[r * 8 + c] * u[dofs[c]];
+                    ku[dofs[r]] += s;
+                }
+            for (int q = 0; q < ndof; q++) ku[q] += spring[q] * u[q];
+            return u;
+        }
+
+        static int[] Dofs(int i, int k, Func<int, int, int> node)
+        {
+            int[] n = { node(i, k), node(i + 1, k), node(i + 1, k + 1), node(i, k + 1) };
+            var d = new int[8];
+            for (int a = 0; a < 4; a++) { d[2 * a] = 2 * n[a]; d[2 * a + 1] = 2 * n[a] + 1; }
+            return d;
+        }
+
+        /// <summary>8 x 8 ring element stiffness (includes 2 pi), nodes (r1,z1), (r2,z1), (r2,z2), (r1,z2).</summary>
+        internal static double[] Element(double r1, double r2, double z1, double z2, double[,] d)
+        {
+            double hr = r2 - r1, hz = z2 - z1, g = 1 / Math.Sqrt(3);
+            int[] xi = { -1, 1, 1, -1 }, et = { -1, -1, 1, 1 };
+            var ke = new double[64];
+            for (int p = 0; p < 4; p++)
+            {
+                double s = xi[p] * g, t = et[p] * g;
+                double r = r1 + (s + 1) / 2 * hr;
+                var b = new double[4, 8];
+                for (int a = 0; a < 4; a++)
+                {
+                    double n = 0.25 * (1 + s * xi[a]) * (1 + t * et[a]);
+                    double dr = 0.25 * xi[a] * (1 + t * et[a]) * 2 / hr, dz = 0.25 * et[a] * (1 + s * xi[a]) * 2 / hz;
+                    b[0, 2 * a] = dr; b[1, 2 * a + 1] = dz; b[2, 2 * a] = n / r; b[3, 2 * a] = dz; b[3, 2 * a + 1] = dr;
+                }
+                double w = 2 * Math.PI * r * hr * hz / 4;
+                for (int i = 0; i < 8; i++)
+                    for (int j = 0; j < 8; j++)
+                    {
+                        double v = 0;
+                        for (int q = 0; q < 4; q++)
+                        {
+                            if (b[q, i] == 0) continue;
+                            for (int q2 = 0; q2 < 4; q2++) v += b[q, i] * d[q, q2] * b[q2, j];
+                        }
+                        ke[i * 8 + j] += v * w;
+                    }
+            }
+            return ke;
+        }
+
+        internal static double Gauss2(double a, double b, Func<double, double> f)
+        {
+            double c = (a + b) / 2, h = (b - a) / 2, g = h / Math.Sqrt(3);
+            return h * (f(c - g) + f(c + g));
+        }
+
+        /// <summary>Grid from a to b with the first cell h0 and cells growing by a ratio (geometric grading).</summary>
+        public static double[] Graded(double a, double b, double h0, double ratio, double hMax)
+        {
+            var list = new List<double> { a };
+            double h = h0, x = a;
+            while (x + h < b - 1e-9 * (b - a)) { x += h; list.Add(x); h = Math.Min(hMax, h * ratio); }
+            if (b - list[list.Count - 1] < 0.3 * h && list.Count > 1) list[list.Count - 1] = b; else list.Add(b);
+            return list.ToArray();
+        }
+
+        /// <summary>Uniform grid lines through the breakpoints with spacing about h.</summary>
+        public static double[] Lines(double h, params double[] bp) => SolidModel.Grid(h, bp);
+    }
+}
