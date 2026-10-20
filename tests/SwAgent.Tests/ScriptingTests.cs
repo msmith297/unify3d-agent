@@ -38,16 +38,19 @@ namespace SwAgent.Tests
             Assert.Equal(0.003, frame.Height(p), 9);
         }
 
-        /// <summary>Every saved tool's macro and preview must compile with the add-in's script options (catches broken edits).</summary>
+        /// <summary>
+        /// Every built-in tool's macro and preview (builtin-tools next to the add-in), and every saved tool's (the test tools root,
+        /// or SWAGENT_TOOLS_ROOT), must compile with the add-in's script options (catches broken edits).
+        /// </summary>
         [Fact]
         public void Saved_tool_scripts_compile()
         {
             AssemblyResolver.Install();
-            var root = Environment.GetEnvironmentVariable("SWAGENT_TOOLS_ROOT") ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "SwAgent", "tools");
-            if (!Directory.Exists(root)) return;
+            var roots = new List<string> { UserTools.BuiltInRoot, Environment.GetEnvironmentVariable("SWAGENT_TOOLS_ROOT") ?? UserTools.Root };
+            Assert.True(File.Exists(Path.Combine(UserTools.BuiltInRoot, "design-compression-mold", "macro.cs")), "the built-in tools ship next to the add-in");
             var host = new ScriptHost(new ToolRegistry());
             var failures = new List<string>();
-            foreach (var file in Directory.GetDirectories(root).SelectMany(d => new[] { "macro.cs", "preview.cs" }.Select(f => Path.Combine(d, f))).Where(File.Exists))
+            foreach (var file in roots.Where(Directory.Exists).SelectMany(Directory.GetDirectories).SelectMany(d => new[] { "macro.cs", "preview.cs" }.Select(f => Path.Combine(d, f))).Where(File.Exists))
             {
                 var (_, errors) = host.CompilePreviewAsync(File.ReadAllText(file)).GetAwaiter().GetResult();
                 if (errors != null) failures.Add(file + ":\n" + errors);

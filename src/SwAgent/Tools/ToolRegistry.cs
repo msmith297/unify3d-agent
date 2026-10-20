@@ -229,10 +229,11 @@ namespace SwAgent.Tools
             }
             if (depth > MaxDepth) return new JObject { ["type"] = "object" };
             if (t.IsArray) return new JObject { ["type"] = "array", ["items"] = SchemaFor(t.GetElementType(), depth + 1, path) };
-            if (typeof(IDictionary).IsAssignableFrom(t) || (t.IsGenericType && t.GetInterfaces().Any(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IDictionary<,>))))
-            {
-                return new JObject { ["type"] = "object" };
-            }
+            // A dictionary is a JSON object, not an array of its pairs (it is also an IEnumerable); its values' schema goes in
+            // additionalProperties, so the agent knows show_when takes lists and fills takes strings
+            var dict = t.GetInterfaces().Concat(new[] { t }).FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IDictionary<,>));
+            if (dict != null) return new JObject { ["type"] = "object", ["additionalProperties"] = SchemaFor(dict.GetGenericArguments()[1], depth + 1, path) };
+            if (typeof(IDictionary).IsAssignableFrom(t)) return new JObject { ["type"] = "object" };
             if (typeof(IEnumerable).IsAssignableFrom(t) && t.IsGenericType)
             {
                 return new JObject { ["type"] = "array", ["items"] = SchemaFor(t.GetGenericArguments()[0], depth + 1, path) };

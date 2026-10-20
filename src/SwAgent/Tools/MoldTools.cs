@@ -51,6 +51,12 @@ namespace SwAgent.Tools
             return compact.Length <= max ? compact : compact.Substring(0, max) + " ... (truncated)";
         }
 
+        /// <summary>
+        /// The record's status on its own line at column 0, printed after every write of mold.json (never after a read): the
+        /// panel ends a long tool run's sticky follow-up settings when a write reports done (Track C, ui/src/lib/toolRun.ts).
+        /// </summary>
+        internal static string StatusLine(MoldRecord record) => "\nrecord_status: " + ((string)record?.Json?["status"] ?? "planning");
+
         private static ToolResult Missing(NotImplementedException ex) =>
             ToolResult.Error("The mold calculator library isn't part of this build yet (" + ex.Message + ").");
 
@@ -67,7 +73,7 @@ namespace SwAgent.Tools
             [ToolParam("lookup: {part:id} | {mold:id, temp_c} | {fastener:\"1/2-13\"|\"M10\"} | {stock:id}.")]
             public JObject Query { get; set; }
 
-            [ToolParam("This call's changes to sizing defaults or support, e.g. {delta_allow_mm:0.02, support:\"rails\", rail_span_mm:80}.")]
+            [ToolParam("This call's changes to sizing defaults or support, e.g. {delta_allow_mm:0.02, support:\"rails\", rail_span_mm:80}. Support geometry (mm from the plate corner; kept in structural.inputs): rails_v_mm [v1,v2], rails_u_mm, opening_mm [u1,v1,u2,v2], pillars_mm {u:[..], v:[..]}, span_mm.")]
             public JObject Overrides { get; set; }
 
             [ToolParam("Write the results to the record (default true except lookup, split and calls with design - a what-if).")]
@@ -119,7 +125,7 @@ namespace SwAgent.Tools
                     }
                     var status = record.Merge(patch);
                     record.Save();
-                    sb.Append("\nRecord: ").Append(status);
+                    sb.Append("\nRecord: ").Append(status).Append(StatusLine(record));
                 }
                 else if (write && record == null && input.Design == null)
                 {
@@ -130,6 +136,11 @@ namespace SwAgent.Tools
             catch (NotImplementedException ex)
             {
                 return Missing(ex);
+            }
+            catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException || ex is FormatException)
+            {
+                // what the agent can fix (a missing input, an unknown grade, a stale layout): the calculator's message is the fix
+                return ToolResult.Error(ex.Message);
             }
         }
 
@@ -212,7 +223,7 @@ namespace SwAgent.Tools
                 TiltDeg = input.TiltDeg ?? 0,
                 MinDraftDeg = input.MinDraftDeg ?? PageDraftDeg(record) ?? RecordNumber(record, "materials.part.used.draftMinDeg") ?? 0.5,
                 SampleMm = Math.Max(0.1, input.SampleMm ?? 1.0),
-                Sg = input.Sg ?? RecordNumber(record, "materials.part.used.sg", "inputs.sg.value"),
+                Sg = input.Sg ?? RecordNumber(record, "materials.part.used.sg") ?? RecordInput(record, "sg"),
                 Vents = (input.Vents ?? new double[0][]).Where(v => v != null && v.Length >= 3).Select(v => new[] { v[0] / 1000, v[1] / 1000, v[2] / 1000 }).ToList(),
             };
             if (o.Fill != "base" && o.Fill != "lid" && o.Fill != "none") return ToolResult.Error("fill must be base, lid or none.");
@@ -263,6 +274,7 @@ namespace SwAgent.Tools
                     {
                         sb.Append("\nRecord: ").Append(record.Merge(report.RecordPatch));
                         record.Save();
+                        sb.Append(StatusLine(record));
                     }
                     catch (NotImplementedException ex)
                     {
@@ -327,6 +339,8 @@ namespace SwAgent.Tools
             {
                 var t = record?.Json?.SelectToken("inputs.draft_min_deg");
                 if (t == null) return null;
+                // the page's payload form {si (rad), value, unit}: the calculator's own conversion
+                if (t is JObject so && so["si"] != null) return Si.Num(t, "angle");
                 var unit = (t as JObject)?["unit"]?.ToString();
                 var v = t is JObject o ? o["value"] : t;
                 if (v == null || (v.Type != JTokenType.Float && v.Type != JTokenType.Integer)) return null;
@@ -339,6 +353,13 @@ namespace SwAgent.Tools
             {
                 return null;
             }
+        }
+
+        /// <summary>A page input from the record's inputs in calculator units (Design.Quantities: {si}, {value, unit} or a number).</summary>
+        private static double? RecordInput(MoldRecord record, string id)
+        {
+            var t = record?.Json?.SelectToken("inputs." + id);
+            return t == null ? null : Si.Num(t, Design.Quantities.TryGetValue(id, out var q) ? q : null);
         }
 
         private static double? RecordNumber(MoldRecord record, params string[] paths)
@@ -452,6 +473,7 @@ namespace SwAgent.Tools
                             var patch = new JObject { ["bodies"] = json["bodies"].DeepClone(), ["checks"] = new JArray(checks) };
                             sb.Append("\nRecord: ").Append(record.Merge(patch));
                             record.Save();
+                            sb.Append(StatusLine(record));
                         }
                         catch (NotImplementedException ex)
                         {
@@ -525,6 +547,7 @@ namespace SwAgent.Tools
                         {
                             sb.Append("Record: ").Append(record.Merge(new JObject { ["checks"] = checks }));
                             record.Save();
+                            sb.Append(StatusLine(record));
                         }
                         catch (NotImplementedException ex)
                         {
@@ -594,6 +617,7 @@ namespace SwAgent.Tools
                             if (partFiles.Count > 0) patch["files"] = new JObject { ["exports"] = new JObject { ["part"] = partFiles } };
                             sb.Append("\nRecord: ").Append(record.Merge(patch));
                             record.Save();
+                            sb.Append(StatusLine(record));
                         }
                         catch (NotImplementedException ex)
                         {
@@ -646,7 +670,9 @@ namespace SwAgent.Tools
                     var t = input?.SelectToken(p);
                     if (t != null && (t.Type == JTokenType.Float || t.Type == JTokenType.Integer)) return (double)t;
                 }
-                return RecordNumber(record, paths.Select(p => "inputs." + p + ".value").Concat(paths.Select(p => "inputs." + p)).ToArray());
+                foreach (var p in paths)
+                    if (RecordInput(record, p) is double v) return v;
+                return null;
             }
             double[] Size()
             {
@@ -656,6 +682,8 @@ namespace SwAgent.Tools
                     try
                     {
                         var r = record?.Json?.SelectToken("inputs.max_plate_size");
+                        // the page's payload form {si: [m, m, m], value: "600 x 400 x 150 mm"}: the calculator's reading (mm)
+                        if (r is JObject ro && ro["si"] != null) return Si.Lengths(r) is double[] mm && mm.Length == 3 ? mm : null;
                         t = (r?["value"] ?? r) as JArray;
                     }
                     catch (NotImplementedException)
@@ -760,12 +788,16 @@ namespace SwAgent.Tools
 
             [ToolParam("save_default: {field: value} with dotted paths that exist in the shipped table, e.g. {\"shrinkPct.typ\": 2.1}.")]
             public JObject Values { get; set; }
+
+            [ToolParam("init: true = Start over - the existing mold.json is kept as mold.json.bak-<yyyyMMdd-HHmmss> and a new record (new id) starts. Without it, init on an existing record continues it.")]
+            public bool? StartOver { get; set; }
         }
 
         [AgentTool("mold_record",
-            "For the design-compression-mold tool: the design record mold.json in <mold>.mold\\ (also the simulator manifest). init (saved " +
-            "part; registers checkpoints), read (summary or a section), merge (deep, by id), setup_sheet, machining_sheet, save_default " +
-            "(the shop's own table value), path. Re-read the summary at every phase start.")]
+            "For the design-compression-mold tool: the record mold.json in <mold>.mold\\. init (saved part; start_over keeps a " +
+            "backup), read (summary or a section), merge (deep, by id; $replace / $replaceChecks), setup_sheet, machining_sheet (list " +
+            "unresolved placeholders), save_default (the shop's own table value), path. Writes end with record_status: <status>. " +
+            "Re-read the summary at every phase start.")]
         public ToolResult Record(ToolContext ctx, MoldRecordInput input)
         {
             var action = (input.Action ?? "").Trim().ToLowerInvariant();
@@ -783,7 +815,16 @@ namespace SwAgent.Tools
                         return ToolResult.Ok(folder + (File.Exists(Path.Combine(folder, "mold.json")) ? "" : " (no record yet - mold_record init)"));
                     case "init":
                     {
-                        var exists = File.Exists(Path.Combine(folder, "mold.json"));
+                        var file = Path.Combine(folder, "mold.json");
+                        var exists = File.Exists(file);
+                        string backup = null;
+                        if (exists && input.StartOver == true)
+                        {
+                            // Start over: never delete a record - keep it next to the new one
+                            backup = BackupPath(file);
+                            File.Move(file, backup);
+                            exists = false;
+                        }
                         MoldRecord rec;
                         if (exists)
                         {
@@ -795,15 +836,21 @@ namespace SwAgent.Tools
                                 Directory.CreateDirectory(Path.Combine(folder, sub));
                             ToolRunner.LastInputs.TryGetValue(ToolName, out var page);
                             rec = MoldRecord.Init(folder, path, InputsJson(page), ToolVersion(), typeof(MoldTools).Assembly.GetName().Version?.ToString());
+                            // the calculator reads the display system from here (screws, stock and rounding follow it): MMGS, CGS
+                            // and MKS are metric, IPS (and custom inch or pound units) imperial
+                            rec.Json["units"]["display"] = Units.IsImperial(model) ? "imperial" : "metric";
                             rec.Save();
                         }
                         // The part finds its record by these even after a rename or move; checkpoints are keyed by the id (B2).
                         SwGeo.SetProperty(model, SwGeo.RecordProperty, Path.GetFileName(folder.TrimEnd('\\', '/')));
                         SwGeo.SetProperty(model, SwGeo.IdProperty, rec.Id);
                         RebuildTools.RegisterMoldDesign(path, rec.Id);
-                        return ToolResult.Ok((exists ? "The record already exists - continuing it" : "Record created") + $": {Path.Combine(folder, "mold.json")} (id {rec.Id}). " +
+                        return ToolResult.Ok((exists ? "The record already exists - continuing it" : "Record created") + $": {file} (id {rec.Id}, units {(string)rec.Json.SelectToken("units.display")}). " +
+                                             (backup != null ? $"The earlier record is kept as {backup}. " : "") +
                                              "Checkpoints for this mold restore over this file (checkpoint save/restore). Save the part to keep the record link.\n" +
-                                             (exists ? rec.Summary(6000) : ""));
+                                             (exists ? rec.Summary(6000) : "") +
+                                             // a new record was written; continuing an existing one writes nothing (and must not end a run on a done record)
+                                             (exists ? "" : StatusLine(rec)));
                     }
                 }
                 if (!File.Exists(Path.Combine(folder, "mold.json"))) return ToolResult.Error("No mold record for this part yet: run mold_record init.");
@@ -824,17 +871,17 @@ namespace SwAgent.Tools
                         record.Save();
                         // A finished mold is no longer restorable in place (critique B2: the registration ends with the design).
                         if (string.Equals((string)record.Json?["status"], "done", StringComparison.OrdinalIgnoreCase)) RebuildTools.UnregisterMoldDesign(path);
-                        return ToolResult.Ok(status);
+                        return ToolResult.Ok(status + StatusLine(record));
                     }
                     case "setup_sheet":
                     {
-                        var written = SetupSheet.Write(record, Path.Combine(ToolDir, "data", "setup-sheet.html"), LoadData());
-                        return ToolResult.Ok("Setup sheet: " + written);
+                        var written = SetupSheet.Write(record, Path.Combine(ToolDir, "data", "setup-sheet.html"), LoadData(), out var unresolved);
+                        return ToolResult.Ok("Setup sheet: " + written + Unresolved(unresolved) + StatusLine(record));
                     }
                     case "machining_sheet":
                     {
-                        var written = MachiningSheet.Write(record, Path.Combine(ToolDir, "data", "machining-sheet.html"), LoadData());
-                        return ToolResult.Ok("Machining sheet: " + written);
+                        var written = MachiningSheet.Write(record, Path.Combine(ToolDir, "data", "machining-sheet.html"), LoadData(), out var unresolved);
+                        return ToolResult.Ok("Machining sheet: " + written + " (and hardware-bom.csv)" + Unresolved(unresolved) + StatusLine(record));
                     }
                     default:
                         return ToolResult.Error("action must be init, read, merge, setup_sheet, machining_sheet, save_default or path.");
@@ -844,6 +891,26 @@ namespace SwAgent.Tools
             {
                 return Missing(ex);
             }
+            catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException || ex is FormatException)
+            {
+                return ToolResult.Error(ex.Message);
+            }
+        }
+
+        /// <summary>mold.json.bak-yyyyMMdd-HHmmss next to the record (a numbered suffix if that exists already).</summary>
+        internal static string BackupPath(string file)
+        {
+            var b = file + ".bak-" + DateTime.Now.ToString("yyyyMMdd-HHmmss", System.Globalization.CultureInfo.InvariantCulture);
+            var candidate = b;
+            for (var k = 2; File.Exists(candidate); k++) candidate = b + "-" + k;
+            return candidate;
+        }
+
+        /// <summary>The placeholders a sheet could not fill ("-" in the sheet), for the agent to fix or list as open items.</summary>
+        internal static string Unresolved(IList<string> unresolved)
+        {
+            var list = (unresolved ?? new List<string>()).Distinct().ToList();
+            return list.Count == 0 ? "\nUnresolved placeholders: none." : $"\nUnresolved placeholders ({list.Count}, printed as \"-\"): " + string.Join(", ", list);
         }
 
         /// <summary>The page inputs of the latest run (ToolRunner.LastInputs) as JSON: values, selections (label + ref), files.</summary>
@@ -852,7 +919,23 @@ namespace SwAgent.Tools
             var o = new JObject();
             if (page == null) return o;
             foreach (var kv in page.Values)
-                o[kv.Key] = kv.Value == null ? JValue.CreateNull() : JToken.FromObject(kv.Value);
+            {
+                var meta = page.Meta(kv.Key);
+                if (kv.Value == null) o[kv.Key] = JValue.CreateNull();
+                else if (meta?.Si != null && meta.Si.Type != JTokenType.Null && (kv.Value is double || kv.Value is double[] || kv.Value is int || kv.Value is long))
+                {
+                    // numbers and sizes as the page's payload has them: the SI value (Pa, m, N, s, Pa·s, rad; degC, kg, % as
+                    // they are) with the text the user saw - the calculator converts "si" by the input's quantity, so a bare
+                    // SI number is never read as MPa or mm (Design.Quantities)
+                    var j = new JObject { ["si"] = meta.Si.DeepClone() };
+                    if (meta.Display != null) j["value"] = meta.Display;
+                    if (meta.Unit != null) j["unit"] = meta.Unit;
+                    if (meta.Table != null) j["table"] = meta.Table;
+                    if (meta.Edited) j["edited"] = true;
+                    o[kv.Key] = j;
+                }
+                else o[kv.Key] = JToken.FromObject(kv.Value);
+            }
             foreach (var id in page.SelectionIds)
                 o[id] = new JArray(page.SelectedItems(id).Select(s => new JObject { ["type"] = s.Type, ["label"] = s.Label, ["detail"] = s.Detail, ["persist"] = s.Ref }));
             foreach (var id in page.FileIds)

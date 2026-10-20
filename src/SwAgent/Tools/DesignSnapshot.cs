@@ -7,6 +7,7 @@ using Newtonsoft.Json.Linq;
 using SolidWorks.Interop.sldworks;
 using SolidWorks.Interop.swconst;
 using SwAgent.Infrastructure;
+using SwAgent.ModelFiles;
 
 namespace SwAgent.Tools
 {
@@ -115,9 +116,11 @@ namespace SwAgent.Tools
             File.Copy(path, copy);
             var type = model.GetType();
             IModelDoc2 saved = null;
+            IDisposable hidden = null;
             try
             {
-                sw.DocumentVisible(false, type);
+                // the one gate for every hidden open (critique B6): no two hidden opens interleave, visibility always comes back
+                hidden = HiddenDocuments.Scope(sw);
                 int errors = 0, warnings = 0;
                 saved = sw.OpenDoc6(copy, type, (int)(swOpenDocOptions_e.swOpenDocOptions_Silent | swOpenDocOptions_e.swOpenDocOptions_ReadOnly), "", ref errors, ref warnings);
                 if (saved == null) throw new InvalidOperationException($"SolidWorks couldn't open the saved version ({(swFileLoadError_e)errors}).");
@@ -133,8 +136,14 @@ namespace SwAgent.Tools
             }
             finally
             {
-                sw.DocumentVisible(true, type);
-                if (saved != null) sw.CloseDoc(saved.GetTitle()); // the temp copy: its unique name makes the title unique too
+                try
+                {
+                    if (saved != null) sw.CloseDoc(saved.GetTitle()); // the temp copy: its unique name makes the title unique too
+                }
+                finally
+                {
+                    hidden?.Dispose();
+                }
                 try
                 {
                     Directory.Delete(dir, true);

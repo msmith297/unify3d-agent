@@ -32,6 +32,19 @@ namespace SwAgent.Tools
         /// </summary>
         public const int DefaultMaxSteps = 200, LongRunMaxSteps = 600, MaxStepsMin = 50, MaxStepsCap = 1000;
 
+        /// <summary>Folders under Root that hold the page's own data (remembered values, shop overrides of built-in data), not tools.</summary>
+        public static readonly HashSet<string> ReservedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "last-inputs", "builtin-data" };
+
+        /// <summary>A front-matter value without surrounding quotes ("Compression Mold" or 'x'), trimmed; null when absent or blank.</summary>
+        internal static string FrontValue(IDictionary<string, string> fm, string key)
+        {
+            if (fm == null || !fm.TryGetValue(key, out var v) || string.IsNullOrWhiteSpace(v)) return null;
+            return Unquote(v.Trim());
+        }
+
+        private static string Unquote(string s) =>
+            s.Length >= 2 && (s[0] == '"' && s[s.Length - 1] == '"' || s[0] == '\'' && s[s.Length - 1] == '\'') ? s.Substring(1, s.Length - 2) : s;
+
         /// <summary>A category as stored: one line, at most 48 characters; "" for none.</summary>
         public static string CleanCategory(string category)
         {
@@ -40,12 +53,15 @@ namespace SwAgent.Tools
         }
 
         /// <summary>The tool's category from its (effective) front matter, or null when it has none.</summary>
-        internal static string CategoryOf(IDictionary<string, string> fm) =>
-            fm.TryGetValue("category", out var c) && !string.IsNullOrWhiteSpace(CleanCategory(c)) ? CleanCategory(c) : null;
+        internal static string CategoryOf(IDictionary<string, string> fm)
+        {
+            var c = CleanCategory(FrontValue(fm, "category") ?? "");
+            return c.Length == 0 ? null : c;
+        }
 
         /// <summary>Front matter <c>long_run: true</c>: a long, phased tool (more steps per turn, a longer prompt cache, sticky run settings).</summary>
         internal static bool LongRunOf(IDictionary<string, string> fm) =>
-            fm.TryGetValue("long_run", out var v) && new[] { "true", "yes", "1" }.Contains((v ?? "").Trim().ToLowerInvariant());
+            new[] { "true", "yes", "1" }.Contains((FrontValue(fm, "long_run") ?? "").ToLowerInvariant());
 
         /// <summary>
         /// API steps per turn for a tool run: <c>max_steps</c> (clamped to 50..1000), else 600 for a long tool, else null
@@ -53,15 +69,17 @@ namespace SwAgent.Tools
         /// </summary>
         internal static int? MaxStepsOf(IDictionary<string, string> fm)
         {
-            if (fm.TryGetValue("max_steps", out var v) && int.TryParse((v ?? "").Trim(), out var n)) return Math.Max(MaxStepsMin, Math.Min(MaxStepsCap, n));
+            if (int.TryParse(FrontValue(fm, "max_steps") ?? "", System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var n))
+                return Math.Max(MaxStepsMin, Math.Min(MaxStepsCap, n));
             return LongRunOf(fm) ? LongRunMaxSteps : (int?)null;
         }
 
-        /// <summary>Front matter <c>requires: a, b</c>: agent tools the tool needs from the add-in.</summary>
+        /// <summary>Front matter <c>requires: a, b</c> (or <c>[a, b]</c>, separated by commas, spaces or semicolons, quotes
+        /// allowed): agent tools the tool needs from the add-in.</summary>
         internal static string[] RequiresOf(IDictionary<string, string> fm) =>
-            fm.TryGetValue("requires", out var v) && v != null
-                ? v.Split(new[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim()).Where(s => s.Length > 0).Distinct().ToArray()
-                : new string[0];
+            (FrontValue(fm, "requires") ?? "").Trim('[', ']')
+                .Split(new[] { ',', ' ', ';' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(s => Unquote(s.Trim())).Where(s => s.Length > 0).Distinct().ToArray();
 
         /// <summary>
         /// Front matter "agent:" value for a run style: hardcoded -> false (macro only), agent -> true (the agent writes the
@@ -359,6 +377,7 @@ namespace SwAgent.Tools
             var name = (input.Name ?? "").Trim().ToLowerInvariant();
             if (!NamePattern.IsMatch(name)) return ToolResult.Error("Name must be 2-48 characters: lowercase letters, digits and dashes.");
             if (BuiltInExists(name)) return ToolResult.Error($"'{name}' is a built-in Unify3D tool. Save the user's version under another name (e.g. \"{name}-custom\").");
+            if (ReservedNames.Contains(name)) return ToolResult.Error($"'{name}' is reserved for the tools' own settings folder. Choose another name.");
             var icon = Icons.Contains(input.Icon) ? input.Icon : "macro";
             var kind = string.Equals((input.Kind ?? "").Trim(), "tool", StringComparison.OrdinalIgnoreCase) ? "tool" : "workflow";
             var dir = Directory.CreateDirectory(Path.Combine(Root, name)).FullName;

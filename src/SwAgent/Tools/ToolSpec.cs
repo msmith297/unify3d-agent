@@ -166,7 +166,7 @@ namespace SwAgent.Tools
         /// <summary>"requires:": agent tools the tool needs (an older add-in without them refuses to run it).</summary>
         public string[] Requires = new string[0];
 
-        public const int DefaultMaxSteps = 200, LongRunMaxSteps = 600, MinSteps = 50, MaxStepsCap = 1000;
+        public const int DefaultMaxSteps = UserTools.DefaultMaxSteps, LongRunMaxSteps = UserTools.LongRunMaxSteps, MinSteps = UserTools.MaxStepsMin, MaxStepsCap = UserTools.MaxStepsCap;
 
         public static readonly string[] Tiers = { "fast", "balanced", "high", "max" };
 
@@ -201,29 +201,19 @@ namespace SwAgent.Tools
             return spec;
         }
 
-        /// <summary>category, ribbon_title, long_run, max_steps and requires from the (effective) front matter.</summary>
+        /// <summary>
+        /// category, ribbon_title, long_run, max_steps and requires from the (effective) front matter - one parser for the page,
+        /// the ribbon, the tool index and the panel: UserTools.CategoryOf / LongRunOf / MaxStepsOf / RequiresOf.
+        /// </summary>
         internal static void ApplyRunSettings(ToolSpec spec, IDictionary<string, string> fm)
         {
-            string Get(string key) => fm != null && fm.TryGetValue(key, out var v) && !string.IsNullOrWhiteSpace(v) ? Unquote(v.Trim()) : null;
-            // One line, at most 48 characters - the same rule as the tool index (UserTools.CleanCategory).
-            var category = string.Join(" ", (Get("category") ?? "").Split(new[] { '\r', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries)).Trim();
-            if (category.Length > 48) category = category.Substring(0, 48).TrimEnd();
-            spec.Category = category.Length == 0 ? null : category;
-            spec.RibbonTitle = Get("ribbon_title");
-            var longRun = (Get("long_run") ?? "").ToLowerInvariant();
-            spec.LongRun = longRun == "true" || longRun == "yes" || longRun == "1";
-            var steps = int.TryParse(Get("max_steps"), NumberStyles.Integer, CultureInfo.InvariantCulture, out var n)
-                ? n
-                : spec.LongRun ? LongRunMaxSteps : DefaultMaxSteps;
-            spec.MaxSteps = Math.Max(MinSteps, Math.Min(MaxStepsCap, steps));
-            // "mold_calc, mold_part" or a YAML-style list "[mold_calc, mold_part]".
-            spec.Requires = (Get("requires") ?? "").Trim('[', ']')
-                .Split(new[] { ',', ' ', ';' }, StringSplitOptions.RemoveEmptyEntries)
-                .Select(r => Unquote(r.Trim())).Where(r => r.Length > 0).Distinct().ToArray();
+            fm = fm ?? new Dictionary<string, string>();
+            spec.Category = UserTools.CategoryOf(fm);
+            spec.RibbonTitle = UserTools.FrontValue(fm, "ribbon_title");
+            spec.LongRun = UserTools.LongRunOf(fm);
+            spec.MaxSteps = UserTools.MaxStepsOf(fm) ?? DefaultMaxSteps;
+            spec.Requires = UserTools.RequiresOf(fm);
         }
-
-        private static string Unquote(string s) =>
-            s.Length >= 2 && (s[0] == '"' && s[s.Length - 1] == '"' || s[0] == '\'' && s[s.Length - 1] == '\'') ? s.Substring(1, s.Length - 2) : s;
 
         public static List<ToolInputSpec> LoadInputs(string dir)
         {

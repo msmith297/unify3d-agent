@@ -232,7 +232,7 @@ namespace SwAgent.Tests
             Assert.Equal("array", (string)item["unit_choices"]["type"]);
         }
 
-        [Fact(Skip = "Needs Track D's ToolRegistry.SchemaFor dictionary case (INTEGRATION-NOTES-B.md): un-skip at integration.")]
+        [Fact]
         public void Dictionary_options_are_objects_in_the_agents_schema()
         {
             var registry = new ToolRegistry();
@@ -241,8 +241,9 @@ namespace SwAgent.Tests
             foreach (var name in new[] { "row_filter", "value_map", "fills", "show_when" })
                 Assert.Equal("object", (string)item[name]["type"]);
             // additionalProperties (string vs string[] values) helps the agent but is optional: when given, it must be right.
-            if (item["show_when"]["additionalProperties"] is JObject values) Assert.Equal("array", (string)values["type"]);
-            if (item["fills"]["additionalProperties"] is JObject fills) Assert.Equal("string", (string)fills["type"]);
+            Assert.Equal("array", (string)item["show_when"]["additionalProperties"]["type"]);
+            Assert.Equal("string", (string)item["show_when"]["additionalProperties"]["items"]["type"]);
+            Assert.Equal("string", (string)item["fills"]["additionalProperties"]["type"]);
         }
 
         [Fact]

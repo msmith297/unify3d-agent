@@ -75,7 +75,9 @@ namespace SwAgent.Scripting
             "radians (use mm()/deg()). Each call is recorded as one undo step. Measuring helpers: Geo.EdgePoints(edge), " +
             "Geo.LoopPoints(loop), Geo.Frame(planarFace) -> u/v/n frame (ToUV, ToModel, Height), Geo.LoopUV(loop, frame), " +
             "Geo.Distance(point or loop, edge/edges/loop), Geo.Inside(uv, polygon), Geo.Box(uv) - use them instead of hand-written " +
-            "edge sampling. Returns console output, the last expression's value, compile errors with line numbers, or the exception.")]
+            "edge sampling. Mold.* (design-compression-mold building blocks: Frame, InsertPart, ScaleForShrink, Plate, Subtract, Folder, " +
+            "FlashGrooves... each checked by measurement). Returns console output, the last expression's value, compile errors with line " +
+            "numbers, or the exception.")]
         public async Task<ToolResult> Execute(ToolContext ctx, ExecuteInput input)
         {
             var session = _sessions.GetOrAdd(ctx.ThreadId ?? "default", _ => new Session());
@@ -293,7 +295,9 @@ namespace SwAgent.Scripting
                 .WithReferences(refs)
                 .WithImports("System", "System.IO", "System.Linq", "System.Text", "System.Collections.Generic",
                     "System.Threading.Tasks", "System.Runtime.InteropServices",
-                    "SolidWorks.Interop.sldworks", "SolidWorks.Interop.swconst")
+                    "SolidWorks.Interop.sldworks", "SolidWorks.Interop.swconst",
+                    // the design-compression-mold building blocks' types (MoldFrame, FlashOptions, PartAnalysisOptions, MoldBody)
+                    "SwAgent.Mold.Geometry")
                 .WithOptimizationLevel(OptimizationLevel.Debug)
                 .WithEmitDebugInformation(false)
                 .WithAllowUnsafe(false);

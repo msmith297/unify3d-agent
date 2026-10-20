@@ -37,6 +37,30 @@ namespace SwAgent
         private ISwTaskPane<ChatPaneControl> _pane;
         private UnifyRibbon _ribbon;
 
+        /// <summary>
+        /// Every agent tool the add-in offers, registered once at connect (the tests build the same registry: a built-in
+        /// tool's `requires` must name tools registered here).
+        /// </summary>
+        internal static ToolRegistry BuildTools(out ScriptHost scripts)
+        {
+            var tools = new ToolRegistry();
+            scripts = new ScriptHost(tools);
+            tools.RegisterAll(new ModelTools());
+            tools.RegisterAll(new ViewTools());
+            tools.RegisterAll(new ApiTools());
+            tools.RegisterAll(new SelectionTools());
+            tools.RegisterAll(new HistoryTools());
+            tools.RegisterAll(new UserTools());
+            tools.RegisterAll(new LibraryTools());
+            tools.RegisterAll(scripts);
+            tools.RegisterAll(new ToolTester(scripts));
+            tools.RegisterAll(new OverlayTools());
+            tools.RegisterAll(new DesignSnapshot());
+            tools.RegisterAll(new RebuildTools());
+            tools.RegisterAll(new MoldTools());
+            return tools;
+        }
+
         public override void OnConnect()
         {
             Instance = this;
@@ -49,21 +73,7 @@ namespace SwAgent
 
             try
             {
-                var tools = new ToolRegistry();
-                var scripts = new ScriptHost(tools);
-                tools.RegisterAll(new ModelTools());
-                tools.RegisterAll(new ViewTools());
-                tools.RegisterAll(new ApiTools());
-                tools.RegisterAll(new SelectionTools());
-                tools.RegisterAll(new HistoryTools());
-                tools.RegisterAll(new UserTools());
-                tools.RegisterAll(new LibraryTools());
-                tools.RegisterAll(scripts);
-                tools.RegisterAll(new ToolTester(scripts));
-                tools.RegisterAll(new OverlayTools());
-                tools.RegisterAll(new DesignSnapshot());
-                tools.RegisterAll(new RebuildTools());
-                tools.RegisterAll(new MoldTools());
+                var tools = BuildTools(out var scripts);
                 Controller = new AgentController(Application, tools, scripts);
                 if (crash != null)
                 {

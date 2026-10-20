@@ -30,6 +30,73 @@ namespace SwAgent.Tests
         }
 
         [Fact]
+        public void Design_compression_mold_loads_with_resolvable_page_data_and_registered_agent_tools()
+        {
+            const string name = "design-compression-mold";
+            Assert.True(File.Exists(Path.Combine(UserTools.BuiltInRoot, name, "TOOL.md")), "builtin-tools is copied next to the add-in");
+            var spec = ToolSpec.Load(name);
+            Assert.NotNull(spec);
+            Assert.Equal("tool", spec.Kind);
+            Assert.True(spec.Agent);
+            Assert.Equal("always", spec.Confirm);
+            Assert.Equal("Molding & Toolmaking", spec.Category);
+            Assert.Equal("Compression Mold", spec.RibbonTitle);
+            Assert.True(spec.LongRun);
+            Assert.Equal(600, spec.MaxSteps);
+            Assert.True(UserTools.IsBuiltIn(name));
+
+            // every input parses: an id, a known type, and the page's checker finds nothing
+            Assert.Equal(44, spec.Inputs.Count);
+            var types = new[] { "number", "integer", "checkbox", "choice", "options", "text", "selection", "files", "size", "info" };
+            Assert.All(spec.Inputs, i => { Assert.False(string.IsNullOrWhiteSpace(i.Id)); Assert.Contains(ToolSpec.Type(i), types); });
+            Assert.Equal(spec.Inputs.Count, spec.Inputs.Select(i => i.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count());
+            Assert.Empty(ToolSpec.CheckInputs(spec.Dir, spec.Inputs));
+
+            // every ChoicesFrom resolves to rows, and every Fills path exists in them (a null value is allowed, a missing key is not)
+            var data = ToolData.For(spec);
+            foreach (var i in spec.Inputs.Where(x => x.ChoicesFrom != null))
+            {
+                var rows = data.Rows(i.ChoicesFrom);
+                Assert.True(rows.Count > 0, i.Id + ": no rows in " + i.ChoicesFrom);
+                foreach (var kv in i.Fills ?? new Dictionary<string, string>())
+                {
+                    var (path, unit) = ToolForm.SplitFill(kv.Value);
+                    Assert.True(rows.All(r => PathExists(r, path)), $"{i.Id}: Fills {kv.Key} <- {path} is missing in a row");
+                    if (unit != null) Assert.NotNull(Units.FindAny(unit));
+                }
+            }
+            // the page builds in both systems and nothing blocks OK with the shipped defaults
+            foreach (var imperial in new[] { true, false })
+                Assert.Null(new ToolForm(spec, data, imperial, null).Blocking().Field);
+
+            // every agent tool it requires is registered by the add-in (the registry OnConnect builds)
+            Assert.Equal(new[] { "mold_calc", "mold_part", "mold_bodies", "mold_record" }, spec.Requires);
+            var registry = AgentAddIn.BuildTools(out _);
+            var registered = new HashSet<string>(registry.Definitions().Select(d => (string)d["name"]));
+            Assert.All(spec.Requires, r => Assert.Contains(r, registered));
+        }
+
+        /// <summary>The path exists in the row: each segment's parent is an object that has the key (its value may be null).</summary>
+        private static bool PathExists(JObject row, string path)
+        {
+            JToken cur = row;
+            foreach (var seg in path.Split('.'))
+            {
+                if (cur is JObject o && o.ContainsKey(seg)) { cur = o[seg]; continue; }
+                // a null parent (e.g. viscosityCp: null) hides the field on the page: the path counts as present
+                return cur != null && cur.Type == JTokenType.Null;
+            }
+            return true;
+        }
+
+        [Fact]
+        public void Reserved_folder_names_are_not_tool_names()
+        {
+            foreach (var name in new[] { "last-inputs", "builtin-data" })
+                Assert.True(new UserTools().Save(null, new UserTools.SaveInput { Name = name, Title = "x", Kind = "tool" }).IsError, name);
+        }
+
+        [Fact]
         public void Built_in_tools_are_read_only_but_keep_the_users_settings()
         {
             var md = Path.Combine(UserTools.BuiltInRoot, "smart-rebuild", "TOOL.md");

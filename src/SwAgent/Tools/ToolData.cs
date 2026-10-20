@@ -250,8 +250,8 @@ namespace SwAgent.Tools
         // ---- user overrides ----
 
         /// <summary>
-        /// The shipped file with the user's override merged in. Arrays of rows with "id": same id replaces, new ids are added
-        /// at the end. Objects: key by key. Top-level values that are neither come from the shipped file.
+        /// The shipped file with the user's override merged in. Arrays of rows with "id": a row with the same id merges key by key (the
+        /// calculator's rule, MoldData.MergeRow), new ids are added at the end. Objects: key by key. Top-level values that are neither come from the shipped file.
         /// </summary>
         public static JToken MergeOverride(JToken shipped, JToken over)
         {
@@ -293,7 +293,9 @@ namespace SwAgent.Tools
             {
                 var id = (row as JObject)?["id"];
                 var at = id == null ? -1 : result.Select((x, i) => (x, i)).Where(t => JToken.DeepEquals((t.x as JObject)?["id"], id)).Select(t => t.i).DefaultIfEmpty(-1).First();
-                if (at >= 0) result[at] = row.DeepClone();
+                // a row with the same id merges key by key (like the calculator's MoldData.MergeRow): a partial override row
+                // such as {"id": "x", "shrinkPct": {"typ": 2.1}} keeps the shipped row's name, family and other values
+                if (at >= 0) result[at] = result[at] is JObject so && row is JObject ro ? MergeObject(so, ro) : row.DeepClone();
                 else result.Add(row.DeepClone());
             }
             return result;
