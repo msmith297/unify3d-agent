@@ -268,6 +268,8 @@ export interface ToolRunPayload {
 
 export interface UserToolInfo {
   name: string;
+  /** A built-in Unify3D tool (ships with the add-in, read-only). */
+  builtIn?: boolean;
   title: string;
   description: string;
   icon: string;
