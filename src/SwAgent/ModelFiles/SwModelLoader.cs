@@ -276,15 +276,27 @@ namespace SwAgent.ModelFiles
             return new Releaser(() => Gate.Release());
         }
 
+        /// <summary>Synchronous holders inside Lock right now (UI thread only).</summary>
+        private static int _syncDepth;
+
         /// <summary>
         /// The gate for synchronous work. If an async load holds it, it is paused between two of its slices on this same
         /// thread with visibility restored (Hidden is never held across an await), so synchronous work can't interleave with
-        /// its hidden window and goes ahead without owning the gate.
+        /// its hidden window and goes ahead without owning the gate. If synchronous work holds it, this is a re-entry from a
+        /// message pump inside that work (OpenDoc6 or LoadFile4 of a big file pumps messages: a second drawing dropped
+        /// meanwhile): two hidden opens would interleave, so it fails fast with a "busy, try again" error instead.
         /// </summary>
         public static IDisposable Lock()
         {
             var owned = Gate.Wait(0);
-            return new Releaser(owned ? () => Gate.Release() : (Action)null);
+            if (!owned && _syncDepth > 0)
+                throw new InvalidOperationException("SolidWorks is busy opening another file hidden; try again in a moment.");
+            _syncDepth++;
+            return new Releaser(() =>
+            {
+                _syncDepth--;
+                if (owned) Gate.Release();
+            });
         }
 
         /// <summary>New part, assembly and drawing documents open hidden until this is disposed.</summary>

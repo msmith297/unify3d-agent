@@ -184,13 +184,12 @@ namespace SwAgent.Tests.Mold
             Assert.True(Assert.Single(thin.Fragile).Flagged);
         }
 
-        [Fact]
-        public void F3_block_with_a_side_groove_has_the_groove_walls_as_undercuts()
+        /// <summary>F3: a 40 x 40 x 20 mm block with a groove 2 mm deep, w 8..12, across its +X side.</summary>
+        internal static MeshPart GroovedBlock(out int gTop, out int gBottom)
         {
-            // 40 x 40 x 20 mm block; a groove 2 mm deep, w 8..12, across the +X side.
             var m = new MeshPart();
             int top = m.AddFace(), bottom = m.AddFace(), xm = m.AddFace(), ym = m.AddFace(), yp = m.AddFace(), xpLow = m.AddFace(), xpHigh = m.AddFace(),
-                gTop = m.AddFace(), gBottom = m.AddFace(), gBack = m.AddFace();
+                gt = m.AddFace(), gb = m.AddFace(), gBack = m.AddFace();
             m.Quad(top, P(-20, -20, 20), P(20, -20, 20), P(20, 20, 20), P(-20, 20, 20));
             m.Quad(bottom, P(-20, -20, 0), P(-20, 20, 0), P(20, 20, 0), P(20, -20, 0));
             m.Quad(xm, P(-20, -20, 0), P(-20, -20, 20), P(-20, 20, 20), P(-20, 20, 0));
@@ -207,9 +206,18 @@ namespace SwAgent.Tests.Mold
             }
             m.Quad(xpLow, P(20, -20, 0), P(20, 20, 0), P(20, 20, 8), P(20, -20, 8));
             m.Quad(xpHigh, P(20, -20, 12), P(20, 20, 12), P(20, 20, 20), P(20, -20, 20));
-            m.Quad(gTop, P(18, -20, 12), P(18, 20, 12), P(20, 20, 12), P(20, -20, 12)); // faces down
-            m.Quad(gBottom, P(18, -20, 8), P(20, -20, 8), P(20, 20, 8), P(18, 20, 8)); // faces up
+            m.Quad(gt, P(18, -20, 12), P(18, 20, 12), P(20, 20, 12), P(20, -20, 12)); // faces down
+            m.Quad(gb, P(18, -20, 8), P(20, -20, 8), P(20, 20, 8), P(18, 20, 8)); // faces up
             m.Quad(gBack, P(18, -20, 8), P(18, 20, 8), P(18, 20, 12), P(18, -20, 12)); // faces +X
+            gTop = gt;
+            gBottom = gb;
+            return m;
+        }
+
+        [Fact]
+        public void F3_block_with_a_side_groove_has_the_groove_walls_as_undercuts()
+        {
+            var m = GroovedBlock(out var gTop, out var gBottom);
             Assert.InRange(m.Volume / 1e-9, 32000 - 320 - 1, 32000 - 320 + 1);
             var r = Analyze(m);
             Assert.Equal(new[] { gTop, gBottom }, r.PartingLine.UndercutFaces);

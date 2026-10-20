@@ -135,6 +135,29 @@ namespace SwAgent.Tests.Mold
             Assert.All(alongV, r => Assert.Equal(4.1 * In, Math.Abs(r.P[1] + r.N[1] * r.Length), 6));
             Assert.All(alongU, r => Assert.Equal(5.1 * In, Math.Abs(r.P[0] + r.N[0] * r.Length), 6));
             Assert.Contains("shifted", log.ToString());
+            // No dead ends on the verified plate.
+            Assert.Empty(FlashLayout.DeadEnds(new[] { moat }, runners, plate, rules.Width));
+        }
+
+        [Fact]
+        public void Dead_ends_are_reported()
+        {
+            var (segs, outline) = RoundedRect(5, 3.5, 0.375);
+            var rules = new FlashRules();
+            var moat = FlashLayout.MoatFor("C1", FlashLayout.FromSegments(segs, outline), rules);
+            var plate = PlateWithNotches();
+            var runners = FlashLayout.PlaceRunners(moat, plate, Features(plate), null, rules);
+            // A runner cut short of the edge, and a second moat with no runner at all.
+            var shortOne = runners[0];
+            var cut = new FlashLayout.Runner { Moat = shortOne.Moat, Side = shortOne.Side, P = shortOne.P, N = shortOne.N, Length = shortOne.Length - 0.2 * In, At = shortOne.At, Ideal = shortOne.Ideal };
+            var lonely = FlashLayout.MoatFor("C2", FlashLayout.FromSegments(segs, outline), rules);
+            var problems = FlashLayout.DeadEnds(new[] { moat, lonely }, new[] { cut }.Concat(runners.Skip(1)).ToList(), plate, rules.Width);
+            Assert.Equal(2, problems.Count);
+            Assert.Contains(problems, p => p.Contains("C2 has no runner"));
+            Assert.Contains(problems, p => p.Contains("short of the plate edge"));
+            // A runner pointing into the plate with no edge ahead of it within its strip.
+            var nowhere = new FlashLayout.Runner { Moat = "C1", Side = 0, P = new[] { 0.0, 0 }, N = new[] { 0.0, 1 }, Length = 0.01 };
+            Assert.Contains("no plate edge", Assert.Single(FlashLayout.DeadEnds(new[] { moat }, new[] { nowhere }, new List<double[]> { new[] { 0.1, 0.05 } }, rules.Width)));
         }
 
         [Fact]

@@ -33,6 +33,8 @@ namespace SwAgent.Mold.Geometry
         public double MaxHOverD = 2.0;
         public int MaxSamples = 20000;
         public int MaxColumns = 20000;
+        /// <summary>The body's mold id (PART-REF...) for the record's face locators; null: the SolidWorks body name.</summary>
+        public string BodyId;
         public int Batch = 2000;
     }
 
@@ -66,6 +68,7 @@ namespace SwAgent.Mold.Geometry
             public int Face;
             public double[] P0, P1, P2; // frame coordinates (m)
             public double[] N; // outward unit normal, frame
+            public double[] VN; // n . W of the surface normal at each vertex (NaN: none given)
             public double Area;
         }
 
@@ -123,13 +126,21 @@ namespace SwAgent.Mold.Geometry
                     var len = V3.Len(cr);
                     if (len < 1e-18) continue;
                     var normal = V3.Mul(cr, 1 / len);
+                    var vn = new[] { double.NaN, double.NaN, double.NaN };
                     if (hasNorms)
                     {
                         var nv = frame.DirToFrame(new double[] { n[k] + n[k + 3] + n[k + 6], n[k + 1] + n[k + 4] + n[k + 7], n[k + 2] + n[k + 5] + n[k + 8] });
                         var nl = V3.Len(nv);
                         if (nl > 1e-12) normal = V3.Mul(nv, 1 / nl); // the surface's own (outward) normals
+                        // Each vertex's own normal (exact on the surface): where that point faces, for the parting-line band.
+                        for (var v = 0; v < 3; v++)
+                        {
+                            var d = frame.DirToFrame(new double[] { n[k + 3 * v], n[k + 3 * v + 1], n[k + 3 * v + 2] });
+                            var dl = V3.Len(d);
+                            if (dl > 1e-12) vn[v] = d[2] / dl;
+                        }
                     }
-                    tris.Add(new Tri { Face = fi, P0 = p0, P1 = p1, P2 = p2, N = normal, Area = len / 2 });
+                    tris.Add(new Tri { Face = fi, P0 = p0, P1 = p1, P2 = p2, N = normal, VN = vn, Area = len / 2 });
                 }
             }
             if (tris.Count == 0)
@@ -149,13 +160,21 @@ namespace SwAgent.Mold.Geometry
 
             // 3. Samples and undercut rays (one ray per sample, the way it faces; first hit only).
             var sampleArea = Math.Pow(Math.Max(0.05, o.SampleMm) * SwGeo.Mm, 2);
-            var picks = Draft.Samples(tris.Select(t => t.Area).ToList(), sampleArea, o.MaxSamples);
-            var samples = new List<PartSample>(picks.Count);
-            foreach (var (ti, a, b, w) in picks)
+            // Every triangle is sampled (no face is ever dropped); the band's extents come from the vertices.
+            var picks = Draft.Samples(tris.Select(t => new Draft.SampleTriangle
             {
-                var t = tris[ti];
-                var p = V3.Add(t.P0, V3.Add(V3.Mul(V3.Sub(t.P1, t.P0), a), V3.Mul(V3.Sub(t.P2, t.P0), b)));
-                samples.Add(new PartSample { Face = t.Face, U = p[0], V = p[1], W = p[2], NW = t.N[2], Area = w });
+                Area = t.Area, Face = t.Face, NW = t.N[2], W0 = t.P0[2], W1 = t.P1[2], W2 = t.P2[2], N0 = t.VN[0], N1 = t.VN[1], N2 = t.VN[2],
+            }).ToList(), sampleArea, o.MaxSamples, sinMin, notes);
+            var samples = new List<PartSample>(picks.Count);
+            foreach (var pk in picks)
+            {
+                var t = tris[pk.Tri];
+                var p = V3.Add(t.P0, V3.Add(V3.Mul(V3.Sub(t.P1, t.P0), pk.A), V3.Mul(V3.Sub(t.P2, t.P0), pk.B)));
+                samples.Add(new PartSample
+                {
+                    Face = t.Face, U = p[0], V = p[1], W = p[2], NW = t.N[2], Area = pk.Area,
+                    WLo = pk.WLo, WHi = pk.WHi, LidMinW = pk.LidMinW, BaseMaxW = pk.BaseMaxW,
+                });
             }
             var rayIdx = new List<int>();
             var pts = new List<double[]>();
@@ -205,14 +224,46 @@ namespace SwAgent.Mold.Geometry
 
             // 6. Parting-line candidates (per sample), with critical faces.
             var criticalRanges = new List<(string Id, double WMin, double WMax)>();
+            var criticalTris = new Dictionary<string, List<double[][]>>();
             foreach (var (id, faceTris) in critical ?? new List<(string, float[])>())
             {
                 var ws = WRange(faceTris, frame);
-                if (ws != null) criticalRanges.Add((id, ws.Value.Min, ws.Value.Max));
-                else notes.Add($"critical face {id} has no tessellation; not checked against the parting line");
+                if (ws == null)
+                {
+                    notes.Add($"critical face {id} has no tessellation; not checked against the parting line");
+                    continue;
+                }
+                criticalRanges.Add((id, ws.Value.Min, ws.Value.Max));
+                var list = new List<double[][]>();
+                for (var k = 0; k + 8 < faceTris.Length; k += 9)
+                    list.Add(new[] { 0, 3, 6 }.Select(q => frame.ToFrame(new double[] { faceTris[k + q], faceTris[k + q + 1], faceTris[k + q + 2] })).ToArray());
+                criticalTris[id] = list;
             }
+            // The model's tolerance: the band's extents are vertex heights, exact on the surface.
             var tol = Math.Max(0.01 * SwGeo.Mm, 1e-6);
-            var pl = PartingLine.Analyze(samples, o.MinDraftDeg, tol, columns.SectionArea, criticalRanges);
+            // A critical face vetoes a plane only where it reaches the part's outer outline at that level (the parting line
+            // runs on it); a hole wall or pocket inside the outline is a shut-off there, which only costs score.
+            var exteriors = new Dictionary<double, bool[,]>();
+            bool ReachesOutline(string id, double w)
+            {
+                if (!criticalTris.TryGetValue(id, out var ftris)) return true;
+                if (!exteriors.TryGetValue(w, out var ext)) exteriors[w] = ext = Raster.Outside(columns.SectionAt(w, tol));
+                var pts = new List<(double U, double V)>();
+                foreach (var t in ftris)
+                    for (var a = 0; a < 3; a++)
+                    {
+                        var p = t[a];
+                        var q = t[(a + 1) % 3];
+                        if (Math.Abs(p[2] - w) <= tol) pts.Add((p[0], p[1]));
+                        if ((p[2] - w) * (q[2] - w) < 0)
+                        {
+                            var f = (w - p[2]) / (q[2] - p[2]);
+                            pts.Add((p[0] + f * (q[0] - p[0]), p[1] + f * (q[1] - p[1])));
+                        }
+                    }
+                return pts.Count == 0 || columns.NearOuterOutline(pts, ext, 1.5 * spacing);
+            }
+            var pl = PartingLine.Analyze(samples, o.MinDraftDeg, tol, columns.SectionArea, criticalRanges, o.SampleMm * SwGeo.Mm, ReachesOutline);
 
             // 7. Air traps per candidate.
             var fill = (o.Fill ?? "base").Trim().ToLowerInvariant();
@@ -276,6 +327,17 @@ namespace SwAgent.Mold.Geometry
                 return r;
             }
             JArray P(double[] uvw) => new JArray(frame.ToModel(uvw).Select(x => Mm(x)));
+            // Portable face locators (critique F1): a point on the face (its largest triangle's centroid, model mm) and the
+            // outward normal there, so a replaced part or an external simulator can find the face without SolidWorks refs.
+            var bodyId = string.IsNullOrWhiteSpace(o.BodyId) ? geo.Name : o.BodyId;
+            var largest = tris.GroupBy(t => t.Face).ToDictionary(g => g.Key, g => g.OrderByDescending(t => t.Area).First());
+            void Locate(JObject face, int fi)
+            {
+                face["bodyId"] = bodyId;
+                if (!largest.TryGetValue(fi, out var t)) return;
+                face["point"] = P(V3.Mul(V3.Add(t.P0, V3.Add(t.P1, t.P2)), 1.0 / 3));
+                face["normal"] = new JArray(frame.DirToModel(t.N).Select(x => Math.Round(x, 6)));
+            }
 
             var draftFaces = new JArray();
             foreach (var kv in faceDraft.OrderBy(k => k.Key))
@@ -291,6 +353,7 @@ namespace SwAgent.Mold.Geometry
                     ["area_mm2"] = Math.Round(kv.Value.Area / 1e-6, 1),
                     ["persist"] = Ref(kv.Key),
                 });
+                Locate((JObject)draftFaces.Last, kv.Key);
             }
             var undercuts = new JArray(pl.UndercutFaces.Select(fi => new JObject
             {
@@ -299,6 +362,7 @@ namespace SwAgent.Mold.Geometry
                 ["side"] = samples.Any(s => s.Face == fi && s.NW > 0 && s.UpClear == false) ? "lid" : "base",
                 ["persist"] = Ref(fi),
             }));
+            foreach (JObject u in undercuts) Locate(u, int.Parse(((string)u["id"]).Substring(1), CultureInfo.InvariantCulture));
             var candidates = new JArray(pl.Candidates.Select(c => new JObject
             {
                 ["id"] = c.Id,
@@ -310,6 +374,7 @@ namespace SwAgent.Mold.Geometry
                 ["airTraps"] = c.AirTraps,
                 ["airTrapVolume_mm3"] = Math.Round(c.AirTrapVolume / 1e-9, 1),
                 ["veto"] = c.Veto ? c.VetoReason : null,
+                ["penalty"] = c.Penalty > 0 ? c.PenaltyReason : null,
                 ["score"] = c.Score,
                 ["scoreNotes"] = new JArray(c.ScoreNotes),
             }));
@@ -366,7 +431,12 @@ namespace SwAgent.Mold.Geometry
                     ["zLo_mm"] = Mm(pl.ZLo),
                     ["zHi_mm"] = Mm(pl.ZHi),
                     ["candidates"] = candidates,
-                    ["conflictFaces"] = new JArray(pl.ConflictFaces.Select(fi => new JObject { ["id"] = $"F{fi}", ["persist"] = Ref(fi) })),
+                    ["conflictFaces"] = new JArray(pl.ConflictFaces.Select(fi =>
+                    {
+                        var j = new JObject { ["id"] = $"F{fi}", ["persist"] = Ref(fi) };
+                        Locate(j, fi);
+                        return j;
+                    })),
                 },
                 ["airTraps"] = traps,
                 ["internalCeilings"] = internalCeilings.Count,
@@ -384,8 +454,31 @@ namespace SwAgent.Mold.Geometry
             };
             report.Json = json;
 
-            // The record keeps the part section and the analysis results (merged by id).
-            report.RecordPatch = new JObject
+            // The record keeps the part section and the analysis results (merged by id) for the mold's own pull (+W of the
+            // Top Plane). A trial pull only adds a line to part.pullTrials: the record's frame and part section stay the
+            // Top Plane's.
+            var trial = !ReferenceEquals(frame, top);
+            var best0 = pl.Candidates.FirstOrDefault();
+            if (trial)
+            {
+                report.RecordPatch = new JObject
+                {
+                    ["part"] = new JObject
+                    {
+                        ["pullTrials"] = new JArray(new JObject
+                        {
+                            ["id"] = "pull " + string.Join(",", frame.W.Select(x => Math.Round(x, 4).ToString(CultureInfo.InvariantCulture))),
+                            ["pull"] = new JArray(frame.W.Select(x => Math.Round(x, 9))),
+                            ["planar"] = pl.Planar,
+                            ["best"] = best0 == null ? null : new JObject { ["id"] = best0.Id, ["w_mm"] = Mm(best0.W), ["score"] = best0.Score },
+                            ["undercutFaces"] = pl.UndercutFaces.Count,
+                            ["needsDraftShare"] = Math.Round(pl.AreaBySide[SampleSide.Either] / pl.TotalArea, 3),
+                            ["airTraps"] = report.Traps.Count,
+                        }),
+                    },
+                };
+            }
+            else report.RecordPatch = new JObject
             {
                 ["frame"] = frame.ToJson(),
                 ["part"] = new JObject
@@ -441,6 +534,7 @@ namespace SwAgent.Mold.Geometry
                 sb.AppendLine($"Steel reaching into the part ({fragile.Count}, {flagged.Count} fragile): " + string.Join("; ", fragileJson.Take(10).Select(x =>
                     $"{x["id"]} {x["kind"]} D {x["d_mm"]} x H {x["h_mm"]} mm ({x["side"]})" + ((bool)x["flagged"] ? $" FRAGILE: {x["reason"]} - steel insert" : ""))));
             if (notes.Count > 0) sb.AppendLine("Notes: " + string.Join("; ", notes) + ".");
+            if (trial) sb.AppendLine("Trial pull (not the Top Plane's +W): the record gets only a part.pullTrials line; its frame and part section stay the Top Plane's.");
             sb.AppendLine("Face ids F<n> are this body's face order; persistent refs are in the record (part.draft.faces, part.undercuts).");
             report.Text = sb.ToString().TrimEnd();
 

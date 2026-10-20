@@ -62,14 +62,31 @@ namespace SwAgent.Tests.Mold
         {
             // A 40 x 20 mm pocket, counter-clockwise; cutter radius 3 mm -> relief radius 3.3 mm.
             var pocket = new[] { new[] { 0.0, 0 }, new[] { 0.04, 0 }, new[] { 0.04, 0.02 }, new[] { 0.0, 0.02 } };
-            var r = PocketRelief.ReliefRadius(0.003);
+            const double cutter = 0.003;
+            var r = PocketRelief.ReliefRadius(cutter);
             Assert.Equal(0.0033, r, 9);
             var centres = PocketRelief.DogBones(pocket, r);
             Assert.Equal(4, centres.Count);
             var d = r / Math.Sqrt(2);
-            Assert.Equal(-d, centres[0][0], 9); // outside the pocket, on the 45 deg bisector
-            Assert.Equal(-d, centres[0][1], 9);
+            Assert.Equal(d, centres[0][0], 9); // inside the pocket, on the 45 deg bisector
+            Assert.Equal(d, centres[0][1], 9);
             Assert.All(centres.Select((c, i) => Math.Sqrt(Math.Pow(c[0] - pocket[i][0], 2) + Math.Pow(c[1] - pocket[i][1], 2))), x => Assert.Equal(r, x, 9));
+            // The relief removes everything the cutter leaves in each corner: every point of the pocket within the
+            // corner square (cutter x cutter) but outside the cutter's own circle is inside the relief circle.
+            for (var i = 0; i < 4; i++)
+            {
+                var corner = pocket[i];
+                var inward = new[] { Math.Sign(0.02 - corner[0]), Math.Sign(0.01 - corner[1]) };
+                var mill = new[] { corner[0] + inward[0] * cutter, corner[1] + inward[1] * cutter };
+                for (var a = 0; a <= 20; a++)
+                    for (var b = 0; b <= 20; b++)
+                    {
+                        var p = new[] { corner[0] + inward[0] * cutter * a / 20, corner[1] + inward[1] * cutter * b / 20 };
+                        if (Math.Sqrt(Math.Pow(p[0] - mill[0], 2) + Math.Pow(p[1] - mill[1], 2)) < cutter) continue; // the mill reaches it
+                        var toCentre = Math.Sqrt(Math.Pow(p[0] - centres[i][0], 2) + Math.Pow(p[1] - centres[i][1], 2));
+                        Assert.True(toCentre <= r + 1e-12, $"corner {i}: ({p[0]}, {p[1]}) is left by the cutter and not relieved");
+                    }
+            }
             // Clockwise order gives the same centres.
             var cw = Enumerable.Reverse(pocket).ToArray();
             Assert.Equal(4, PocketRelief.DogBones(cw, r).Count);
@@ -116,8 +133,14 @@ namespace SwAgent.Tests.Mold
             held.Dispose(); // disposing twice releases once
             using (HiddenDocuments.Lock())
             {
+                // A synchronous holder re-entered from a message pump: fail fast, never interleave two hidden opens.
+                var busy = Assert.Throws<InvalidOperationException>(() => HiddenDocuments.Lock());
+                Assert.Contains("try again", busy.Message);
             }
             using (await HiddenDocuments.LockAsync(CancellationToken.None))
+            {
+            }
+            using (HiddenDocuments.Lock())
             {
             }
         }

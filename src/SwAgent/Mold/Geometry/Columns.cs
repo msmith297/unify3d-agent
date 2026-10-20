@@ -186,6 +186,42 @@ namespace SwAgent.Mold.Geometry
             return r;
         }
 
+        /// <summary>The section at height w (cells whose solid contains w within tol).</summary>
+        public bool[,] SectionAt(double w, double tol = 0)
+        {
+            var m = new bool[Grid.Nu, Grid.Nv];
+            for (var i = 0; i < Grid.Nu; i++)
+                for (var j = 0; j < Grid.Nv; j++)
+                    m[i, j] = Cells[i, j] != null && Cells[i, j].Any(x => x.Bottom - tol <= w && w <= x.Top + tol);
+            return m;
+        }
+
+        /// <summary>
+        /// Whether any of the points (u, v) lies within `reach` of a cell outside the part at height w that connects to the
+        /// grid border - the part's outer outline at that level, not a hole or pocket inside it. `exterior` caches
+        /// Raster.Outside(SectionAt(w)).
+        /// </summary>
+        public bool NearOuterOutline(IEnumerable<(double U, double V)> pts, bool[,] exterior, double reach)
+        {
+            var g = Grid;
+            var k = Math.Max(1, (int)Math.Ceiling(reach / g.H));
+            foreach (var (u, v) in pts)
+            {
+                var ci = (int)Math.Floor((u - g.U0) / g.H);
+                var cj = (int)Math.Floor((v - g.V0) / g.H);
+                for (var i = Math.Max(0, ci - k); i <= Math.Min(g.Nu - 1, ci + k); i++)
+                    for (var j = Math.Max(0, cj - k); j <= Math.Min(g.Nv - 1, cj + k); j++)
+                    {
+                        if (!exterior[i, j]) continue;
+                        // Distance from the point to the cell's square.
+                        var du = Math.Max(0, Math.Abs(u - g.CU(i)) - g.H / 2);
+                        var dv = Math.Max(0, Math.Abs(v - g.CV(j)) - g.H / 2);
+                        if (du * du + dv * dv <= reach * reach) return true;
+                    }
+            }
+            return false;
+        }
+
         public bool[,] Footprint()
         {
             var m = new bool[Grid.Nu, Grid.Nv];

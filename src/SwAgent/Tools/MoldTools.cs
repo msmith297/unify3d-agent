@@ -70,7 +70,7 @@ namespace SwAgent.Tools
             [ToolParam("This call's changes to sizing defaults or support, e.g. {delta_allow_mm:0.02, support:\"rails\", rail_span_mm:80}.")]
             public JObject Overrides { get; set; }
 
-            [ToolParam("Write the results to the record (default true except lookup and split).")]
+            [ToolParam("Write the results to the record (default true except lookup, split and calls with design - a what-if).")]
             public bool? Record { get; set; }
         }
 
@@ -107,7 +107,8 @@ namespace SwAgent.Tools
                 var result = MoldCalc.Run(action, design ?? new JObject(), input.Query ?? new JObject(), input.Overrides ?? new JObject(), data);
                 var sb = new StringBuilder(result.Text ?? "");
                 if (result.Json != null) sb.Append("\n```json\n").Append(Json(result.Json, 4000)).Append("\n```");
-                var write = input.Record ?? (action != "lookup" && action != "split");
+                // A design passed in is a what-if: it doesn't overwrite the as-designed record unless asked.
+                var write = input.Record ?? (input.Design == null && action != "lookup" && action != "split");
                 if (write && record != null && (result.RecordPatch != null || (result.Checks?.Count ?? 0) > 0))
                 {
                     var patch = (JObject)(result.RecordPatch?.DeepClone() ?? new JObject());
@@ -139,7 +140,8 @@ namespace SwAgent.Tools
             [ToolParam("analyze (the only action; default).")]
             public string Action { get; set; }
 
-            [ToolParam("auto (the Insert Part body, else PART-REF, else the largest solid), PART-REF, a body id or a SolidWorks body name.")]
+            [ToolParam("auto (the Insert Part body, else PART-REF, else the largest solid), PART-REF, a body id or a SolidWorks body name; " +
+                       "several, comma-separated (one per cavity): the full analysis of the first, and each one's projection (area, outline, box).")]
             public string Body { get; set; }
 
             [ToolParam("Pull direction [x, y, z] in model coordinates. Default +W (the Top Plane's normal).")]
@@ -151,7 +153,7 @@ namespace SwAgent.Tools
             [ToolParam("Mold tilt about U for air traps, degrees (default 0).")]
             public double? TiltDeg { get; set; }
 
-            [ToolParam("Minimum draft, degrees (default: the page value, else 0.5).")]
+            [ToolParam("Minimum draft, degrees (default: the page value, else the part material's, else 0.5).")]
             public double? MinDraftDeg { get; set; }
 
             [ToolParam("Sample spacing, mm (default 1.0).")]
@@ -192,14 +194,23 @@ namespace SwAgent.Tools
             {
                 record = null;
             }
-            var body = FindBody(model, input.Body);
-            if (body == null) return ToolResult.Error($"No body '{input.Body ?? "auto"}' in this part.");
+            // Several bodies (one per cavity, design 2.3.3 step 4): the first is analyzed in full, the others' projections are added.
+            var names = (input.Body ?? "auto").Split(',').Select(x => x.Trim()).Where(x => x.Length > 0).DefaultIfEmpty("auto").ToList();
+            var targets = new List<(IBody2 Body, string Id)>();
+            foreach (var n in names)
+            {
+                var t = FindBody(model, n);
+                if (t.Body == null) return ToolResult.Error($"No body '{n}' in this part.");
+                targets.Add(t);
+            }
+            var (body, bodyId) = targets[0];
             var o = new PartAnalysisOptions
             {
+                BodyId = bodyId,
                 Pull = input.Pull,
                 Fill = string.IsNullOrWhiteSpace(input.Fill) ? "base" : input.Fill.Trim().ToLowerInvariant(),
                 TiltDeg = input.TiltDeg ?? 0,
-                MinDraftDeg = input.MinDraftDeg ?? RecordNumber(record, "materials.part.used.draftMinDeg") ?? PageDraftDeg(record) ?? 0.5,
+                MinDraftDeg = input.MinDraftDeg ?? PageDraftDeg(record) ?? RecordNumber(record, "materials.part.used.draftMinDeg") ?? 0.5,
                 SampleMm = Math.Max(0.1, input.SampleMm ?? 1.0),
                 Sg = input.Sg ?? RecordNumber(record, "materials.part.used.sg", "inputs.sg.value"),
                 Vents = (input.Vents ?? new double[0][]).Where(v => v != null && v.Length >= 3).Select(v => new[] { v[0] / 1000, v[1] / 1000, v[2] / 1000 }).ToList(),
@@ -212,6 +223,32 @@ namespace SwAgent.Tools
             }
             var report = PartAnalysis.Run(ctx.Sw, model, body, o, CancellationToken.None);
             var sb = new StringBuilder(report.Text);
+            if (targets.Count > 1)
+            {
+                // Per cavity: projected area, outline perimeter and box of every body given (the first included).
+                var cavities = new JArray();
+                sb.Append("\nPer cavity:");
+                foreach (var (b, id) in targets)
+                {
+                    var r = ReferenceEquals(b, body) ? report : PartAnalysis.Run(ctx.Sw, model, b, new PartAnalysisOptions
+                    {
+                        BodyId = id, Pull = o.Pull, Fill = "none", MinDraftDeg = o.MinDraftDeg, SampleMm = o.SampleMm,
+                    }, CancellationToken.None);
+                    var c = new JObject
+                    {
+                        ["id"] = id,
+                        ["projectedArea_mm2"] = r.Json["projectedArea_mm2"],
+                        ["perimeter_mm"] = r.Json["perimeter_mm"],
+                        ["box_mm"] = r.Json["box_mm"],
+                        ["boxFrame_mm"] = r.Json["boxFrame_mm"],
+                        ["volume_mm3"] = r.Json["volume_mm3"],
+                    };
+                    cavities.Add(c);
+                    sb.Append($"\n  {id}: projected area {c["projectedArea_mm2"]} mm2, outline {c["perimeter_mm"]} mm, box {string.Join(" x ", ((JArray)c["box_mm"]).Select(x => (double)x))} mm, volume {c["volume_mm3"]} mm3");
+                }
+                report.Json["cavities"] = cavities;
+                if (report.RecordPatch["part"] is JObject part) part["cavities"] = cavities.DeepClone();
+            }
             if (input.Show == true && report.Overlay.Count > 0)
             {
                 sb.Append(Show(ctx, model, report.Overlay)
@@ -260,24 +297,24 @@ namespace SwAgent.Tools
             return c;
         }
 
-        private static IBody2 FindBody(IModelDoc2 model, string which)
+        /// <summary>The body to analyze and its mold id (for the record's face locators).</summary>
+        private static (IBody2 Body, string Id) FindBody(IModelDoc2 model, string which)
         {
             which = (which ?? "auto").Trim();
             var frame = SwGeo.Frame(model);
+            var bodies = BodyReport.List(model, frame);
+            (IBody2, string) Of(MoldBody m) => m == null ? ((IBody2)null, (string)null) : (m.Body, m.Id);
             if (which.Equals("auto", StringComparison.OrdinalIgnoreCase))
             {
                 foreach (var f in SwGeo.AllFeatures(model).Where(f => f.Name.StartsWith("MOLD Part ", StringComparison.Ordinal)))
                 {
                     var b = SwGeo.BodiesOf(f).FirstOrDefault();
-                    if (b != null) return b;
+                    if (b != null) return (b, bodies.FirstOrDefault(m => m.Name == SwGeo.SafeName(b))?.Id ?? SwGeo.SafeName(b));
                 }
-                which = "PART-REF";
-                var list = BodyReport.List(model, frame);
-                return list.FirstOrDefault(b => b.Id == "PART-REF")?.Body ?? list.OrderByDescending(b => b.Volume).FirstOrDefault()?.Body;
+                return Of(bodies.FirstOrDefault(b => b.Id == "PART-REF") ?? bodies.OrderByDescending(b => b.Volume).FirstOrDefault());
             }
-            var bodies = BodyReport.List(model, frame);
-            return (bodies.FirstOrDefault(b => string.Equals(b.Id, which, StringComparison.OrdinalIgnoreCase)) ??
-                    bodies.FirstOrDefault(b => string.Equals(b.Name, which, StringComparison.Ordinal)))?.Body;
+            return Of(bodies.FirstOrDefault(b => string.Equals(b.Id, which, StringComparison.OrdinalIgnoreCase)) ??
+                      bodies.FirstOrDefault(b => string.Equals(b.Name, which, StringComparison.Ordinal)));
         }
 
         /// <summary>
@@ -365,7 +402,7 @@ namespace SwAgent.Tools
             "For the design-compression-mold tool: the mold's bodies. report: role (\"Mold - *\" folder), id, mass, box, material, the " +
             "weight/size limits, lid and base totals, interference. clearance: closest distance between pairs. export: one STEP per " +
             "body plus the part into the record folder (hidden documents; the tree is unchanged).")]
-        public async Task<ToolResult> Bodies(ToolContext ctx, MoldBodiesInput input)
+        public ToolResult Bodies(ToolContext ctx, MoldBodiesInput input)
         {
             var model = ctx.RequireModel();
             SwGeo.RequirePart(model);
@@ -463,8 +500,11 @@ namespace SwAgent.Tools
                                 ["source"] = "mold_bodies",
                                 ["type"] = "clearance",
                                 ["body"] = pair[0],
-                                ["demand"] = Math.Round(input.MinClearanceMm.Value, 4),
-                                ["capacity"] = Math.Round(mm, 4),
+                                // A lower limit: demand = what is there (measured), capacity = the required minimum,
+                                // margin = demand / capacity - 1 (the record schema's rule for lower limits).
+                                ["limit"] = "lower",
+                                ["demand"] = Math.Round(mm, 4),
+                                ["capacity"] = Math.Round(input.MinClearanceMm.Value, 4),
                                 ["unit"] = "mm",
                                 ["margin"] = Math.Round(mm / Math.Max(1e-9, input.MinClearanceMm.Value) - 1, 4),
                                 ["status"] = ok ? "pass" : "fail",
@@ -502,7 +542,7 @@ namespace SwAgent.Tools
                     var wanted = input.Bodies?.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()).ToList();
                     var mold = bodies.Where(b => BodyReport.IsMachined(b.Role) && (wanted == null || wanted.Count == 0 || wanted.Contains(b.Id, StringComparer.OrdinalIgnoreCase))).ToList();
                     var items = mold.Select(b => (b.Id, b.Body, b.SwMaterial)).ToList();
-                    var result = await BodyExport.ExportAsync(ctx.Sw, model, items, Path.Combine(folder, "exports", "bodies"), format, input.StepAp ?? 214, CancellationToken.None);
+                    var result = BodyExport.Export(ctx.Sw, model, items, Path.Combine(folder, "exports", "bodies"), format, input.StepAp ?? 214, CancellationToken.None);
                     var sb = new StringBuilder($"Exported {result.Written.Count} of {items.Count} bodies to {Path.Combine(folder, "exports", "bodies")}.");
                     var reference = bodies.FirstOrDefault(b => b.Id == "PART-REF");
                     var partFiles = new JObject();
@@ -510,7 +550,7 @@ namespace SwAgent.Tools
                     {
                         if (reference != null)
                         {
-                            var r = await BodyExport.ExportAsync(ctx.Sw, model, new[] { ("shrunk-part", reference.Body, reference.SwMaterial) }, Path.Combine(folder, "exports", "part"), format, input.StepAp ?? 214, CancellationToken.None);
+                            var r = BodyExport.Export(ctx.Sw, model, new[] { ("shrunk-part", reference.Body, reference.SwMaterial) }, Path.Combine(folder, "exports", "part"), format, input.StepAp ?? 214, CancellationToken.None);
                             result.Problems.AddRange(r.Problems);
                             if (r.Written.Count > 0)
                             {

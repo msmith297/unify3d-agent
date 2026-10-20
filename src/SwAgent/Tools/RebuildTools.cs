@@ -8,6 +8,7 @@ using Newtonsoft.Json.Linq;
 using SolidWorks.Interop.sldworks;
 using SolidWorks.Interop.swconst;
 using SwAgent.Infrastructure;
+using SwAgent.Mold.Geometry;
 
 namespace SwAgent.Tools
 {
@@ -126,13 +127,34 @@ namespace SwAgent.Tools
         }
 
         /// <summary>
+        /// Whether this file is the mold its Unify3D.MoldId names, not a copy of it: a Save As or a Smart Rebuild working
+        /// copy carries the same property, and must not share the original's checkpoints (restore would copy one file's
+        /// state over the other, and pruning would delete the other's restore points) or its journal. Yes when this path
+        /// is registered with that id; no for a working copy; otherwise the record next to it decides (RecordOwner); with
+        /// no record next to it, no if another existing file is registered with the same id.
+        /// </summary>
+        internal static bool IsMoldOriginal(IModelDoc2 model, string moldId)
+        {
+            var path = model?.GetPathName();
+            if (string.IsNullOrEmpty(path) || string.IsNullOrEmpty(moldId)) return false;
+            var designs = ReadJson(MoldDesignsFile);
+            if (string.Equals((string)designs[path.ToLowerInvariant()], moldId, StringComparison.OrdinalIgnoreCase)) return true;
+            if (OriginalOf(path) != null) return false;
+            var folder = SwGeo.StoredRecordFolder(model);
+            if (folder != null) return RecordOwner.Owns(folder, path);
+            return !designs.Properties().Any(p => string.Equals((string)p.Value, moldId, StringComparison.OrdinalIgnoreCase) &&
+                                                  !string.Equals(p.Name, path, StringComparison.OrdinalIgnoreCase) && File.Exists(p.Name));
+        }
+
+        /// <summary>
         /// Where a design's journal and checkpoints live. A mold is keyed by its record GUID, so two molds with the same file
-        /// name in different folders never share them. Otherwise named after the original file, so every Smart Rebuild
-        /// attempt (each new copy) shares them.
+        /// name in different folders never share them - but only the mold itself, not a copy of it (IsMoldOriginal).
+        /// Otherwise named after the original file, so every Smart Rebuild attempt (each new copy) shares them.
         /// </summary>
         internal static string DesignDir(IModelDoc2 model)
         {
             var moldId = MoldIdOf(model);
+            if (moldId != null && !IsMoldOriginal(model, moldId)) moldId = null;
             string key;
             if (moldId != null) key = "mold-" + moldId;
             else
@@ -468,6 +490,21 @@ namespace SwAgent.Tools
             var ok = model.Extension.SaveAs3(target, (int)swSaveAsVersion_e.swSaveAsCurrentVersion, (int)swSaveAsOptions_e.swSaveAsOptions_Silent, null, null, ref errors, ref warnings);
             if (!ok) return ToolResult.Error($"Save As failed ({(swFileSaveError_e)errors}).");
             RegisterWorkingCopy(target, current);
+            // A copy of a mold is not that mold: drop the record link so it neither merges into the original's mold.json
+            // nor shares its mold checkpoints (it keys by the original's name like any Smart Rebuild copy).
+            if (MoldIdOf(model) != null)
+            {
+                try
+                {
+                    var cpm = model.Extension.CustomPropertyManager[""];
+                    cpm?.Delete2(SwGeo.IdProperty);
+                    cpm?.Delete2(SwGeo.RecordProperty);
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn("Couldn't clear the mold properties on the working copy: " + ex.Message);
+                }
+            }
             Log.Info($"Smart Rebuild: working on a copy {target} (original {current} unchanged)");
             return ToolResult.Ok($"Saved a working copy and switched to it: {target}. The original {current} stays as it was. " +
                                  "The journal and checkpoints are shared with earlier attempts on the original.");

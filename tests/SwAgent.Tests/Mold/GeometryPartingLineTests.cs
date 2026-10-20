@@ -162,6 +162,7 @@ namespace SwAgent.Tests.Mold
             Assert.True(s.Count <= 50);
             Assert.Equal(102, s.Sum(x => x.Area), 6);
             Assert.True(s.Count(x => x.Tri == 0) > s.Count(x => x.Tri == 1));
+            Assert.Equal(new[] { 0, 1, 2 }, s.Select(x => x.Tri).Distinct().OrderBy(x => x)); // no triangle dropped
             Assert.All(s, x => Assert.True(x.A >= 0 && x.B >= 0 && x.A + x.B <= 1));
         }
     }

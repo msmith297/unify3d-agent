@@ -354,6 +354,32 @@ namespace SwAgent.Mold.Geometry
             return result;
         }
 
+        /// <summary>
+        /// Dead ends (acceptance A10): flash that can't get out. A moat with no runner, or a runner that doesn't cross the
+        /// plate's outline - no outline point in its strip ahead of it, or the farthest one beyond its end. `perimeter` is
+        /// the plate's outer outline, sampled densely (any order). Empty when every moat drains through the edge.
+        /// </summary>
+        public static List<string> DeadEnds(IList<Moat> moats, IList<Runner> runners, IList<double[]> perimeter, double width)
+        {
+            var problems = new List<string>();
+            foreach (var m in moats)
+                if (!runners.Any(r => r.Moat == m.Id)) problems.Add($"moat {m.Id} has no runner - its flash has no way out (dead end)");
+            foreach (var r in runners)
+            {
+                var t = new[] { -r.N[1], r.N[0] };
+                var far = double.NegativeInfinity;
+                foreach (var q in perimeter)
+                {
+                    var v = Sub(q, r.P);
+                    double along = v[0] * r.N[0] + v[1] * r.N[1], lat = v[0] * t[0] + v[1] * t[1];
+                    if (Math.Abs(lat) <= width / 2 && along > far) far = along;
+                }
+                if (far <= 0) problems.Add($"runner on {r.Moat} side {r.Side} meets no plate edge ahead of it (dead end)");
+                else if (far > r.Length + 1e-6) problems.Add($"runner on {r.Moat} side {r.Side} stops {(far - r.Length) * 1000:0.##} mm short of the plate edge (dead end)");
+            }
+            return problems;
+        }
+
         /// <summary>Smallest distance between two sampled outlines.</summary>
         public static double Gap(IList<double[]> a, IList<double[]> b)
         {

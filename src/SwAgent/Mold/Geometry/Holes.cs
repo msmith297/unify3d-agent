@@ -11,7 +11,8 @@ namespace SwAgent.Mold.Geometry
     /// diameters from mold_calc (clearance, counterbore, tap drill or insert drill). The cut stops at its depth, so a
     /// counterbore through the lid doesn't reach the base: each piece gets its own cut from its own face. Hole Wizard
     /// (thread data in the model) waits for spike S11; until then the thread spec lives in the record's hardware list
-    /// and the machining sheet. Each method measures the cylinders it made.
+    /// and the machining sheet. Each cut removes material from the face's own body only (measured), and each method
+    /// measures the cylinders it made.
     /// </summary>
     internal static class Holes
     {
@@ -47,6 +48,63 @@ namespace SwAgent.Mold.Geometry
         }
 
         /// <summary>Circles of diameter d at the points (model meters, on the face's plane), cut blind `depth` into the face's side.</summary>
+        /// <summary>The feature-scope selection mark that worked last (spike S11 settles it; until then each is measured).</summary>
+        private static int? _scopeMark;
+
+        /// <summary>
+        /// Cut the sketch blind `depth` so that only `target` loses material, checked by measurement: every other body keeps
+        /// its volume and centroid and the target loses some. First with auto-selected scope (right whenever the cut
+        /// doesn't reach another body), then with feature scope on the target alone (UseAutoSelect=false, the body
+        /// selected; the selection mark FeatureCut4 reads is unverified, so each candidate is tried and measured). A try
+        /// that touches another body is deleted (the sketch is kept) and the next one runs; if none works, it throws.
+        /// </summary>
+        private static IFeature ScopedCut(IModelDoc2 model, string name, IFeature sketch, IBody2 target, List<(double V, double X, double Y, double Z)> others, double v0, double depth)
+        {
+            var targetSig = SwGeo.Signature(target);
+            var tries = new List<int?> { null };
+            if (_scopeMark.HasValue) tries.Add(_scopeMark);
+            tries.AddRange(new int?[] { 8, 1, 2, 0 }.Where(m => m != _scopeMark));
+            var tried = new List<string>();
+            foreach (var mark in tries)
+            {
+                // The target as it is now (an undone try rebuilds the part; old body references may be stale).
+                var body = SwGeo.Solids(model).FirstOrDefault(b => SwGeo.SameSignature(SwGeo.Signature(b), targetSig));
+                if (body == null) throw new MoldApiException($"Holes '{name}': the target body wasn't found again after an undone try ({string.Join("; ", tried)}).");
+                model.ClearSelection2(true);
+                if (!sketch.Select2(false, 0)) throw new MoldApiException($"Holes '{name}': couldn't select the hole sketch.");
+                if (mark.HasValue) SwGeo.SelectBody(model, body, true, mark.Value);
+                var auto = !mark.HasValue;
+                var f = model.FeatureManager.FeatureCut4(true, false, false, (int)swEndConditions_e.swEndCondBlind, 0, depth, 0, false, false, false, false, 0, 0,
+                    false, false, false, false, false, true, auto, true, true, false, 0, 0, false, false);
+                model.ClearSelection2(true);
+                var label = auto ? "auto scope" : $"scope mark {mark}";
+                if (f == null)
+                {
+                    tried.Add(label + ": no feature");
+                    continue;
+                }
+                var changed = SwGeo.NewBodies(model, others);
+                var kept = SwGeo.Solids(model).Count - changed.Count;
+                var removed = v0 - changed.Sum(SwGeo.Volume);
+                string problem = null;
+                if (kept != others.Count) problem = $"it cut {others.Count - kept} other bod{(others.Count - kept == 1 ? "y" : "ies")}";
+                else if (changed.Count == 0 || removed <= 1e-12) problem = "it removed nothing from the face's body";
+                if (problem == null)
+                {
+                    if (mark.HasValue) _scopeMark = mark;
+                    return f;
+                }
+                tried.Add(label + ": " + problem);
+                // Undo the feature only; the sketch stays for the next try.
+                model.ClearSelection2(true);
+                if (f.Select2(false, 0)) model.Extension.DeleteSelection2(0);
+                model.ClearSelection2(true);
+            }
+            SwGeo.DeleteFeatures(model, sketch);
+            throw new MoldApiException($"Holes '{name}': no cut removed material from the face's body alone ({string.Join("; ", tried)}); nothing was changed. " +
+                                       "Check the depth (it may run into the next body) or cut it by hand with Feature Scope set to that body.");
+        }
+
         internal static IFeature Cut(ISldWorks sw, IModelDoc2 model, string name, IFace2 face, List<double[]> points, double d, double depth)
         {
             SwGeo.RequirePart(model);
@@ -59,6 +117,12 @@ namespace SwAgent.Mold.Geometry
             foreach (var p in points)
                 if (p == null || p.Length < 3 || Math.Abs(V3.Dot(p, normal) - h) > 1e-6)
                     throw new MoldApiException("Holes: every position must lie on the face's plane (model meters).");
+            // The cut is meant for the face's own body only (the design's multi-body rule): a blind cut through a lid must
+            // not continue into the base, a pocket relief must not cut the insert sitting in the pocket.
+            var target = face.GetBody() as IBody2 ?? throw new MoldApiException("Holes: the face isn't on a solid body.");
+            var targetName = SwGeo.SafeName(target);
+            var v0 = SwGeo.Volume(target);
+            var others = SwGeo.Solids(model).Where(b => SwGeo.SafeName(b) != targetName).Select(SwGeo.Signature).ToList();
             var mu = (IMathUtility)sw.GetMathUtility();
             var sm = model.SketchManager;
             var adb = sm.AddToDB;
@@ -83,16 +147,7 @@ namespace SwAgent.Mold.Geometry
                 sm.InsertSketch(true);
             }
             sketch = model.Extension.GetLastFeatureAdded() as IFeature ?? throw new MoldApiException("Holes: the sketch wasn't created.");
-            model.ClearSelection2(true);
-            sketch.Select2(false, 0);
-            var f = model.FeatureManager.FeatureCut4(true, false, false, (int)swEndConditions_e.swEndCondBlind, 0, depth, 0, false, false, false, false, 0, 0,
-                false, false, false, false, false, true, true, true, true, false, 0, 0, false, false);
-            model.ClearSelection2(true);
-            if (f == null)
-            {
-                SwGeo.DeleteFeatures(model, sketch);
-                throw new MoldApiException($"Holes '{name}': the cut failed (FeatureCut4).");
-            }
+            var f = ScopedCut(model, name, sketch, target, others, v0, depth);
             // Measure: a cylinder of radius d/2 whose axis passes through each point.
             var cylinders = ((f.GetFaces() as object[]) ?? new object[0]).OfType<IFace2>()
                 .Select(x => x.GetSurface() as ISurface).Where(x => x != null && x.IsCylinder())

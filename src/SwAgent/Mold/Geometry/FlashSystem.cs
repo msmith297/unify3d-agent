@@ -739,6 +739,8 @@ namespace SwAgent.Mold.Geometry
                     result.ClearanceMin = chkFeat.Count > 0 ? chkFeat.Min(Near) : double.MaxValue;
                     if (result.LipMin < LIP - 1e-5) result.Problems.Add($"the lip between cavity and groove is only {result.LipMin / In:0.###} in somewhere (needs {LIP / In:0.###})");
                     if (result.ClearanceMin < CLR - 1e-5) result.Problems.Add($"only {result.ClearanceMin / In:0.###} in of steel between a groove and a hole, notch or other feature (needs {CLR / In:0.###})");
+                    // No dead ends (A10): every moat has a runner, and every runner crosses the plate's outline.
+                    result.Problems.AddRange(FlashLayout.DeadEnds(moats, runners, outerPts, W));
                 }
             }
             finally

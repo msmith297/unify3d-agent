@@ -42,7 +42,12 @@ namespace SwAgent.ModelFiles
 
         public static bool IsDrawing(string path) => string.Equals(Path.GetExtension(path ?? ""), ".slddrw", StringComparison.OrdinalIgnoreCase);
 
-        /// <summary>{ name, path, kind: image|pdf|model|file|too_large, mediaType?, data?, summary?, views?, error? }.</summary>
+        /// <summary>
+        /// { name, path, kind: image|pdf|model|drawing|file|too_large, mediaType?, data?, summary?, views?, error? }.
+        /// With describeModels false (the composer's drop/pick quick path, which must answer at once) a model is path-only
+        /// and so is a drawing: kind "drawing", converted to its PDF entry by a later call with describeModels true
+        /// (files.describe) - opening a drawing and its models and exporting every sheet can take tens of seconds.
+        /// </summary>
         public static async Task<JObject> EntryAsync(ISldWorks sw, string path, bool describeModels = true, CancellationToken ct = default)
         {
             var entry = new JObject { ["name"] = Path.GetFileName(path), ["path"] = path };
@@ -62,6 +67,12 @@ namespace SwAgent.ModelFiles
                     }
                     if (report.Error != null) entry["error"] = report.Error;
                     entry["seconds"] = Math.Round(report.Seconds, 1);
+                    return entry;
+                }
+                if (IsDrawing(path) && !describeModels)
+                {
+                    entry["kind"] = "drawing";
+                    entry["format"] = "SolidWorks drawing";
                     return entry;
                 }
                 if (IsDrawing(path) && sw != null)

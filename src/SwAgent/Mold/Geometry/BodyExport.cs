@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
-using System.Threading.Tasks;
 using SolidWorks.Interop.sldworks;
 using SolidWorks.Interop.swconst;
 using SwAgent.Infrastructure;
@@ -16,8 +15,10 @@ namespace SwAgent.Mold.Geometry
     /// body in a hidden new part - nothing is added to the mold's feature tree. Per body: IBody2.Copy2, a hidden
     /// NewDocument, CreateFeatureFromBody3, the body's material, swStepAP set for the save, SaveAs3, QuitDoc. The STEP
     /// application protocol and document visibility are restored in finally, and the mold document is active again.
-    /// One body at a time inside the shared gate (HiddenDocuments): visibility is off only during each body's open-save-
-    /// close, and SolidWorks gets a turn between bodies.
+    /// All bodies in one synchronous loop inside the shared gate (HiddenDocuments.Lock), like InsertPart: yielding to the
+    /// message loop between bodies would let the user start a command or edit the mold while the next body's
+    /// Copy2/NewDocument/SaveAs3 runs from a timer continuation (the pattern SceneOverlay notes crashed SolidWorks), and the
+    /// body references collected before the loop could go stale.
     /// </summary>
     public static class BodyExport
     {
@@ -28,7 +29,7 @@ namespace SwAgent.Mold.Geometry
         }
 
         /// <summary>Export `items` (file stem, body, SolidWorks material) into `folder` as .step (AP 214 or 242) or .x_t.</summary>
-        public static async Task<Result> ExportAsync(ISldWorks sw, IModelDoc2 mold, IList<(string Stem, IBody2 Body, string Material)> items, string folder,
+        public static Result Export(ISldWorks sw, IModelDoc2 mold, IList<(string Stem, IBody2 Body, string Material)> items, string folder,
             string format, int stepAp, CancellationToken ct)
         {
             var result = new Result();
@@ -38,7 +39,7 @@ namespace SwAgent.Mold.Geometry
             var template = sw.GetUserPreferenceStringValue((int)swUserPreferenceStringValue_e.swDefaultTemplatePart);
             if (string.IsNullOrWhiteSpace(template) || !File.Exists(template))
                 throw new MoldApiException("SolidWorks has no default part template (Tools > Options > Default Templates); exports need one.");
-            using (await HiddenDocuments.LockAsync(ct))
+            using (HiddenDocuments.Lock())
             {
                 var oldAp = sw.GetUserPreferenceIntegerValue((int)swUserPreferenceIntegerValue_e.swStepAP);
                 try
@@ -58,7 +59,6 @@ namespace SwAgent.Mold.Geometry
                             result.Problems.Add($"{stem}: {ex.Message}");
                             Log.Warn($"Export of {stem} failed: {ex.Message}");
                         }
-                        await Task.Delay(1, ct); // a turn for SolidWorks' message loop between bodies (visibility is restored here)
                     }
                 }
                 finally

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Newtonsoft.Json.Linq;
 using SolidWorks.Interop.sldworks;
 using SolidWorks.Interop.swconst;
 using SwAgent.Infrastructure;
@@ -67,8 +68,9 @@ namespace SwAgent.Mold.Geometry
         /// Insert the molded part as an Insert Part feature "MOLD Part &lt;name&gt;" (kept linked, so Smart Rebuild can swap a
         /// revised part). STEP, IGES and Parasolid are first converted to SLDPRT in the record's part\ folder (opened hidden).
         /// Checks (critique B8): the import is exactly one solid with no surface bodies, IBody2.Check3 finds no faults, and the
-        /// inserted body's volume is within 0.5% of the converted part's (or of expectedVolumeMm3, e.g. from the attachment
-        /// summary). On a failed check the feature is removed again and the message says what was found - ask the user.
+        /// inserted body's volume is within 0.5% of the source's: expectedVolumeMm3 when given (e.g. the attachment summary's
+        /// volume - an independent reading, preferred), else the converted part's, else (SLDPRT) the source file's solids
+        /// read hidden. On a failed check the feature is removed again and the message says what was found - ask the user.
         /// </summary>
         public IFeature InsertPart(string path, string config = "", double expectedVolumeMm3 = 0)
         {
@@ -88,6 +90,11 @@ namespace SwAgent.Mold.Geometry
                 for (var k = 2; File.Exists(sldprt); k++) sldprt = Path.Combine(folder, $"{name}-{k}.SLDPRT"); // an earlier import stays as it was
                 var converted = ConvertNeutral(path, sldprt);
                 if (sourceVolume <= 0) sourceVolume = converted;
+            }
+            else if (sourceVolume <= 0)
+            {
+                sourceVolume = SldprtVolume(path, config);
+                if (sourceVolume <= 0) Log.Warn($"Mold: InsertPart couldn't read {Path.GetFileName(path)}'s own volume; the 0.5% volume check is skipped (pass expectedVolumeMm3)");
             }
 
             var before = SwGeo.Solids(model).Select(SwGeo.Signature).ToList();
@@ -114,6 +121,51 @@ namespace SwAgent.Mold.Geometry
             LastBodies = added;
             Log.Info($"Mold: inserted {path} as {feature.Name} ({SwGeo.Volume(added[0]) / 1e-9:0.#} mm3)");
             return feature;
+        }
+
+        /// <summary>
+        /// The solid volume of a part file (m^3), from the open document or opened read-only and hidden, in the
+        /// configuration asked for (else the active one). 0 when it can't be read.
+        /// </summary>
+        private double SldprtVolume(string path, string config)
+        {
+            var sw = Sw;
+            try
+            {
+                if (sw.GetOpenDocumentByName(path) is IModelDoc2 open && string.IsNullOrEmpty(config))
+                    return SwGeo.Solids(open).Sum(SwGeo.Volume);
+                using (HiddenDocuments.Lock())
+                {
+                    var activeBefore = sw.ActiveDoc as IModelDoc2;
+                    var openBefore = HiddenDocuments.OpenTitles(sw);
+                    IModelDoc2 doc = null;
+                    var opened = false;
+                    try
+                    {
+                        doc = sw.GetOpenDocumentByName(path) as IModelDoc2;
+                        if (doc == null)
+                        {
+                            int errors = 0, warnings = 0;
+                            using (HiddenDocuments.Hidden(sw))
+                            {
+                                doc = sw.OpenDoc6(path, (int)swDocumentTypes_e.swDocPART,
+                                    (int)(swOpenDocOptions_e.swOpenDocOptions_Silent | swOpenDocOptions_e.swOpenDocOptions_ReadOnly), config ?? "", ref errors, ref warnings);
+                            }
+                            opened = doc != null;
+                        }
+                        return doc == null ? 0 : SwGeo.Solids(doc).Sum(SwGeo.Volume);
+                    }
+                    finally
+                    {
+                        if (opened) HiddenDocuments.Close(sw, doc, openBefore, activeBefore);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("Mold: reading the source part's volume: " + ex.Message);
+                return 0;
+            }
         }
 
         /// <summary>Import a neutral file hidden, check it is one clean solid, save it as SLDPRT, close it. Returns its volume (m^3).</summary>
@@ -313,8 +365,10 @@ namespace SwAgent.Mold.Geometry
 
         /// <summary>
         /// Shrink allowance on the part body (critique A6): scale about a coordinate system "MOLD CS" at the parting-plane
-        /// centroid (the body's U/V box centre at W = plW, default the body's centroid height), so the parting plane stays
-        /// where the analysis put it and per-axis factors act along U, V, W. Only the body is selected - with nothing
+        /// centroid (the body's U/V box centre at W = plW), so the parting plane stays where the analysis put it and
+        /// per-axis factors act along U, V, W. plW (meters, frame W) defaults to the record's partingLine.planes[0].w_mm,
+        /// else the plane MOLD PL1; with none of them it throws - scaling about any other height moves the parting plane
+        /// off the part's silhouette (by (s - 1) x the distance, 0.2 mm on a 25 mm part at 1.7%). Only the body is selected - with nothing
         /// selected, Scale scales every body. Checked: V_after/V_before = su sv sw within 0.1%, and the box scaled about the
         /// fixed point within 0.01 mm. Fallback (documented): scale about the origin, then move the body back by
         /// (1 - s) * fixed point ("MOLD Shrink re-center") - the same result as two features.
@@ -331,8 +385,13 @@ namespace SwAgent.Mold.Geometry
             var uniform = Math.Abs(su - sv) < 1e-12 && Math.Abs(sv - sw) < 1e-12;
             var box0 = SwGeo.Box(b, frame);
             var v0 = SwGeo.Volume(b);
-            var cw = plW ?? frame.ToFrame(SwGeo.Centroid(b))[2];
+            var (cw, cwFrom) = plW.HasValue ? (plW.Value, "plW") : PartingW(model, frame) ??
+                throw new MoldApiException("ScaleForShrink: give plW, the parting plane's W in meters (the record has no partingLine.planes[0].w_mm and there is no plane MOLD PL1). " +
+                                           "The scale is about that plane so it stays on the part's silhouette.");
+            if (cw < box0[2] - 1e-6 || cw > box0[5] + 1e-6)
+                throw new MoldApiException($"ScaleForShrink: the parting plane W {cw * 1000:0.###} mm ({cwFrom}) is outside the body ({box0[2] * 1000:0.###}..{box0[5] * 1000:0.###} mm). plW is in meters, in the mold frame.");
             var fixedUvw = new[] { (box0[0] + box0[3]) / 2, (box0[1] + box0[4]) / 2, cw };
+            Log.Info($"Mold: shrink {su:0.######}/{sv:0.######}/{sw:0.######} about the parting-plane centroid u {fixedUvw[0] * 1000:0.###}, v {fixedUvw[1] * 1000:0.###}, w {cw * 1000:0.###} mm (from {cwFrom})");
             var fixedModel = frame.ToModel(fixedUvw);
             var others = SwGeo.Solids(model).Where(x => !SameBody(x, b)).Select(SwGeo.Signature).ToList();
             var label = uniform ? $"MOLD Shrink {(su - 1) * 100:0.00}%" : $"MOLD Shrink U{(su - 1) * 100:0.00}% V{(sv - 1) * 100:0.00}% W{(sw - 1) * 100:0.00}%";
@@ -415,6 +474,35 @@ namespace SwAgent.Mold.Geometry
             if (check != null) throw new MoldApiException("ScaleForShrink (origin + re-center): " + check + ". Check the features MOLD Shrink and MOLD Shrink re-center.");
             LastBodies = afterScale;
             return fs;
+        }
+
+        /// <summary>
+        /// The parting plane's W (meters) and where it came from: the record's partingLine.planes[0].w_mm (mm), else the
+        /// plane feature named there or "MOLD PL1" (its origin's W). Null when neither exists.
+        /// </summary>
+        private static (double W, string From)? PartingW(IModelDoc2 model, MoldFrame frame)
+        {
+            string featureName = "MOLD PL1";
+            try
+            {
+                var folder = SwGeo.RecordFolder(model);
+                var file = folder == null ? null : Path.Combine(folder, "mold.json");
+                if (file != null && File.Exists(file))
+                {
+                    var j = JObject.Parse(File.ReadAllText(file));
+                    var plane = j.SelectToken("partingLine.planes[0]");
+                    var w = plane?["w_mm"] ?? j.SelectToken("partingLine.w_mm");
+                    if (w != null && (w.Type == JTokenType.Float || w.Type == JTokenType.Integer)) return ((double)w / 1000, "the record's partingLine.planes[0].w_mm");
+                    if (plane?["feature"]?.Type == JTokenType.String) featureName = (string)plane["feature"];
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("Mold: reading the parting plane from the record: " + ex.Message);
+            }
+            if (SwGeo.FeatureByName(model, featureName)?.GetSpecificFeature2() is IRefPlane rp && rp.Transform?.ArrayData is double[] a && a.Length >= 12)
+                return (frame.ToFrame(new[] { a[9], a[10], a[11] })[2], "plane " + featureName);
+            return null;
         }
 
         /// <summary>"MOLD CS" at a point (axes = model axes): reuses one already there, else creates it. Null if SolidWorks refuses.</summary>
@@ -621,9 +709,12 @@ namespace SwAgent.Mold.Geometry
                     model.ClearSelection2(true);
                     continue;
                 }
+                var lastBefore = (model.Extension.GetLastFeatureAdded() as IFeature)?.Name;
                 var posted = model.FeatureManager.PostSplitBody2(pieces, false, null, null, "");
-                // The split feature (or, should this version hand back the bodies, the feature just added).
-                var f = posted as IFeature ?? (posted != null ? model.Extension.GetLastFeatureAdded() as IFeature : null);
+                // The split feature - or, should this version hand back the bodies or nothing, the feature just added: a
+                // split made without a reported feature must be used (or removed), never left behind before a retry.
+                var added = model.Extension.GetLastFeatureAdded() as IFeature;
+                var f = posted as IFeature ?? (added != null && added.Name != lastBefore ? added : null);
                 model.ClearSelection2(true);
                 if (f == null) continue;
                 var made = SwGeo.NewBodies(model, others);
@@ -708,7 +799,8 @@ namespace SwAgent.Mold.Geometry
         /// <summary>
         /// Counterbored clearance holes for socket head cap screws from a planar face (e.g. the lid's top), at model points on
         /// that face: a counterbore cboreDia x cboreDepth and a through hole holeDia x holeDepth, as cuts ("&lt;name&gt; cbore",
-        /// "&lt;name&gt;"). Checked: one cylinder of each diameter at every point.
+        /// "&lt;name&gt;"). Only the face's own body is cut - measured: every other body keeps its volume. Checked: one
+        /// cylinder of each diameter at every point.
         /// </summary>
         public IFeature CboreHoles(string name, IFace2 face, IEnumerable<double[]> points, double holeDia, double holeDepth, double cboreDia, double cboreDepth) =>
             Holes.Cbore(Sw, Model, name, face, points?.ToList(), holeDia, holeDepth, cboreDia, cboreDepth);
@@ -724,8 +816,9 @@ namespace SwAgent.Mold.Geometry
         /// <summary>
         /// Dog-bone reliefs for an insert pocket (critique B7): at every sharp inside corner of the pocket floor's outline
         /// (lines meeting with no arc, or an arc smaller than 1.1 x the cutter radius), a circle of radius 1.1 x cutterRadius
-        /// through the corner, centred on the bisector out in the steel, cut from the opening face down to the floor
-        /// ("MOLD Pocket reliefs"). The insert's sharp corners then seat without EDM. Checked: one cylinder per corner.
+        /// through the corner, centred on the bisector inside the pocket (it overcuts both walls), cut from the opening
+        /// face down to the floor ("MOLD Pocket reliefs"). The insert's sharp corners then seat without EDM. Only the
+        /// pocket's body is cut (an insert already in the pocket is left alone, measured). Checked: one cylinder per corner.
         /// Returns null when every corner is already rounded enough.
         /// </summary>
         public IFeature PocketCornerReliefs(IFace2 openingFace, IFace2 pocketFloor, double cutterRadius, string name = "MOLD Pocket reliefs")

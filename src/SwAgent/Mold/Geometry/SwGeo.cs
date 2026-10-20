@@ -354,21 +354,28 @@ namespace SwAgent.Mold.Geometry
 
         /// <summary>
         /// The record folder `<mold folder>\<mold file name>.mold\`: the custom property holds the folder name, so a renamed
-        /// or moved part still finds it next to itself. Null for a part never saved.
+        /// or moved part still finds it next to itself - unless that record names another part that still exists (this
+        /// file is a Save As or working copy of it, RecordOwner): then the copy's own `<file name>.mold`. Null for a part
+        /// never saved.
         /// </summary>
         public static string RecordFolder(IModelDoc2 model)
         {
             var path = model?.GetPathName();
             if (string.IsNullOrEmpty(path)) return null;
-            var dir = Path.GetDirectoryName(path);
+            var stored = StoredRecordFolder(model);
+            if (stored != null && RecordOwner.Owns(stored, path)) return stored;
+            return Path.Combine(Path.GetDirectoryName(path), Path.GetFileNameWithoutExtension(path) + ".mold");
+        }
+
+        /// <summary>The folder the custom property Unify3D.MoldRecord names, next to the part, if it exists (no ownership check).</summary>
+        public static string StoredRecordFolder(IModelDoc2 model)
+        {
+            var path = model?.GetPathName();
+            if (string.IsNullOrEmpty(path)) return null;
             var stored = GetProperty(model, RecordProperty);
-            if (!string.IsNullOrEmpty(stored))
-            {
-                var name = Path.GetFileName(stored.TrimEnd('\\', '/'));
-                var candidate = Path.Combine(dir, name);
-                if (Directory.Exists(candidate)) return candidate;
-            }
-            return Path.Combine(dir, Path.GetFileNameWithoutExtension(path) + ".mold");
+            if (string.IsNullOrEmpty(stored)) return null;
+            var candidate = Path.Combine(Path.GetDirectoryName(path), Path.GetFileName(stored.TrimEnd('\\', '/')));
+            return Directory.Exists(candidate) ? candidate : null;
         }
     }
 }

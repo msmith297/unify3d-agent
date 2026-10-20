@@ -6,8 +6,9 @@ namespace SwAgent.Mold.Geometry
     /// <summary>
     /// Insert pockets (critique B7): an end mill leaves a radius equal to its own in every inside corner, so a pocket split
     /// at the insert's sharp outline won't take the insert without EDM. Two remedies: a dog-bone relief (a circle through the
-    /// sharp corner, centred on the bisector out in the steel, radius >= 1.1 x the cutter's) or a pocket corner radius
-    /// R >= 1.1 x the cutter's with a matching chamfer on the insert. Pure (GeometryPocketReliefTests).
+    /// sharp corner, centred on the bisector inside the pocket at distance r, radius r >= 1.1 x the cutter's: it overcuts
+    /// both walls and removes the corner radius the mill left) or a pocket corner radius R >= 1.1 x the cutter's with a
+    /// matching chamfer on the insert. Pure (GeometryOverlayTests).
     /// </summary>
     public static class PocketRelief
     {
@@ -17,7 +18,9 @@ namespace SwAgent.Mold.Geometry
         /// <summary>
         /// Dog-bone centres for a pocket outline (2D, either orientation): at every corner that turns toward the pocket's
         /// inside (a convex corner of the pocket, where the mill leaves its radius), the centre sits on the corner's
-        /// bisector at distance r outside the pocket, so the circle of radius r passes through the sharp corner.
+        /// bisector at distance r INSIDE the pocket, so the circle of radius r passes through the sharp corner and cuts
+        /// r (1 - sin(a/2)) into both walls - covering the fillet of material the cutter (radius &lt; r) leaves in the
+        /// corner. (A centre outside the pocket would touch the pocket at the corner point only and remove nothing.)
         /// `sharp[i]` false skips corner i (already rounded enough).
         /// </summary>
         public static List<double[]> DogBones(IList<double[]> pocket, double r, IList<bool> sharp = null)
@@ -38,8 +41,7 @@ namespace SwAgent.Mold.Geometry
                 var b = FlashLayout.Unit(FlashLayout.Sub(next, cur));
                 var into = FlashLayout.Add(a, b); // points into the pocket
                 if (FlashLayout.Len(into) < 1e-12) continue;
-                var outward = FlashLayout.Mul(FlashLayout.Unit(into), -r);
-                result.Add(FlashLayout.Add(cur, outward));
+                result.Add(FlashLayout.Add(cur, FlashLayout.Mul(FlashLayout.Unit(into), r)));
             }
             return result;
         }
