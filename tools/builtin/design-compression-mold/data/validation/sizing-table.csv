@@ -1,6 +1,6 @@
 # Required thickness t (mm) for a deflection limit: t = [f alpha(t/b) p b^4 / (E delta)]^(1/3), fixed point from coefficients.csv
-# f = 1 for plates; for walls the 3D-calibrated wall-root factor f = 1 + 2.6 w/h. sigma = beta p b^2 / t^2 at that t (walls: no membrane term). Over t/b = 0.5: add support (pillars, rails), do not thicken.
-# coefficients sha256: ec7997e8639ecd8eed323d808e0f606fdf210dcd9fedfcf4cceade44cbba65ba
+# f = 1 for plates; for walls the 3D-calibrated wall-root factor f = 1 + 2.8 w/h. sigma = beta p b^2 / t^2 at that t (walls: bending only, no membrane term). Plates over t/b = 0.5: add support (pillars, rails), do not thicken. Walls over w/h = 0.5: out of range (S24: steel, a keyed wall or a 3D check).
+# coefficients sha256: ab3adcdb59dd98f40cf0318a030e7a9cb73a2b4140b149c745f1f78eedb0850e
 bc,aspect,span_is,material,E_MPa,nu,delta_mm,span_mm,p_MPa,t_mm,t_over_b,sigma_MPa,note
 SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.012,50,5,13.3,0.267,21,
 SS4,1,"panel side b (square, simply supported all round)","6061-T6 at 120 C",66000,0.33,0.012,50,10,18.0,0.360,23,
@@ -962,387 +962,387 @@ Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.05,300,5,
 Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.05,300,10,125.7,0.419,44,
 Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.05,300,20,,0.549,,add support
 Rails,4,"rail spacing b (plate 4 b long)","P20 at 120 C",200000,0.29,0.05,300,35,,0.662,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,50,5,,1.291,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,50,10,,1.769,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,50,20,,2.439,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,50,35,,3.176,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,100,5,,1.769,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,100,10,,2.439,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,100,20,,3.384,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,100,35,,4.422,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,150,5,,2.133,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,150,10,,2.952,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,150,20,,4.107,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,150,35,,5.378,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,200,5,,2.439,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,200,10,,3.384,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,200,20,,4.716,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,200,35,,6.182,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,250,5,,2.709,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,250,10,,3.764,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,250,20,,5.252,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,250,35,,6.891,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,300,5,,2.952,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,300,10,,4.107,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,300,20,,5.737,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,300,35,,7.532,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,50,5,,1.029,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,50,10,,1.402,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,50,20,,1.924,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,50,35,,2.496,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,100,5,,1.402,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,100,10,,1.924,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,100,20,,2.657,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,100,35,,3.463,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,150,5,,1.686,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,150,10,,2.322,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,150,20,,3.219,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,150,35,,4.204,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,200,5,,1.924,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,200,10,,2.657,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,200,20,,3.691,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,200,35,,4.828,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,250,5,,2.133,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,250,10,,2.952,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,250,20,,4.107,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,250,35,,5.378,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,300,5,,2.322,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,300,10,,3.219,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,300,20,,4.483,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,300,35,,5.874,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,50,5,,0.933,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,50,10,,1.268,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,50,20,,1.736,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,50,35,,2.249,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,100,5,,1.268,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,100,10,,1.736,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,100,20,,2.393,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,100,35,,3.115,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,150,5,,1.523,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,150,10,,2.093,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,150,20,,2.896,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,150,35,,3.778,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,200,5,,1.736,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,200,10,,2.393,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,200,20,,3.319,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,200,35,,4.336,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,250,5,,1.924,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,250,10,,2.657,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,250,20,,3.691,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,250,35,,4.828,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,300,5,,2.093,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,300,10,,2.896,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,300,20,,4.027,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,300,35,,5.272,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,50,5,,0.693,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,50,10,,0.933,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,50,20,,1.268,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,50,35,,1.633,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,100,5,,0.933,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,100,10,,1.268,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,100,20,,1.736,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,100,35,,2.249,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,150,5,,1.116,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,150,10,,1.523,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,150,20,,2.093,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,150,35,,2.719,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,200,5,,1.268,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,200,10,,1.736,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,200,20,,2.393,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,200,35,,3.115,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,250,5,,1.402,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,250,10,,1.924,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,250,20,,2.657,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,250,35,,3.463,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,300,5,,1.523,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,300,10,,2.093,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,300,20,,2.896,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,300,35,,3.778,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,50,5,,0.794,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,50,10,,1.073,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,50,20,,1.464,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,50,35,,1.890,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,100,5,,1.073,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,100,10,,1.464,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,100,20,,2.010,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,100,35,,2.610,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,150,5,,1.286,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,150,10,,1.761,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,150,20,,2.428,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,150,35,,3.161,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,200,5,,1.464,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,200,10,,2.010,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,200,20,,2.779,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,200,35,,3.624,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,250,5,,1.620,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,250,10,,2.230,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,250,20,,3.088,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,250,35,,4.032,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,300,5,,1.761,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,300,10,,2.428,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,300,20,,3.368,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,300,35,,4.401,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,50,5,,0.639,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,50,10,,0.858,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,50,20,,1.164,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,50,35,,1.496,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,100,5,,0.858,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,100,10,,1.164,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,100,20,,1.590,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,100,35,,2.056,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,150,5,,1.025,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,150,10,,1.396,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,150,20,,1.915,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,150,35,,2.484,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,200,5,,1.164,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,200,10,,1.590,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,200,20,,2.188,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,200,35,,2.844,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,250,5,,1.286,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,250,10,,1.761,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,250,20,,2.428,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,250,35,,3.161,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,300,5,,1.396,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,300,10,,1.915,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,300,20,,2.645,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,300,35,,3.447,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,50,5,,0.582,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,50,10,,0.780,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,50,20,,1.054,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,50,35,,1.353,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,100,5,,0.780,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,100,10,,1.054,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,100,20,,1.437,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,100,35,,1.855,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,150,5,,0.929,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,150,10,,1.262,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,150,20,,1.728,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,150,35,,2.238,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,200,5,,1.054,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,200,10,,1.437,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,200,20,,1.973,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,200,35,,2.561,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,250,5,,1.164,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,250,10,,1.590,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,250,20,,2.188,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,250,35,,2.844,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,300,5,,1.262,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,300,10,,1.728,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,300,20,,2.382,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,300,35,,3.100,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,50,5,21.2,0.424,75,
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,50,10,,0.582,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,50,20,,0.780,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,50,35,,0.994,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,100,5,,0.582,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,100,10,,0.780,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,100,20,,1.054,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,100,35,,1.353,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,150,5,,0.690,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,150,10,,0.929,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,150,20,,1.262,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,150,35,,1.626,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,200,5,,0.780,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,200,10,,1.054,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,200,20,,1.437,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,200,35,,1.855,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,250,5,,0.858,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,250,10,,1.164,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,250,20,,1.590,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,250,35,,2.056,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,300,5,,0.929,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,300,10,,1.262,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,300,20,,1.728,,add support
-Wall-C,4,"loaded height h (wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,300,35,,2.238,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,50,5,,1.354,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,50,10,,1.857,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,50,20,,2.564,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,50,35,,3.339,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,100,5,,1.857,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,100,10,,2.564,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,100,20,,3.559,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,100,35,,4.653,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,150,5,,2.241,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,150,10,,3.104,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,150,20,,4.321,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,150,35,,5.660,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,200,5,,2.564,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,200,10,,3.559,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,200,20,,4.963,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,200,35,,6.509,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,250,5,,2.847,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,250,10,,3.959,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,250,20,,5.528,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,250,35,,7.256,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,300,5,,3.104,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,300,10,,4.321,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,300,20,,6.039,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,300,35,,7.932,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,50,5,,1.078,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,50,10,,1.471,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,50,20,,2.020,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,50,35,,2.623,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,100,5,,1.471,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,100,10,,2.020,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,100,20,,2.793,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,100,35,,3.642,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,150,5,,1.769,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,150,10,,2.440,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,150,20,,3.384,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,150,35,,4.423,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,200,5,,2.020,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,200,10,,2.793,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,200,20,,3.882,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,200,35,,5.081,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,250,5,,2.241,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,250,10,,3.104,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,250,20,,4.321,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,250,35,,5.660,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,300,5,,2.440,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,300,10,,3.384,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,300,20,,4.717,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,300,35,,6.184,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,50,5,,0.978,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,50,10,,1.330,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,50,20,,1.823,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,50,35,,2.363,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,100,5,,1.330,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,100,10,,1.823,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,100,20,,2.515,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,100,35,,3.275,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,150,5,,1.598,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,150,10,,2.199,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,150,20,,3.044,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,150,35,,3.974,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,200,5,,1.823,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,200,10,,2.515,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,200,20,,3.490,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,200,35,,4.563,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,250,5,,2.020,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,250,10,,2.793,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,250,20,,3.882,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,250,35,,5.081,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,300,5,,2.199,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,300,10,,3.044,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,300,20,,4.237,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,300,35,,5.549,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,50,5,,0.724,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,50,10,,0.978,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,50,20,,1.330,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,50,35,,1.714,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,100,5,,0.978,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,100,10,,1.330,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,100,20,,1.823,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,100,35,,2.363,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,150,5,,1.169,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,150,10,,1.598,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,150,20,,2.199,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,150,35,,2.858,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,200,5,,1.330,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,200,10,,1.823,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,200,20,,2.515,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,200,35,,3.275,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,250,5,,1.471,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,250,10,,2.020,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,250,20,,2.793,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,250,35,,3.642,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,300,5,,1.598,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,300,10,,2.199,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,300,20,,3.044,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,300,35,,3.974,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,50,5,,0.835,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,50,10,,1.132,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,50,20,,1.545,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,50,35,,1.997,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,100,5,,1.132,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,100,10,,1.545,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,100,20,,2.125,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,100,35,,2.761,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,150,5,,1.356,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,150,10,,1.860,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,150,20,,2.567,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,150,35,,3.345,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,200,5,,1.545,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,200,10,,2.125,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,200,20,,2.940,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,200,35,,3.836,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,250,5,,1.711,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,250,10,,2.357,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,250,20,,3.268,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,250,35,,4.269,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,300,5,,1.860,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,300,10,,2.567,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,300,20,,3.564,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,300,35,,4.661,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,50,5,,0.671,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,50,10,,0.904,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,50,20,,1.227,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,50,35,,1.580,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,100,5,,0.904,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,100,10,,1.227,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,100,20,,1.679,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,100,35,,2.173,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,150,5,,1.080,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,150,10,,1.473,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,150,20,,2.023,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,150,35,,2.627,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,200,5,,1.227,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,200,10,,1.679,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,200,20,,2.313,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,200,35,,3.009,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,250,5,,1.356,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,250,10,,1.860,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,250,20,,2.567,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,250,35,,3.345,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,300,5,,1.473,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,300,10,,2.023,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,300,20,,2.797,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,300,35,,3.648,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,50,5,,0.611,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,50,10,,0.821,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,50,20,,1.111,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,50,35,,1.427,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,100,5,,0.821,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,100,10,,1.111,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,100,20,,1.517,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,100,35,,1.960,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,150,5,,0.979,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,150,10,,1.332,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,150,20,,1.825,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,150,35,,2.366,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,200,5,,1.111,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,200,10,,1.517,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,200,20,,2.085,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,200,35,,2.708,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,250,5,,1.227,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,250,10,,1.679,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,250,20,,2.313,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,250,35,,3.009,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,300,5,,1.332,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,300,10,,1.825,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,300,20,,2.519,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,300,35,,3.280,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,50,5,22.6,0.451,74,
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,50,10,,0.611,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,50,20,,0.821,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,50,35,,1.048,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,100,5,,0.611,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,100,10,,0.821,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,100,20,,1.111,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,100,35,,1.427,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,150,5,,0.725,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,150,10,,0.979,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,150,20,,1.332,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,150,35,,1.717,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,200,5,,0.821,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,200,10,,1.111,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,200,20,,1.517,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,200,35,,1.960,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,250,5,,0.904,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,250,10,,1.227,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,250,20,,1.679,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,250,35,,2.173,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,300,5,,0.979,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,300,10,,1.332,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,300,20,,1.825,,add support
-Wall-C,100,"loaded height h (long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,300,35,,2.366,,add support
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,10,5,,0.654,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,10,10,,0.882,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,10,20,,1.199,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,10,35,,1.545,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,20,5,,0.882,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,20,10,,1.199,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,20,20,,1.642,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,20,35,,2.127,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,30,5,,1.054,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,30,10,,1.440,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,30,20,,1.980,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,30,35,,2.573,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,40,5,,1.199,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,40,10,,1.642,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,40,20,,2.264,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,40,35,,2.948,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,50,5,,1.325,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,50,10,,1.820,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,50,20,,2.514,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,50,35,,3.278,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,60,5,,1.440,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,60,10,,1.980,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,60,20,,2.740,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,60,35,,3.576,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,10,5,,0.528,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,10,10,,0.707,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,10,20,,0.955,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,10,35,,1.225,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,20,5,,0.707,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,20,10,,0.955,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,20,20,,1.301,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,20,35,,1.679,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,30,5,,0.842,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,30,10,,1.144,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,30,20,,1.565,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,30,35,,2.026,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,40,5,,0.955,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,40,10,,1.301,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,40,20,,1.786,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,40,35,,2.317,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,50,5,,1.054,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,50,10,,1.440,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,50,20,,1.980,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,50,35,,2.573,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,60,5,,1.144,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,60,10,,1.565,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,60,20,,2.156,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,60,35,,2.804,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,10,5,4.8,0.476,60,
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,10,10,,0.643,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,10,20,,0.866,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,10,35,,1.109,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,20,5,,0.643,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,20,10,,0.866,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,20,20,,1.177,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,20,35,,1.516,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,30,5,,0.765,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,30,10,,1.035,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,30,20,,1.413,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,30,35,,1.826,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,40,5,,0.866,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,40,10,,1.177,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,40,20,,1.612,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,40,35,,2.087,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,50,5,,0.955,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,50,10,,1.301,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,50,20,,1.786,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,50,35,,2.317,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,60,5,,1.035,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,60,10,,1.413,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,60,20,,1.943,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,60,35,,2.524,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,10,5,3.4,0.341,117,
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,10,10,4.8,0.476,119,
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,10,20,,0.643,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,10,35,,0.817,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,20,5,9.5,0.476,60,
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,20,10,,0.643,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,20,20,,0.866,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,20,35,,1.109,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,30,5,,0.569,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,30,10,,0.765,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,30,20,,1.035,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,30,35,,1.330,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,40,5,,0.643,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,40,10,,0.866,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,40,20,,1.177,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,40,35,,1.516,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,50,5,,0.707,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,50,10,,0.955,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,50,20,,1.301,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,50,35,,1.679,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,60,5,,0.765,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,60,10,,1.035,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,60,20,,1.413,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,60,35,,1.826,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,10,5,4.0,0.396,86,
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,10,10,,0.549,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,10,20,,0.737,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,10,35,,0.939,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,20,5,,0.549,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,20,10,,0.737,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,20,20,,0.996,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,20,35,,1.279,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,30,5,,0.651,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,30,10,,0.878,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,30,20,,1.193,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,30,35,,1.538,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,40,5,,0.737,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,40,10,,0.996,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,40,20,,1.359,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,40,35,,1.755,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,50,5,,0.811,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,50,10,,1.100,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,50,20,,1.504,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,50,35,,1.945,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,60,5,,0.878,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,60,10,,1.193,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,60,20,,1.634,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,60,35,,2.117,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,10,5,3.1,0.313,137,
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,10,10,4.3,0.433,144,
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,10,20,,0.593,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,10,35,,0.752,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,20,5,8.7,0.433,72,
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,20,10,,0.593,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,20,20,,0.797,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,20,35,,1.018,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,30,5,,0.526,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,30,10,,0.704,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,30,20,,0.951,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,30,35,,1.220,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,40,5,,0.593,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,40,10,,0.797,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,40,20,,1.080,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,40,35,,1.389,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,50,5,,0.651,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,50,10,,0.878,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,50,20,,1.193,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,50,35,,1.538,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,60,5,,0.704,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,60,10,,0.951,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,60,20,,1.295,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,60,35,,1.671,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,10,5,2.8,0.284,166,
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,10,10,3.9,0.388,178,
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,10,20,,0.540,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,10,35,,0.684,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,20,5,7.8,0.388,89,
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,20,10,,0.540,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,20,20,,0.724,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,20,35,,0.923,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,30,5,14.2,0.474,60,
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,30,10,,0.640,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,30,20,,0.863,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,30,35,,1.104,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,40,5,,0.540,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,40,10,,0.724,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,40,20,,0.979,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,40,35,,1.256,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,50,5,,0.593,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,50,10,,0.797,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,50,20,,1.080,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,50,35,,1.389,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,60,5,,0.640,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,60,10,,0.863,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,60,20,,1.172,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,60,35,,1.509,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,10,5,2.1,0.213,295,
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,10,10,2.8,0.284,332,
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,10,20,3.9,0.388,356,
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,10,35,,0.511,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,20,5,5.7,0.284,166,
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,20,10,7.8,0.388,178,
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,20,20,,0.540,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,20,35,,0.684,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,30,5,10.2,0.340,116,
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,30,10,14.2,0.474,119,
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,30,20,,0.640,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,30,35,,0.814,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,40,5,15.5,0.388,89,
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,40,10,,0.540,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,40,20,,0.724,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,40,35,,0.923,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,50,5,21.6,0.433,72,
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,50,10,,0.593,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,50,20,,0.797,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,50,35,,1.018,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,60,5,28.4,0.474,60,
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,60,10,,0.640,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,60,20,,0.863,,out of range: steel, keyed wall or 3D check
+Wall-C,4,"cavity depth h (loaded height; wall L = 4 h); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,60,35,,1.104,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,10,5,,0.684,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,10,10,,0.924,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,10,20,,1.257,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,10,35,,1.621,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,20,5,,0.924,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,20,10,,1.257,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,20,20,,1.724,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,20,35,,2.235,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,30,5,,1.105,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,30,10,,1.511,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,30,20,,2.080,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,30,35,,2.705,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,40,5,,1.257,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,40,10,,1.724,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,40,20,,2.380,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,40,35,,3.100,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,50,5,,1.391,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,50,10,,1.911,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,50,20,,2.643,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,50,35,,3.447,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,60,5,,1.511,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,60,10,,2.080,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,60,20,,2.881,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.012,60,35,,3.762,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,10,5,,0.552,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,10,10,,0.740,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,10,20,,1.001,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,10,35,,1.285,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,20,5,,0.740,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,20,10,,1.001,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,20,20,,1.365,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,20,35,,1.763,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,30,5,,0.882,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,30,10,,1.199,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,30,20,,1.642,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,30,35,,2.128,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,40,5,,1.001,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,40,10,,1.365,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,40,20,,1.875,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,40,35,,2.435,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,50,5,,1.105,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,50,10,,1.511,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,50,20,,2.080,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,50,35,,2.705,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,60,5,,1.199,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,60,10,,1.642,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,60,20,,2.265,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.02,60,35,,2.948,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,10,5,,0.503,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,10,10,,0.673,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,10,20,,0.907,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,10,35,,1.163,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,20,5,,0.673,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,20,10,,0.907,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,20,20,,1.234,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,20,35,,1.591,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,30,5,,0.800,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,30,10,,1.085,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,30,20,,1.483,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,30,35,,1.918,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,40,5,,0.907,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,40,10,,1.234,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,40,20,,1.692,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,40,35,,2.193,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,50,5,,1.001,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,50,10,,1.365,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,50,20,,1.875,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,50,35,,2.435,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,60,5,,1.085,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,60,10,,1.483,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,60,20,,2.041,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.025,60,35,,2.653,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,10,5,3.6,0.361,115,
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,10,10,,0.503,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,10,20,,0.673,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,10,35,,0.856,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,20,5,,0.503,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,20,10,,0.673,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,20,20,,0.907,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,20,35,,1.163,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,30,5,,0.595,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,30,10,,0.800,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,30,20,,1.085,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,30,35,,1.396,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,40,5,,0.673,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,40,10,,0.907,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,40,20,,1.234,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,40,35,,1.591,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,50,5,,0.740,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,50,10,,1.001,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,50,20,,1.365,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,50,35,,1.763,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,60,5,,0.800,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,60,10,,1.085,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,60,20,,1.483,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","6061-T6 at 120 C",66000,0.33,0.05,60,35,,1.918,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,10,5,4.2,0.422,84,
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,10,10,,0.577,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,10,20,,0.775,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,10,35,,0.990,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,20,5,,0.577,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,20,10,,0.775,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,20,20,,1.050,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,20,35,,1.350,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,30,5,,0.685,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,30,10,,0.925,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,30,20,,1.259,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,30,35,,1.624,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,40,5,,0.775,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,40,10,,1.050,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,40,20,,1.434,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,40,35,,1.854,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,50,5,,0.854,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,50,10,,1.160,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,50,20,,1.588,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,50,35,,2.056,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,60,5,,0.925,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,60,10,,1.259,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,60,20,,1.726,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.012,60,35,,2.239,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,10,5,3.3,0.335,134,
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,10,10,4.6,0.460,142,
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,10,20,,0.623,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,10,35,,0.792,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,20,5,9.2,0.460,71,
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,20,10,,0.623,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,20,20,,0.839,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,20,35,,1.073,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,30,5,,0.552,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,30,10,,0.741,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,30,20,,1.002,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,30,35,,1.287,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,40,5,,0.623,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,40,10,,0.839,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,40,20,,1.139,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,40,35,,1.466,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,50,5,,0.685,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,50,10,,0.925,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,50,20,,1.259,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,50,35,,1.624,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,60,5,,0.741,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,60,10,,1.002,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,60,20,,1.367,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.02,60,35,,1.766,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,10,5,3.0,0.304,162,
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,10,10,4.1,0.414,175,
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,10,20,,0.567,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,10,35,,0.719,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,20,5,8.3,0.414,88,
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,20,10,,0.567,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,20,20,,0.762,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,20,35,,0.972,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,30,5,,0.503,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,30,10,,0.673,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,30,20,,0.909,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,30,35,,1.164,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,40,5,,0.567,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,40,10,,0.762,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,40,20,,1.031,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,40,35,,1.325,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,50,5,,0.623,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,50,10,,0.839,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,50,20,,1.139,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,50,35,,1.466,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,60,5,,0.673,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,60,10,,0.909,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,60,20,,1.236,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.025,60,35,,1.594,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,10,5,2.3,0.228,287,
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,10,10,3.0,0.304,325,
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,10,20,4.1,0.414,351,
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,10,35,,0.537,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,20,5,6.1,0.304,162,
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,20,10,8.3,0.414,175,
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,20,20,,0.567,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,20,35,,0.719,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,30,5,10.9,0.363,114,
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,30,10,,0.503,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,30,20,,0.673,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,30,35,,0.857,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,40,5,16.5,0.414,88,
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,40,10,,0.567,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,40,20,,0.762,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,40,35,,0.972,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,50,5,23.0,0.460,71,
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,50,10,,0.623,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,50,20,,0.839,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,50,35,,1.073,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,60,5,,0.503,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,60,10,,0.673,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,60,20,,0.909,,out of range: steel, keyed wall or 3D check
+Wall-C,100,"cavity depth h (loaded height; long wall: strip with shear); t is the wall thickness w","P20 at 120 C",200000,0.29,0.05,60,35,,1.164,,out of range: steel, keyed wall or 3D check

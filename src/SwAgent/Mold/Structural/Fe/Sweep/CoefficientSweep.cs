@@ -34,13 +34,18 @@ namespace SwAgent.Mold.Structural.Fe.Sweep
     ///   Wall-S    as Wall-C with the sides simply supported (bolted frame corners).
     ///   Overhang  cantilever plate: clamped on y = 0, free elsewhere; b = overhang length c, a = width along the support.
     ///   Pillar    interior panel of a pillar grid, the periodic cell a x b: every edge a symmetry line, a rigid square pillar
-    ///             head of side 0.2 b at each corner (a quarter per corner). beta is the mid-span moment (cell centre lines).
+    ///             head of side 0.2 b at each corner (a quarter per corner). alpha from heads that hold w only (the plate rests on
+    ///             them; 3D: 0.92-1.14 x this, so A1 multiplies Pillar alpha by the pillar head factor of solid3d-summary.json).
+    ///             beta = max(the mid-span moment on the cell centre lines, the hogging moment on the head faces): the faces'
+    ///             normal moment from the rotation reactions of a clamped head (the plate cannot rotate on a head it is pressed
+    ///             onto), read at least PillarCornerExclusion from the head's corner, where plate theory is singular. That value
+    ///             converges under refinement and covers the 3D top-surface peak for t/b >= 0.1 (solid3d-summary.json).
     /// alpha uses the largest |w| anywhere; beta the largest principal moment (clamped edges from reactions, free edges from the
     /// first Gauss row with the natural conditions).
     /// </summary>
     public static class CoefficientSweep
     {
-        public const string Version = "a2-1";
+        public const string Version = "a2-2";
         public static readonly string[] BcSets = { "SS4", "C4", "Rails", "C2S2", "Wall-C", "Wall-S", "Overhang", "Pillar" };
         /// <summary>The design's 12 aspects plus intermediate rows, so interpolation between rows stays within 1% of the FE.</summary>
         public static readonly double[] PlateAspects = { 0.5, 0.5625, 0.625, 0.6875, 0.75, 0.875, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.8, 2.0, 2.25, 2.5, 2.75, 3.0, 3.5, 4.0, 5.0, 6.0 };
@@ -70,6 +75,8 @@ namespace SwAgent.Mold.Structural.Fe.Sweep
         /// <summary>beta leaves out the plate within 0.1 b of a clamped-free corner (a Mindlin singularity: the value there grows
         /// without bound under refinement for t/b >= 0.1; real corners are radiused and carry K_f).</summary>
         public const double CornerExclusion = 0.1;
+        /// <summary>Hogging on a pillar head face is read at least this far (x b, = a quarter of the head side) from the head's corner.</summary>
+        public const double PillarCornerExclusion = 0.05;
 
         static bool SymX(string bc) => true;
         static bool SymY(string bc) => !IsWall(bc) && bc != "Overhang";
@@ -78,7 +85,7 @@ namespace SwAgent.Mold.Structural.Fe.Sweep
         /// The plate for one row. reduced: the quarter (or, for walls and overhangs, the half) cut on the symmetry lines, which
         /// carry EdgeBc.Symmetric; the element size stays that of the full plate, so the results equal the full model's.
         /// </summary>
-        public static PlateModel Model(string bc, double aspect, double tau, double nu, double loadFrac, int elementsOnShortSide = DefaultElements, bool reduced = true)
+        public static PlateModel Model(string bc, double aspect, double tau, double nu, double loadFrac, int elementsOnShortSide = DefaultElements, bool reduced = true, bool clampedHeads = false)
         {
             const EdgeBc S = EdgeBc.SimpleHard, C = EdgeBc.Clamped, F = EdgeBc.Free, Y = EdgeBc.Symmetric;
             double a = aspect, b = 1;
@@ -96,6 +103,7 @@ namespace SwAgent.Mold.Structural.Fe.Sweep
                 default: throw new ArgumentException("Unknown boundary set " + bc);
             }
             m.ElementSize = Math.Min(a, b) / elementsOnShortSide;
+            m.MaxMemoryMB = 4000; // the dev sweep runs outside SolidWorks; a refined L/h 12 wall takes about 400 MB
             bool sx = reduced && SymX(bc), sy = reduced && SymY(bc);
             double ra = sx ? a / 2 : a, rb = sy ? b / 2 : b;
             m.A = ra; m.B = rb;
@@ -104,10 +112,10 @@ namespace SwAgent.Mold.Structural.Fe.Sweep
             if (bc == "Pillar")
             {
                 double h = PillarHead * b / 2;
-                m.Fixed.Add(new FixedRegion(0, h, 0, h));
-                if (!sx) m.Fixed.Add(new FixedRegion(a - h, a, 0, h));
-                if (!sy) m.Fixed.Add(new FixedRegion(0, h, b - h, b));
-                if (!sx && !sy) m.Fixed.Add(new FixedRegion(a - h, a, b - h, b));
+                m.Fixed.Add(new FixedRegion(0, h, 0, h, clampedHeads));
+                if (!sx) m.Fixed.Add(new FixedRegion(a - h, a, 0, h, clampedHeads));
+                if (!sy) m.Fixed.Add(new FixedRegion(0, h, b - h, b, clampedHeads));
+                if (!sx && !sy) m.Fixed.Add(new FixedRegion(a - h, a, b - h, b, clampedHeads));
             }
             if (loadFrac >= 1 || !TakesPatches(bc)) m.Uniform(1);
             else
@@ -136,10 +144,14 @@ namespace SwAgent.Mold.Structural.Fe.Sweep
             const double eps = 1e-9;
             if (bc == "Pillar")
             {
-                // the mid-span moments: on the cell's centre lines x = a/2 and y = b/2 (the panel centre and the points midway
-                // between neighbouring pillars). The hogging next to a rigid head is singular in plate theory and keeps growing
-                // under refinement (5-6% from 48 to 96 elements even 0.1 b from the head), so it is not tabulated.
-                mMax = r.MaxMoment((x, y) => Math.Abs(x - aspect / 2) < eps || Math.Abs(y - 0.5) < eps, out _);
+                // sagging: the mid-span moments on the cell's centre lines x = a/2 and y = b/2 (the panel centre and the points
+                // midway between neighbouring pillars). Hogging: the head faces of the same cell with the head clamped, read at
+                // least PillarCornerExclusion from the head's corner (the w-only head's moments next to the face keep growing
+                // under refinement; the clamped face moment from the reactions converges to 0.1-0.3% from 48 to 96 elements).
+                double mid = r.MaxMoment((x, y) => Math.Abs(x - aspect / 2) < eps || Math.Abs(y - 0.5) < eps, out _);
+                var mc = Model(bc, aspect, tau, nu, loadFrac, elementsOnShortSide, reduced, clampedHeads: true);
+                var rc = MindlinPlateSolver.Solve(mc, ct);
+                mMax = Math.Max(mid, HeadFaceMoment(rc, mc, PillarCornerExclusion));
             }
             else
             {
@@ -154,6 +166,44 @@ namespace SwAgent.Mold.Structural.Fe.Sweep
                 Beta = 6 * mMax,
                 WMaxX = r.WMaxAt.X / aspect, WMaxY = r.WMaxAt.Y,
             };
+        }
+
+        /// <summary>
+        /// Largest |normal moment| on the faces of the model's clamped fixed regions (pillar heads), at least rc from every head
+        /// corner that lies inside the plate (corners on the plate's edges are symmetry points, not corners): the nodal values
+        /// there plus the value interpolated at exactly rc, so the result does not depend on where the grid lines fall.
+        /// </summary>
+        public static double HeadFaceMoment(PlateResult r, PlateModel m, double rc)
+        {
+            double tol = 1e-9 * Math.Max(m.A, m.B), best = 0;
+            bool Inside(double x, double y) => x > tol && x < m.A - tol && y > tol && y < m.B - tol;
+            int Find(double[] g, double v) { for (int k = 0; k < g.Length; k++) if (Math.Abs(g[k] - v) <= tol) return k; return -1; }
+            foreach (var h in m.Fixed.Where(f => f.Clamped))
+            {
+                var corners = new[] { (h.X1, h.Y1), (h.X1, h.Y2), (h.X2, h.Y1), (h.X2, h.Y2) }.Where(c => Inside(c.Item1, c.Item2)).ToList();
+                // faces x = const (moment Mx, running along y) and y = const (My, along x); only faces inside the plate
+                foreach (var (xFace, at, lo, hi) in new[] { (true, h.X1, h.Y1, h.Y2), (true, h.X2, h.Y1, h.Y2), (false, h.Y1, h.X1, h.X2), (false, h.Y2, h.X1, h.X2) })
+                {
+                    if (at <= tol || at >= (xFace ? m.A : m.B) - tol) continue;
+                    var along = xFace ? r.Ys : r.Xs;
+                    int fi = Find(xFace ? r.Xs : r.Ys, at);
+                    if (fi < 0) continue;
+                    double Mn(int k) => Math.Abs(xFace ? r.Mx[fi, k] : r.My[k, fi]);
+                    var ends = corners.Where(c => Math.Abs((xFace ? c.Item1 : c.Item2) - at) <= tol).Select(c => xFace ? c.Item2 : c.Item1).ToList();
+                    double Dist(double s) => ends.Count == 0 ? double.PositiveInfinity : ends.Min(e => Math.Abs(s - e));
+                    for (int k = 0; k < along.Length; k++)
+                        if (along[k] >= lo - tol && along[k] <= hi + tol && Dist(along[k]) >= rc - tol) best = Math.Max(best, Mn(k));
+                    foreach (var e in ends)
+                        foreach (var s in new[] { e - rc, e + rc })
+                        {
+                            if (s < lo - tol || s > hi + tol) continue;
+                            int k = PlateResult.Locate(along, s);
+                            double u = (s - along[k]) / (along[k + 1] - along[k]);
+                            best = Math.Max(best, (1 - u) * Mn(k) + u * Mn(k + 1));
+                        }
+                }
+            }
+            return best;
         }
 
         public sealed class Report
@@ -172,9 +222,10 @@ namespace SwAgent.Mold.Structural.Fe.Sweep
 
         /// <summary>
         /// Refinement limit for a row: 0.5%; 1% for the thin-limit rows (tau 0.01, which exist for the Roark gate: a thin plate's
-        /// edge layers are narrower than the elements); 2% for thin pillar panels (tau below 0.05 converge slowly next to the heads).
+        /// edge layers are narrower than the elements); 3% for thin pillar panels (below tau 0.05 the head-face moment converges
+        /// slowly toward the head corner: 2.4% from 48 to 96 elements at tau 0.01).
         /// </summary>
-        public static double RefinementLimit(CoefficientRow r) => r.Tau >= 0.05 ? 0.005 : r.Bc == "Pillar" ? 0.02 : 0.01;
+        public static double RefinementLimit(CoefficientRow r) => r.Tau >= 0.05 ? 0.005 : r.Bc == "Pillar" ? 0.03 : 0.01;
 
         /// <summary>
         /// Runs the whole sweep (parallel), the h-refinement check on a random 5% of the rows (twice the elements; a coefficient
@@ -218,7 +269,7 @@ namespace SwAgent.Mold.Structural.Fe.Sweep
                 }
             if (log != null) log($"  refinement check done, {sw.Elapsed.TotalSeconds:F0} s");
             var badRefine = pick.Select((p, k) => (p, k)).Where(x => changes[x.k] > RefinementLimit(rows[x.p])).ToList();
-            rep.Gates.Add($"h-refinement {elementsOnShortSide} -> {2 * elementsOnShortSide} elements on {pick.Count} random rows: max change {rep.MaxRefinementChange * 100:F2}% ({rep.WorstRefinement}); limit 0.5% (1% for the tau 0.01 rows, 2% for pillar panels below tau 0.05)");
+            rep.Gates.Add($"h-refinement {elementsOnShortSide} -> {2 * elementsOnShortSide} elements on {pick.Count} random rows: max change {rep.MaxRefinementChange * 100:F2}% ({rep.WorstRefinement}); limit 0.5% (1% for the tau 0.01 rows, 3% for pillar panels below tau 0.05)");
             foreach (var x in badRefine)
             {
                 var c = rows[x.p];
@@ -379,22 +430,37 @@ namespace SwAgent.Mold.Structural.Fe.Sweep
 
         public const string Header = "bc,aspect,tau,nu,loadFrac,alpha,beta,wMaxX,wMaxY";
 
-        /// <summary>The CSV text: comment lines (#), then the header and rows. The sha256 covers the header and rows.</summary>
-        public static string ToCsv(Report rep, int elementsOnShortSide, string wallRootNote, DateTime date)
+        /// <summary>
+        /// The interpolation allowance A1 multiplies interpolated alpha and beta by: the worst under-read of the interpolation check,
+        /// rounded up to the next 1% (never below 1.01; the gate fails above 1%).
+        /// </summary>
+        public static double Allowance(Report rep) => Math.Max(1.01, Math.Ceiling((1 + rep.MaxInterpolationUnderRead) * 100 - 1e-9) / 100);
+
+        /// <summary>
+        /// The CSV text: comment lines (#), then the header and rows. The sha256 covers the header and rows. Line 3 is always
+        /// "# version: ..." (A1's reader and tools/dev/mold-data/examples_check.py take the table version from it); the lines
+        /// "# allowance:", "# wall root:" and "# pillar head:" carry the factors the reader must apply.
+        /// </summary>
+        public static string ToCsv(Report rep, int elementsOnShortSide, string wallRootNote, DateTime date, string pillarHeadNote = null)
         {
             var data = new List<string> { Header };
             data.AddRange(rep.Rows.Select(r => r.ToCsv()));
             var sb = new StringBuilder();
             sb.Append("# Mindlin plate coefficients for design-compression-mold: w = alpha p b^4 / (E t^3), sigma = beta p b^2 / t^2, tau = t / b.\n");
+            sb.Append($"# generator: MoldSweep coefficients, SwAgent.Mold.Structural.Fe.Sweep.CoefficientSweep {Version}; MITC4, {elementsOnShortSide} elements on the short side; {date:yyyy-MM-dd}; {rep.Rows.Count} rows.\n");
+            sb.Append($"# version: {Version}\n");
+            sb.Append("# allowance: ").Append(Allowance(rep).ToString("0.00", CultureInfo.InvariantCulture)).Append('\n');
+            sb.Append("# (allowance: multiply interpolated alpha and beta by it; the worst under-read of bilinear interpolation between rows, rounded up. The line above holds the number alone so readers can parse it.)\n");
             sb.Append("# b: plates the y side (the short side when aspect >= 1; rails span; overhang length); walls the loaded height h (aspect = L/h, tau = w/h).\n");
             sb.Append("# bc: SS4 | C4 | Rails (SS y edges, free x edges) | C2S2 (y edges clamped, x edges SS) | Wall-C (bottom C, top free, sides C) | Wall-S (sides SS) | Overhang (C on y = 0, rest free) | Pillar (periodic cell, rigid heads 0.2 b square at the corners).\n");
+            sb.Append("# aspect < 1: only SS4 and C4 may be folded (a/b and b/a are the same plate). For Rails, C2S2, Overhang and Pillar an aspect below 1 is a different plate: b stays the y side as defined above.\n");
             sb.Append("# loadFrac: area fraction of a centred patch with the plate's proportions (plates SS4, C4, Rails, C2S2 only). wMaxX, wMaxY: where |w| peaks, as x/a and y/b.\n");
-            sb.Append("# Interpolate bilinearly in (aspect, tau^2). Walls above L/h 12: alpha = max(alpha at 12, 1.5 (1 - nu^2) + 1.2 (1 + nu) tau^2) (cantilever strip with shear), beta = max(beta at 12, 3).\n");
-            sb.Append("# beta leaves out 0.1 b around clamped-free corners (Wall-C, Overhang: a Mindlin singularity). Pillar beta is the mid-span moment (cell centre lines); the hogging over the heads is singular in plate theory and NOT included: check the plate over a pillar by bearing/punching.\n");
-            sb.Append($"# generator: MoldSweep coefficients, SwAgent.Mold.Structural.Fe.Sweep.CoefficientSweep {Version}; MITC4, {elementsOnShortSide} elements on the short side; {date:yyyy-MM-dd}; {rep.Rows.Count} rows.\n");
+            sb.Append("# nu: 0.29 and 0.33; interpolate linearly (0.03% error at 0.30) and clamp outside. Interpolate bilinearly in (aspect, tau^2). Walls above L/h 12: alpha = max(alpha at 12, 1.5 (1 - nu^2) + 1.2 (1 + nu) tau^2) (cantilever strip with shear), beta = max(beta at 12, 3). Rows are not clamped to the strip: thick walls overshoot it by up to 1% near L/h 6 (a Mindlin effect, real).\n");
+            sb.Append("# beta leaves out 0.1 b around clamped-free corners (Wall-C, Overhang: a Mindlin singularity). Pillar beta = max(mid-span moment on the cell centre lines, hogging on the head faces of a clamped rigid head read 0.05 b or more from the head corner); Pillar alpha has heads that hold w only.\n");
             foreach (var g in rep.Gates) sb.Append("# gate: ").Append(g).Append('\n');
             sb.Append("# gates passed: ").Append(rep.Passed ? "yes" : "NO - " + rep.Failures.Count + " failures").Append('\n');
             if (!string.IsNullOrEmpty(wallRootNote)) sb.Append("# wall root: ").Append(wallRootNote).Append('\n');
+            if (!string.IsNullOrEmpty(pillarHeadNote)) sb.Append("# pillar head: ").Append(pillarHeadNote).Append('\n');
             sb.Append("# sha256: ").Append(Sha256(data)).Append('\n');
             foreach (var l in data) sb.Append(l).Append('\n');
             return sb.ToString();

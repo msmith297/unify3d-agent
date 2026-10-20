@@ -52,19 +52,29 @@ namespace SwAgent.Mold.Structural.Fe
             return y;
         }
 
-        /// <summary>Crout LDL^T. Throws when a pivot vanishes (a mechanism: missing supports).</summary>
+        /// <summary>
+        /// A pivot below this fraction of its own original diagonal means the equation is (numerically) a combination of the
+        /// earlier ones: a mechanism. Round-off pivots of real mechanisms land at 1e-12 to 1e-16; the stiffest legitimate models
+        /// here (thin plates on coarse meshes, penalty punches) stay above 1e-5.
+        /// </summary>
+        public const double MechanismRatio = 1e-10;
+
+        /// <summary>
+        /// Crout LDL^T. Throws when a pivot is not positive or falls below MechanismRatio x its own diagonal (a mechanism: missing
+        /// supports, a hinge line, a plate held on one edge only). Each pivot is judged against its own diagonal, not the largest
+        /// one: a round-off pivot of a rotation DOF is tiny next to its own diagonal but can still exceed 1e-14 x the stiffest
+        /// translation's, which is how a hinged plate used to come back with deflections of 1e14.
+        /// </summary>
         public void Factor(CancellationToken ct = default)
         {
             if (_factored) return;
             int bw = Band;
             var w = new double[N];
-            double maxDiag = 0;
-            for (int j = 0; j < N; j++) maxDiag = Math.Max(maxDiag, Math.Abs(_a[Idx(j, j)]));
             for (int j = 0; j < N; j++)
             {
                 if ((j & 1023) == 0) ct.ThrowIfCancellationRequested();
                 int k0 = Math.Max(0, j - bw), cj = j * (bw + 1) + bw - j; // _a[cj + i] = A(i, j)
-                double dj = _a[cj + j];
+                double dj = _a[cj + j], ajj = dj;
                 for (int k = k0; k < j; k++)
                 {
                     int ck = k * (bw + 1) + bw - k; // U(m, k) = _a[ck + m]
@@ -79,8 +89,8 @@ namespace SwAgent.Mold.Structural.Fe
                     dj -= u * w[k];
                     _a[cj + k] = u;
                 }
-                if (!(Math.Abs(dj) > 1e-14 * maxDiag))
-                    throw new InvalidOperationException($"Singular stiffness at equation {j}: the model is a mechanism (check the supports).");
+                if (!(ajj > 0) || !(dj > MechanismRatio * ajj))
+                    throw new InvalidOperationException($"Singular stiffness at equation {j} (pivot {dj:G3} against its diagonal {ajj:G3}): the model is a mechanism (check the supports).");
                 _a[cj + j] = dj;
             }
             _factored = true;

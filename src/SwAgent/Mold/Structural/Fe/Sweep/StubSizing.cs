@@ -5,11 +5,14 @@ using Newtonsoft.Json.Linq;
 namespace SwAgent.Mold.Structural.Fe.Sweep
 {
     /// <summary>
-    /// Stand-in for A1's Sizing until integration: the fast path of design 3.7-3.8 (S20-S31) on the coefficient table. Two
-    /// presets: Recommended (the corrections this track's sweeps found) and DesignAsWritten (design.md 3.7-3.8 literally), so
-    /// the Monte Carlo can show what each costs or risks. Materials are a small built-in set (E and allowables at temperature
-    /// per N/check/method_check.py and mold-materials.json), not MoldData.
-    /// DELETE OR REPLACE AT INTEGRATION with an adapter to SwAgent.Mold sizing (MonteCarloHarness documents the JSON).
+    /// Stand-in for A1's Sizing until integration: S20-S31 on the coefficient table, optionally finished by the plate FE of the
+    /// actual layout. Three presets, so the Monte Carlo can show what each costs or risks:
+    ///   Recommended     walls by the table; plates on rails (B), over an opening (C) and on pillars (E) by the table as a
+    ///                   first guess, then the layout FE (two meshes, 24 and 48 elements on the short side, extrapolated);
+    ///   TableOnly       the table alone for every case (Pillar rows times the 3D pillar-head factor for E);
+    ///   DesignAsWritten design.md 3.7-3.8 literally (root factor 1.2, no interpolation allowance, pillar panels as C4).
+    /// Materials are a small built-in set (E and allowables at temperature per N/check/method_check.py and mold-materials.json),
+    /// not MoldData. DELETE OR REPLACE AT INTEGRATION with an adapter to SwAgent.Mold sizing (MonteCarloHarness documents the JSON).
     /// </summary>
     public static class StubSizing
     {
@@ -17,28 +20,50 @@ namespace SwAgent.Mold.Structural.Fe.Sweep
         {
             public string Name;
             /// <summary>Wall-root factor as a function of w/h.</summary>
-            public Func<double, double> RootFactor = wh => 1 + 2.6 * wh;
-            /// <summary>Multiplier on alpha and beta from the table, covering interpolation between rows (the sweep's check: under 1%).</summary>
+            public Func<double, double> RootFactor = wh => 1 + Solid3dValidation.DefaultWallRootSlope * wh;
+            /// <summary>Multiplier on alpha and beta from the table, covering interpolation between rows (the CSV's "# allowance:").</summary>
             public double InterpolationAllowance = 1.01;
-            /// <summary>Case E (pillars): "layout" sizes by the plate FE of the actual layout; "pillar" uses the Pillar rows; "c4" the C4 rows (design.md).</summary>
-            public string PillarMethod = "layout";
+            /// <summary>3D pillar-head factor on Pillar alpha (solid3d-summary.json pillarCell).</summary>
+            public double PillarFactor = Solid3dValidation.DefaultPillarHeadFactor;
+            /// <summary>Case E from the table: "pillar" uses the Pillar rows, "c4" the C4 rows (design.md as written).</summary>
+            public string PillarRows = "pillar";
+            /// <summary>Supports whose plate the layout FE finishes after the table's first guess (e.g. "BCE"); empty = table only.</summary>
+            public string LayoutFe = "";
             /// <summary>Round the loaded fraction up to the next table value instead of interpolating.</summary>
             public bool RoundUpLoadFraction;
         }
 
         public static readonly Options Recommended = new Options
         {
-            Name = "StubSizing, recommended (table + fixed point; root factor 1 + 2.6 w/h; +1% interpolation allowance; case E by the layout FE)",
+            Name = "StubSizing, recommended (walls: table + fixed point, root factor 1 + c w/h, +1% interpolation allowance; plates B, C, E: table first guess, finished by the layout plate FE at 24 and 48 elements, extrapolated)",
+            LayoutFe = "BCE",
+        };
+
+        public static readonly Options TableOnly = new Options
+        {
+            Name = "StubSizing, table only (root factor 1 + c w/h; +1% interpolation allowance; centred-patch loaded fraction; case E by the Pillar rows x the 3D pillar-head factor)",
         };
 
         public static readonly Options DesignAsWritten = new Options
         {
             Name = "StubSizing, design.md as written (root factor 1.2; no interpolation allowance; case E as C4 panels between pillars)",
-            RootFactor = _ => 1.2, InterpolationAllowance = 1.0, PillarMethod = "c4",
+            RootFactor = _ => 1.2, InterpolationAllowance = 1.0, PillarRows = "c4", PillarFactor = 1.0,
         };
 
         public static string Name => Recommended.Name;
-        public static Func<double, double> RootFactor { get => Recommended.RootFactor; set => Recommended.RootFactor = value; }
+
+        /// <summary>Sets the 3D calibrations (wall-root slope c and pillar-head factor) on the presets that use them.</summary>
+        public static void Calibrate(double wallRootSlope, double pillarHeadFactor)
+        {
+            foreach (var o in new[] { Recommended, TableOnly })
+            {
+                o.RootFactor = wh => 1 + wallRootSlope * wh;
+                o.PillarFactor = pillarHeadFactor;
+            }
+        }
+
+        /// <summary>The two meshes the layout FE extrapolates from (never the truth's).</summary>
+        public static readonly MonteCarloHarness.MeshSpec CoarseMesh = new MonteCarloHarness.MeshSpec(24, 3), FineMesh = new MonteCarloHarness.MeshSpec(48, 6);
 
         sealed class Grade { public double E, Nu, Sy, Su; public double[] RE, RY, RU; public bool Aluminium; }
 
@@ -110,7 +135,7 @@ namespace SwAgent.Mold.Structural.Fe.Sweep
             // ---- plate (S26-S31) ----
             double tMin = Math.Max(al ? 12 : 10, 0.05 * Math.Max(pl, pw));
             var plate = new JObject();
-            string bc = null; double a = pl, b = pw, frac = 1;
+            string bc = null; double a = pl, b = pw, frac = 1, alphaFactor = 1;
             switch (support)
             {
                 case "B":
@@ -128,29 +153,33 @@ namespace SwAgent.Mold.Structural.Fe.Sweep
                     var xs = new[] { 0.0 }.Concat(d["pillars"]["xs_mm"].Select(v => (double)v)).Concat(new[] { pl }).ToList();
                     var ys = new[] { 0.0 }.Concat(d["pillars"]["ys_mm"].Select(v => (double)v)).Concat(new[] { pw }).ToList();
                     double sx = Enumerable.Range(0, xs.Count - 1).Max(q => xs[q + 1] - xs[q]), sy = Enumerable.Range(0, ys.Count - 1).Max(q => ys[q + 1] - ys[q]);
-                    a = Math.Max(sx, sy); b = Math.Min(sx, sy);
-                    bc = o.PillarMethod == "c4" ? "C4" : "Pillar";
+                    // the Pillar cell: b the short spacing along y as the rows define it (heads 0.2 x the short spacing)
+                    b = Math.Min(sx, sy); a = Math.Max(sx, sy);
+                    bc = o.PillarRows == "c4" ? "C4" : "Pillar";
+                    if (bc == "Pillar") alphaFactor = o.PillarFactor;
                     break;
             }
             if (bc == null)
             {
                 plate["t_mm"] = Up(tMin); plate["governs"] = "minimum"; plate["note"] = "case A: platen-backed, minimum rules";
             }
-            else if (support == "E" && o.PillarMethod == "layout")
-            {
-                var (t, g) = LayoutFe(d, e, nu, allow, kf, delta, b);
-                if (t / b > 0.5) g = "add support"; else if (tMin > t) g = "minimum";
-                plate["t_mm"] = Up(Math.Max(t, tMin)); plate["governs"] = g; plate["bc"] = "layout FE"; plate["span_mm"] = Math.Round(b, 3);
-            }
             else
             {
-                Func<double, (double, double)> coef = tau => Tab(bc, a / b, tau, frac);
+                Func<double, (double, double)> coef = tau => { var c = Tab(bc, a / b, tau, frac); return (c.Item1 * alphaFactor, c.Item2); };
                 double tD = FixedPoint(coef, p, b, e, delta, 1);
                 double tS = Math.Sqrt(coef(tD / b).Item2 * p * b * b * kf / allow);
                 double t = Math.Max(tD, tS);
                 if (tS > tD) t = Math.Sqrt(coef(t / b).Item2 * p * b * b * kf / allow); // beta changes slowly with tau: one more pass
-                string g = t / b > 0.5 ? "add support" : tMin > t ? "minimum" : tS > tD ? "stress" : "deflection";
-                plate["t_mm"] = Up(Math.Max(t, tMin)); plate["governs"] = g; plate["bc"] = bc; plate["span_mm"] = Math.Round(b, 3); plate["loadFrac"] = frac;
+                string g = tS > tD ? "stress" : "deflection";
+                string method = bc;
+                if (o.LayoutFe.Contains(support) && t / b <= 0.5)
+                {
+                    // finish with the layout FE from the table's answer (it brackets the FE thickness within a few tens of percent)
+                    (t, g) = LayoutFe(d, e, nu, allow, t);
+                    method = "layout FE (from the " + bc + " rows' " + Math.Round(Math.Max(tD, tS), 2) + " mm)";
+                }
+                if (t / b > 0.5) g = "add support"; else if (tMin > t) g = "minimum";
+                plate["t_mm"] = Up(Math.Max(t, tMin)); plate["governs"] = g; plate["bc"] = method; plate["span_mm"] = Math.Round(b, 3); plate["loadFrac"] = frac;
             }
 
             // ---- walls (S20-S25): long and short side of each cavity ----
@@ -191,38 +220,51 @@ namespace SwAgent.Mold.Structural.Fe.Sweep
         }
 
         /// <summary>
-        /// Case E by the plate FE of the actual layout: SS edges, rigid pillar heads 0.2 x the short spacing, cavities plus land as
-        /// patches; t by fixed point on the largest land deflection, then stress outside the heads.
+        /// The layout FE's r_w and r_s at thickness t: the plate solved on CoarseMesh and FineMesh and extrapolated to the converged
+        /// value (Richardson, second order: x_inf = x_fine + (x_fine - x_coarse) / 3), never below the fine mesh's.
         /// </summary>
-        static (double t, string governs) LayoutFe(JObject d, double e, double nu, double allow, double kf, double delta, double span)
+        public static (double Rw, double Rs) LayoutRatios(JObject d, double t, double e, double nu, double allow)
         {
-            var check = new JObject { ["E_MPa"] = e, ["nu"] = nu, ["sigma_allow_MPa"] = allow, ["walls"] = new JArray() };
-            MonteCarloHarness.Check Eval(double tt)
+            var c = MonteCarloHarness.PlateRatios(d, t, e, nu, allow, CoarseMesh);
+            var f = MonteCarloHarness.PlateRatios(d, t, e, nu, allow, FineMesh);
+            double X(double coarse, double fine) => Math.Max(fine, fine + (fine - coarse) / 3);
+            return (X(c.Rw, f.Rw), X(c.Rs, f.Rs));
+        }
+
+        /// <summary>The layout FE sizes to this fraction of the limits: the extrapolation's own error (about 0.1%) stays inside.</summary>
+        public const double LayoutTarget = 0.995;
+
+        /// <summary>
+        /// Plates B, C, E by the layout FE: the thinnest t whose extrapolated land deflection is within LayoutTarget x delta, then
+        /// thickened until the extrapolated stress fits as well. Deflection goes as t^-3 and stress as t^-2 (both drift slowly with
+        /// t/b), so a power-law step from the table's answer t0 lands within 0.2% in three or four solves; a bracket and bisection
+        /// take over if it does not.
+        /// </summary>
+        static (double t, string governs) LayoutFe(JObject d, double e, double nu, double allow, double t0)
+        {
+            double t = t0;
+            var c = LayoutRatios(d, t, e, nu, allow);
+            double tOk = double.NaN, tBad = double.NaN;
+            (double Rw, double Rs) atOk = default;
+            for (int it = 0; it < 12; it++)
             {
-                check["plate"] = new JObject { ["t_mm"] = tt, ["governs"] = "deflection" };
-                return MonteCarloHarness.CheckDesign(0, d, check, 24).First(x => x.Element == "plate");
+                if (c.Rw <= LayoutTarget) { if (double.IsNaN(tOk) || t < tOk) { tOk = t; atOk = c; } }
+                else if (double.IsNaN(tBad) || t > tBad) tBad = t;
+                if (!double.IsNaN(tOk) && c.Rw <= LayoutTarget && c.Rw > LayoutTarget - 0.002) break;
+                double next = t * Math.Pow(c.Rw / LayoutTarget, 1.0 / 3) * (c.Rw > LayoutTarget ? 1.001 : 1.0);
+                if (!double.IsNaN(tOk) && !double.IsNaN(tBad) && (next >= tOk || next <= tBad)) next = Math.Sqrt(tOk * tBad); // keep inside the bracket
+                if (Math.Abs(next / t - 1) < 2e-4) { if (c.Rw > LayoutTarget) next = t * 1.002; else break; }
+                t = next;
+                c = LayoutRatios(d, t, e, nu, allow);
             }
-            // bracket the thickness where the largest land deflection meets delta, then bisect (geometric) and keep the safe end
-            double lo = 0.2 * span, hi = lo;
-            var c = Eval(lo);
-            if (c.Rw > 1) { do { lo = hi; hi *= 1.3; c = Eval(hi); } while (c.Rw > 1 && hi < 5 * span); }
-            else { var keep = c; do { hi = lo; keep = c; lo /= 1.3; c = Eval(lo); } while (c.Rw <= 1 && lo > 1e-3 * span); c = keep; }
-            var atHi = c;
-            for (int it = 0; it < 30 && atHi.Rw <= 0.99 && hi / lo > 1.0005; it++)
+            if (double.IsNaN(tOk)) { t *= 1.01; c = LayoutRatios(d, t, e, nu, allow); while (c.Rw > LayoutTarget) { t *= 1.02; c = LayoutRatios(d, t, e, nu, allow); } tOk = t; atOk = c; }
+            t = tOk; c = atOk;
+            if (c.Rs <= LayoutTarget) return (t, "deflection");
+            // stress governs: thicken until the extrapolated stress fits (moments shift a little with t/b, so re-check)
+            for (int it = 0; it < 20 && c.Rs > LayoutTarget; it++)
             {
-                double mid = Math.Sqrt(lo * hi);
-                var cm = Eval(mid);
-                if (cm.Rw > 1) lo = mid; else { hi = mid; atHi = cm; }
-            }
-            double t = hi;
-            c = atHi;
-            if (c.Rs <= 1) return (t, "deflection");
-            // stress governs: thicken until the FE stress fits (moments shift a little with t/b, so re-check)
-            for (int it = 0; it < 10 && c.Rs > 1; it++)
-            {
-                t *= Math.Sqrt(c.Rs) * 1.002;
-                check["plate"] = new JObject { ["t_mm"] = t, ["governs"] = "stress" };
-                c = MonteCarloHarness.CheckDesign(0, d, check, 24).First(x => x.Element == "plate");
+                t *= Math.Sqrt(c.Rs / LayoutTarget) * 1.001;
+                c = LayoutRatios(d, t, e, nu, allow);
             }
             return (t, "stress");
         }

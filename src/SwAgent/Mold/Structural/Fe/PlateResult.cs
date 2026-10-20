@@ -30,7 +30,11 @@ namespace SwAgent.Mold.Structural.Fe
 
         /// <summary>Total applied load (sum of consistent nodal loads, N), the rigid supports' force, the foundations' and the springs' (all along +w on the plate).</summary>
         public double AppliedLoad, SupportForce, FoundationForce, SpringForce;
-        /// <summary>Moments of the support forces about the origin: sum R x, sum R y (equilibrium checks).</summary>
+        /// <summary>
+        /// Moments about the origin for the equilibrium check: SupportMomentX = sum (R_w x + R_bx) over the supported nodes (the
+        /// rotation reactions of clamped and hard SS edges count), SupportMomentY = sum (R_w y + R_by); AppliedMomentX/Y = sum f_w x / y;
+        /// OtherMomentX/Y the foundations' and springs'. Each set of three sums to zero.
+        /// </summary>
         public double SupportMomentX, SupportMomentY, AppliedMomentX, AppliedMomentY, OtherMomentX, OtherMomentY;
 
         public int Dofs, Band, Passes;

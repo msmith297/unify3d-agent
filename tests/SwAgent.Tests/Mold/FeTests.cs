@@ -6,6 +6,11 @@ using Xunit.Abstractions;
 
 namespace SwAgent.Tests.Mold
 {
+    internal static class PlateModelTestExtensions
+    {
+        public static PlateModel Also(this PlateModel m, Action<PlateModel> a) { a(m); return m; }
+    }
+
     /// <summary>
     /// T1-T18 of N/structural.md 9.5 for the MITC4 plate solver. E = 1, q = 1, nu = 0.3 unless stated; results are reported as
     /// w D / (q a^4) and M / (q a^2) so the targets read like Timoshenko's tables.
@@ -197,6 +202,10 @@ namespace SwAgent.Tests.Mold
             var r = MindlinPlateSolver.Solve(m);
             double sum = r.AppliedLoad + r.SupportForce + r.FoundationForce + r.SpringForce;
             Assert.True(Math.Abs(sum) < 1e-9 * Math.Abs(r.AppliedLoad), $"force balance {sum}");
+            // moment balance about both axes: the clamped and hard SS edges' rotation reactions count
+            double mx = r.AppliedMomentX + r.SupportMomentX + r.OtherMomentX, my = r.AppliedMomentY + r.SupportMomentY + r.OtherMomentY;
+            Assert.True(Math.Abs(mx) < 1e-9 * Math.Abs(r.AppliedMomentX), $"moment balance about y: {mx}");
+            Assert.True(Math.Abs(my) < 1e-9 * Math.Abs(r.AppliedMomentY), $"moment balance about x: {my}");
             Assert.True(Math.Abs(r.AppliedLoad - (2 * 0.6 * 0.5 + 0.3)) < 1e-12, "consistent loads integrate to the total");
 
             // (b) free plate held at three points (statically determinate) under self-equilibrated loads: no reactions
@@ -231,12 +240,16 @@ namespace SwAgent.Tests.Mold
             Near(35.4, t, 0.005, "T16 thickness");
         }
 
+        // T17 and T18 pin the hand arithmetic of N/structural.md 6.3 and the press example (the member stiffness and the bolt
+        // stiffness come from production code here; the load factor, separation factor and press force are A1's formulas).
+        // AT INTEGRATION: point them at A1's bolt and press functions (SwAgent.Mold) or retire them for A1's E1/E4 example tests.
         [Fact]
         public void T17_bolted_corner_example()
         {
             // N/structural.md 6.3: 4 x 1/2-13, grade-8 proof (120 ksi), grip 2 in, aluminium joint, dT = 100 K, 0.6 F_p
             double at = 0.1419, fp = 120e3 * at, l = 2.0, d = 0.5;
-            double kb = at * 29e6 / l;
+            double kb = JointStiffness.Bolt(29e6, at, at, 0, l); // all thread in the grip (structural.md: k_b = A_t E / l)
+            Assert.Equal(at * 29e6 / l, kb, 6);
             double km = JointStiffness.Wileman(10e6, d, l, JointStiffness.WilemanAluminium);
             double c = kb / (kb + km);
             double dF = (23.6 - 11.7) * 1e-6 * 100 * l * kb * km / (kb + km);
@@ -317,6 +330,73 @@ namespace SwAgent.Tests.Mold
         {
             var m = PlateModel.Rect(1, 1, 0.1, 1, Nu, F, F, F, F).Uniform(1);
             Assert.Throws<InvalidOperationException>(() => MindlinPlateSolver.Solve(m));
+        }
+
+        [Fact]
+        public void Every_mechanism_is_reported_not_just_the_free_plate()
+        {
+            // each of these used to return |w| around 1e14, or a plausible-looking number, without a word
+            var cases = new (string Name, Func<PlateModel> Make)[]
+            {
+                ("one soft SS edge", () => PlateModel.Rect(1, 1, 0.05, 1, Nu, EdgeBc.SimpleSoft, F, F, F).Uniform(1)),
+                ("one hard SS edge", () => PlateModel.Rect(1, 1, 0.05, 1, Nu, S, F, F, F).Uniform(1)),
+                ("symmetry edges only", () => PlateModel.Rect(1, 1, 0.05, 1, Nu, EdgeBc.Symmetric, EdgeBc.Symmetric, EdgeBc.Symmetric, EdgeBc.Symmetric).Uniform(1)),
+                ("a hinge line", () => { var m = PlateModel.Rect(1, 1, 0.05, 1, Nu, F, F, F, F).Uniform(1).Mesh(48, 48); m.Lines.Add(new LineSupport('x', 0.3)); return m; }),
+                ("a free plate on one rail", () => { var m = PlateModel.Rect(100, 100, 5, 69000, 0.33, F, F, F, F).Uniform(1); m.Lines.Add(new LineSupport('y', 50)); return m; }),
+            };
+            foreach (var (name, make) in cases)
+            {
+                var ex = Record.Exception(() => MindlinPlateSolver.Solve(make()));
+                Assert.True(ex is InvalidOperationException && ex.Message.Contains("mechanism"), name + ": " + (ex?.Message ?? "no exception"));
+            }
+            // and the legitimate extremes still solve: a very thin plate on a coarse mesh, two rails, a pillar cell
+            Assert.True(Math.Abs(MindlinPlateSolver.Solve(PlateModel.Rect(1, 1, 0.001, 1, Nu, S, S, S, S).Uniform(1).Mesh(8, 8)).WMax) > 0);
+            var rails = PlateModel.Rect(100, 100, 5, 69000, 0.33, F, F, F, F).Uniform(1);
+            rails.Lines.Add(new LineSupport('y', 20)); rails.Lines.Add(new LineSupport('y', 80));
+            Assert.InRange(MindlinPlateSolver.Solve(rails).WMax, 0.01, 1);
+        }
+
+        [Fact]
+        public void Bad_geometry_and_oversized_models_throw_before_solving()
+        {
+            Assert.Throws<ArgumentException>(() => MindlinPlateSolver.Solve(PlateModel.Rect(1, 1, 0.1, 1, Nu, S, S, S, S).Also(m => m.Pressures.Add(new PressurePatch(0.6, 0.2, 0, 1, 1)))));
+            Assert.Throws<ArgumentException>(() => MindlinPlateSolver.Solve(PlateModel.Rect(1, 1, 0.1, 1, Nu, S, S, S, S).Uniform(1).Also(m => m.Springs.Add(new PointSpring(1.5, 0.5, 10)))));
+            Assert.Throws<ArgumentException>(() => MindlinPlateSolver.Solve(PlateModel.Rect(1, 1, 0.1, 1, Nu, F, F, F, F).Uniform(1).Also(m => m.Fixed.Add(new FixedRegion(0.2, 1.2, 0.2, 0.4)))));
+            Assert.Throws<ArgumentException>(() => MindlinPlateSolver.Solve(PlateModel.Rect(1, 1, 0.1, 1, Nu, F, F, F, F).Uniform(1).Also(m => m.Lines.Add(new LineSupport('y', -0.1)))));
+            // 1000 x 1 mm at 24 elements on the short side: about 1.2 GB of band; refused before allocating
+            var big = PlateModel.Rect(1000, 1, 0.1, 1, Nu, S, S, S, S).Uniform(1);
+            var ex = Assert.Throws<InvalidOperationException>(() => MindlinPlateSolver.Solve(big));
+            Assert.Contains("too large", ex.Message);
+        }
+
+        [Fact]
+        public void Pressure_field_follows_an_outline_off_the_grid_lines()
+        {
+            // a disc of radius 0.3 at the centre, mesh 10 x 10 (outline cuts elements): the applied load is pi r^2 within 1%
+            var m = PlateModel.Rect(1, 1, 0.05, 1, Nu, S, S, S, S).Mesh(10, 10);
+            m.PressureField = (x, y) => (x - 0.5) * (x - 0.5) + (y - 0.5) * (y - 0.5) <= 0.09 ? 1 : 0;
+            var r = MindlinPlateSolver.Solve(m);
+            Assert.InRange(r.AppliedLoad / (Math.PI * 0.09), 0.99, 1.01);
+        }
+
+        [Fact]
+        public void Clamped_head_face_moment_converges_and_exceeds_the_mid_span()
+        {
+            // a pillar cell (a/b 1, t/b 0.1): the hogging on the head face (read 0.05 b from the corner) converges under refinement
+            // and is about 3 x the mid-span moment, so the Pillar rows' beta is the hogging, not the mid-span value
+            double Face(int n)
+            {
+                var m = SwAgent.Mold.Structural.Fe.Sweep.CoefficientSweep.Model("Pillar", 1, 0.1, 0.3, 1, n, clampedHeads: true);
+                return SwAgent.Mold.Structural.Fe.Sweep.CoefficientSweep.HeadFaceMoment(MindlinPlateSolver.Solve(m), m, 0.05);
+            }
+            double f48 = Face(48), f96 = Face(96);
+            _out.WriteLine($"head face moment: 48 {6 * f48:F4}, 96 {6 * f96:F4}");
+            Assert.InRange(f96 / f48, 0.995, 1.005);
+            var row = SwAgent.Mold.Structural.Fe.Sweep.CoefficientSweep.Compute("Pillar", 1, 0.1, 0.3, 1);
+            Assert.Equal(6 * f48, row.Beta, 6);
+            var w = MindlinPlateSolver.Solve(SwAgent.Mold.Structural.Fe.Sweep.CoefficientSweep.Model("Pillar", 1, 0.1, 0.3, 1, 48));
+            double mid = w.MaxMoment((x, y) => Math.Abs(x - 0.5) < 1e-9 || Math.Abs(y - 0.5) < 1e-9, out _);
+            Assert.InRange(row.Beta / (6 * mid), 2.5, 3.5);
         }
 
         [Fact]

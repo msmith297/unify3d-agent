@@ -34,6 +34,24 @@ namespace SwAgent.Tests.Mold
 
         static CoefficientTable _table;
         public static CoefficientTable Table => _table ?? (_table = CoefficientTable.Load(Coefficients));
+
+        static readonly object _gate = new object();
+        static bool _calibrated;
+
+        /// <summary>The 3D calibrations of the shipped solid3d-summary.json on the harness and the stub (what MoldSweep does).</summary>
+        public static void Calibrate()
+        {
+            lock (_gate)
+            {
+                if (_calibrated) return;
+                var s = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(Path.Combine(Validation, "solid3d-summary.json")));
+                double slope = (double)s["wallRoot"]["recommendedSlope"], pillar = (double)s["pillarCell"]["pillarHeadFactor"];
+                MonteCarloHarness.TrueRootFactor = wh => 1 + slope * wh;
+                MonteCarloHarness.TruePillarFactor = pillar;
+                StubSizing.Calibrate(slope, pillar);
+                _calibrated = true;
+            }
+        }
     }
 
     /// <summary>The shipped coefficients.csv against the generator, and the Sweep 1 gates on the data (default test run).</summary>
@@ -52,6 +70,12 @@ namespace SwAgent.Tests.Mold
             Assert.Equal(CoefficientSweep.Sha256(data), SweepFiles.Table.Sha256);
             Assert.Contains(lines, l => l.StartsWith("# gates passed: yes"));
             Assert.Contains(lines, l => l.StartsWith("# wall root: "));
+            Assert.Contains(lines, l => l.StartsWith("# pillar head: "));
+            // A1's reader (SwAgent.Mold.Coefficients) and tools/dev/mold-data/examples_check.py take the version from line 3 and
+            // parse "# allowance:" as a bare number
+            Assert.Equal("# version: " + CoefficientSweep.Version, lines[2]);
+            var allowance = lines.Single(l => l.StartsWith("# allowance:")).Substring(12).Trim();
+            Assert.Equal(1.01, double.Parse(allowance, System.Globalization.CultureInfo.InvariantCulture), 9);
         }
 
         [Fact]
@@ -167,26 +191,78 @@ namespace SwAgent.Tests.Mold
             Assert.Contains(csv, l => l.StartsWith("SS4,1,") && l.Contains(",0.025,100,35,") && l.EndsWith("add support"));
         }
 
+        /// <summary>Smoke-run truth: coarser than the full run's TruthMesh (64/8) to keep the default test run short, and still never a mesh the layout-FE sizing uses (24/3, 48/6).</summary>
+        static readonly MonteCarloHarness.MeshSpec SmokeTruth = new MonteCarloHarness.MeshSpec(40, 5);
+
         [Fact]
         public void Monte_carlo_smoke_E12()
         {
-            // E12: 200 random molds, seed 1: the fast path is never unsafe (max r <= 1.00) and not wasteful (median r_w >= 0.75)
-            var run = MonteCarloHarness.Run(200, 1, StubSizing.Create(SweepFiles.Table, StubSizing.Recommended));
+            // E12 (smoke): random molds, seed 1: the recommended sizing is never unsafe (max r <= 1.00), throws nowhere, covers every
+            // group and is not wasteful (median r_w >= 0.75 per group). The full 2000-mold run with the 64-element truth is Sweep 2.
+            SweepFiles.Calibrate();
+            var run = MonteCarloHarness.Run(SmokeSamples, 1, StubSizing.Create(SweepFiles.Table, StubSizing.Recommended), SmokeTruth);
             _out.WriteLine($"max r_w {run.MaxRw:F4}, max r_s {run.MaxRs:F4}, median r_w {run.MedianRwGoverned:F3}, {run.Checks.Count} checks, {run.Elapsed.TotalSeconds:F1} s");
+            foreach (var g in run.Stats()) _out.WriteLine($"  {g.Name}: {g.Live}/{g.Checks} live, max r_w {g.MaxRw:F3}, median {g.MedianRw:F3} over {g.DeflectionGoverned}");
             Assert.True(run.MaxRw <= 1.0, $"max r_w {run.MaxRw}");
             Assert.True(run.MaxRs <= 1.0, $"max r_s {run.MaxRs}");
-            Assert.True(run.MedianRwGoverned >= 0.75);
-            Assert.True(run.Accepted);
-            // the delegate is the seam for A1's sizing: the harness only reads its JSON
+            Assert.Empty(run.Errors);
+            foreach (var g in run.Stats())
+            {
+                Assert.True(g.Coverage >= MonteCarloHarness.MinCoverage, $"{g.Name}: coverage {g.Coverage:P0}");
+                if (g.DeflectionGoverned >= 5) Assert.True(g.MedianRw >= 0.75, $"{g.Name}: median r_w {g.MedianRw}");
+            }
             var summary = run.Summary("smoke");
-            Assert.Equal(200, (int)summary["samples"]);
+            Assert.Equal(SmokeSamples, (int)summary["samples"]);
+        }
+
+        const int SmokeSamples = 60;
+
+        [Fact]
+        public void A_sizing_that_throws_or_skips_everything_is_not_accepted()
+        {
+            // a broken adapter must fail the run, not vanish into "skipped"; and a sizing that asks for support everywhere covers nothing
+            var throwing = MonteCarloHarness.Run(20, 1, d => throw new InvalidOperationException("adapter broken"));
+            Assert.Equal(20, throwing.Errors.Count);
+            Assert.False(throwing.Accepted);
+            Assert.Contains(throwing.AcceptanceFailures(), f => f.Contains("errors"));
+            var skipping = MonteCarloHarness.Run(20, 1, d => new Newtonsoft.Json.Linq.JObject
+            {
+                ["E_MPa"] = 70000, ["nu"] = 0.33, ["sigma_allow_MPa"] = 100,
+                ["plate"] = new Newtonsoft.Json.Linq.JObject { ["t_mm"] = 1000, ["governs"] = "add support" },
+                ["walls"] = new Newtonsoft.Json.Linq.JArray(),
+            });
+            Assert.Empty(skipping.Errors);
+            Assert.False(skipping.Accepted);
+            Assert.Contains(skipping.AcceptanceFailures(), f => f.Contains("coverage"));
+            Assert.Contains(skipping.AcceptanceFailures(), f => f.Contains("walls"));
+        }
+
+        [Fact]
+        public void Table_only_pillar_plates_are_flagged_where_edge_panels_govern()
+        {
+            // The Pillar rows are the periodic interior cell; a panel next to the plate's simply supported edge deflects and hogs
+            // more, which the table alone does not see. The harness must catch that (it is why case E is finished by the layout FE).
+            SweepFiles.Calibrate();
+            var rnd = new Random(5);
+            var designs = Enumerable.Range(0, 400).Select(_ => MonteCarloHarness.Draw(rnd)).Where(d => (string)d["support"] == "E").Take(12).ToList();
+            double worst = 0;
+            foreach (var d in designs)
+            {
+                var s = StubSizing.Size(SweepFiles.Table, d, StubSizing.TableOnly);
+                if ((string)s["plate"]["governs"] == "add support") continue;
+                var c = MonteCarloHarness.CheckDesign(0, d, s, SmokeTruth).First(x => x.Element == "plate");
+                worst = Math.Max(worst, Math.Max(c.Rw, c.Rs));
+            }
+            _out.WriteLine($"table-only pillar plates: worst r {worst:F3}");
+            Assert.True(worst > 1.0, "the edge-panel effect should show up (1.12 on these 12 molds)");
         }
 
         [Fact]
         public void Design_as_written_is_unsafe_where_the_sweeps_said()
         {
             // the same 60 molds with the root factor 1.2 and pillar panels as C4: walls and pillar plates under-sized
-            var run = MonteCarloHarness.Run(60, 3, StubSizing.Create(SweepFiles.Table, StubSizing.DesignAsWritten));
+            SweepFiles.Calibrate();
+            var run = MonteCarloHarness.Run(60, 3, StubSizing.Create(SweepFiles.Table, StubSizing.DesignAsWritten), SmokeTruth);
             var walls = run.Checks.Where(c => !c.Skipped && c.Element.StartsWith("wall") && c.Governs == "deflection").ToList();
             Assert.True(walls.Max(c => c.Rw) > 1.2);
         }
@@ -197,13 +273,17 @@ namespace SwAgent.Tests.Mold
             // the 3D pocket (L/h 4, w/h 0.25, floor 0.5 h) against the clamped-root Wall-C plate: well above the design's 1.2,
             // near 1 + 2 w/h, and the rigid-floor model shows the wall itself is plate-like
             var c = new Solid3dValidation.WallCase("test", 4, 4, 0.25, 0.5);
-            double plate = Solid3dValidation.WallPlate(c);
+            var (plate, plateRoot) = Solid3dValidation.WallPlate(c);
             var (w3, _, r) = Solid3dValidation.WallPocket(c, 1.0 / 6, false);
             var (wr, _, _) = Solid3dValidation.WallPocket(c, 1.0 / 6, true);
-            _out.WriteLine($"3D / plate {w3 / plate:F3}, rigid floor {wr / plate:F3}; {r.Dofs} dofs, {r.Iterations} iterations");
+            double root3 = Solid3dValidation.WallRootMoment(c, r);
+            _out.WriteLine($"3D / plate {w3 / plate:F3}, rigid floor {wr / plate:F3}; root moment 3D {root3:F4} / plate {plateRoot:F4}; {r.Dofs} dofs, {r.Iterations} iterations");
             Assert.True(r.Converged);
             Assert.InRange(w3 / plate, 1.4, 1.65);
             Assert.InRange(wr / plate, 0.95, 1.06);
+            // the compliant root sheds moment to the clamped sides: the 3D root moment at mid-length does not exceed the plate's,
+            // so the factor is a deflection factor only (Wall-C beta stands); a long wall's root carries about the strip's p h^2 / 2
+            Assert.InRange(root3 / plateRoot, 0.65, 1.02); // 0.74 on this coarse mesh, 0.85 at h/24
         }
 
         [Fact]
@@ -212,9 +292,13 @@ namespace SwAgent.Tests.Mold
             var solid = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(Path.Combine(SweepFiles.Validation, "solid3d-summary.json")));
             Assert.True((bool)solid["passed"]);
             Assert.True((double)solid["wallRoot"]["recommendedSlope"] >= 2.0);
+            Assert.True((double)solid["pillarCell"]["pillarHeadFactor"] >= (double)solid["pillarCell"]["largestAlphaRatio"]);
             var mc = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(Path.Combine(SweepFiles.Validation, "montecarlo-summary.json")));
             Assert.True((bool)mc["accepted"]);
+            Assert.Empty((Newtonsoft.Json.Linq.JArray)mc["acceptance_failures"]);
             Assert.True((int)mc["samples"] >= 2000);
+            Assert.Equal(0, (int)mc["errors"]);
+            foreach (var g in MonteCarloHarness.Groups) Assert.True((double)mc["by_group"][g]["coverage"] >= MonteCarloHarness.MinCoverage, g);
         }
 
         // ---------------- the full sweeps (MOLD_SWEEP=1) ----------------
@@ -236,6 +320,7 @@ namespace SwAgent.Tests.Mold
         [SweepFact, Trait("Category", "Sweep")]
         public void Sweep2_monte_carlo_2000_is_accepted()
         {
+            SweepFiles.Calibrate();
             var run = MonteCarloHarness.Run(2000, 1, StubSizing.Create(SweepFiles.Table, StubSizing.Recommended), log: _out.WriteLine);
             _out.WriteLine(run.Summary(StubSizing.Recommended.Name).ToString());
             Assert.True(run.Accepted);

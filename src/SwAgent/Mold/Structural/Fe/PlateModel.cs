@@ -93,8 +93,14 @@ namespace SwAgent.Mold.Structural.Fe
         public bool SnapToFeatures = true;
 
         public List<PressurePatch> Pressures = new List<PressurePatch>();
-        /// <summary>Optional pressure by element centre (x, y) -> p, e.g. a cavity outline mask; added to the patches.</summary>
+        /// <summary>
+        /// Optional pressure field (x, y) -> p, e.g. a cavity outline mask; added to the patches. Sampled at PressureFieldSamples^2
+        /// points per element, so an outline off the grid lines is followed to within 1/PressureFieldSamples of an element.
+        /// </summary>
         public Func<double, double, double> PressureField;
+        public int PressureFieldSamples = 8;
+        /// <summary>Largest band storage the solver may allocate (MB); a bigger model throws before allocating (it runs inside SolidWorks).</summary>
+        public double MaxMemoryMB = 400;
         public List<LineSupport> Lines = new List<LineSupport>();
         public List<PointSpring> Springs = new List<PointSpring>();
         public List<PointLoad> PointLoads = new List<PointLoad>();
@@ -118,6 +124,35 @@ namespace SwAgent.Mold.Structural.Fe
         {
             if (!(A > 0) || !(B > 0) || !(T > 0)) throw new ArgumentException("Plate A, B and T must be positive.");
             if (!(E > 0) || Nu <= -1 || Nu >= 0.5) throw new ArgumentException("Plate E must be positive and -1 < nu < 0.5.");
+            // features must lie on the plate: a reversed patch would load nothing, and a support off the plate would snap to its
+            // edge or vanish without a word
+            double tol = 1e-9 * Math.Max(A, B);
+            bool InX(double x) => x >= -tol && x <= A + tol;
+            bool InY(double y) => y >= -tol && y <= B + tol;
+            foreach (var p in Pressures)
+            {
+                if (!(p.X1 < p.X2) || !(p.Y1 < p.Y2)) throw new ArgumentException($"Pressure patch ({p.X1}, {p.Y1})-({p.X2}, {p.Y2}) is empty or reversed (X1 < X2 and Y1 < Y2).");
+                if (p.X2 <= 0 || p.X1 >= A || p.Y2 <= 0 || p.Y1 >= B) throw new ArgumentException($"Pressure patch ({p.X1}, {p.Y1})-({p.X2}, {p.Y2}) lies off the {A} x {B} plate.");
+            }
+            foreach (var r in Foundations)
+            {
+                if (!(r.X1 < r.X2) || !(r.Y1 < r.Y2)) throw new ArgumentException($"Foundation ({r.X1}, {r.Y1})-({r.X2}, {r.Y2}) is empty or reversed.");
+                if (r.X2 <= 0 || r.X1 >= A || r.Y2 <= 0 || r.Y1 >= B) throw new ArgumentException($"Foundation ({r.X1}, {r.Y1})-({r.X2}, {r.Y2}) lies off the plate.");
+                if (!(r.K >= 0)) throw new ArgumentException("Foundation modulus must not be negative.");
+            }
+            foreach (var r in Fixed)
+                if (!(r.X1 <= r.X2) || !(r.Y1 <= r.Y2) || !InX(r.X1) || !InX(r.X2) || !InY(r.Y1) || !InY(r.Y2))
+                    throw new ArgumentException($"Fixed region ({r.X1}, {r.Y1})-({r.X2}, {r.Y2}) is reversed or not on the {A} x {B} plate.");
+            foreach (var l in Lines)
+            {
+                if (l.Axis != 'x' && l.Axis != 'y') throw new ArgumentException("Line support axis must be 'x' or 'y'.");
+                if (!(l.Axis == 'x' ? InX(l.Position) : InY(l.Position))) throw new ArgumentException($"Line support {l.Axis} = {l.Position} is off the plate.");
+                if (!(l.From <= l.To)) throw new ArgumentException("Line support From must not exceed To.");
+            }
+            foreach (var s in Springs)
+                if (!InX(s.X) || !InY(s.Y) || !(s.K >= 0)) throw new ArgumentException($"Spring at ({s.X}, {s.Y}) is off the plate or negative.");
+            foreach (var p in PointLoads)
+                if (!InX(p.X) || !InY(p.Y)) throw new ArgumentException($"Point load at ({p.X}, {p.Y}) is off the plate.");
         }
     }
 }

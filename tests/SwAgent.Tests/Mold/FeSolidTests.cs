@@ -168,5 +168,61 @@ namespace SwAgent.Tests.Mold
             double coneEdge = 0.75 * d + l / 2 * Math.Tan(Math.PI / 6);
             Assert.InRange(press.ContactRadius, 0.9 * coneEdge, 1.5 * coneEdge);
         }
+
+        [Fact]
+        public void Two_bodies_in_contact_compress_like_one()
+        {
+            // a column of two stacked bodies (interface at z = 1) under a uniform top pressure, resting on a frictionless plane:
+            // the contact transmits the load and the displacements are the one-body solution, uz = -p z / E
+            const double e = 70000, nu = 0.33, p = 50;
+            var m = new AxisymmetricModel { Rs = new[] { 2.0, 2.5, 4.0, 7.0 }, Zs = new[] { 0, 0.5, 1.0, 2.0, 3.0 }, E = e, Nu = nu, Bottom = BottomCondition.Bonded, InterfaceK = 2 };
+            m.TopPressures.Add((2.0, 7.0, p));
+            var r = AxisymmetricSolver.Solve(m);
+            for (int i = 0; i < m.Rs.Length; i++)
+            {
+                // the contact is a stiff penalty: it adds about p h / (1e4 E) across the interface
+                for (int k = 0; k < m.Zs.Length; k++) Assert.True(Math.Abs(r.Uz[i, k] + p * m.Zs[k] / e) < 1e-3 * p / e, $"uz at {i},{k}");
+                Assert.True(Math.Abs(r.UzInterfaceLower[i] + p * 1.0 / e) < 1e-3 * p / e);
+            }
+            Assert.Equal(m.Rs[m.Rs.Length - 1], r.InterfaceContactRadius);
+        }
+
+        [Fact]
+        public void Vdi2230_worked_example_is_reproduced_end_to_end()
+        {
+            // Hochschule Anhalt, VDI 2230 exercise "Hydraulikzylinder": cone, plate and bolt resilience, load factor, embedding
+            // loss and the assembly preload band, all within 0.5% of the published figures
+            var ex = SwAgent.Mold.Structural.Fe.Sweep.Solid3dValidation.VdiExample();
+            foreach (var p in ex.Properties())
+            {
+                _out.WriteLine($"{p.Name}: {p.Value["computed"]} vs {p.Value["published"]}");
+                Assert.InRange((double)p.Value["deviation"], -0.005, 0.005);
+            }
+            // the cone-plus-sleeve branch joins the full cone at D_A = D_A,Gr
+            double full = Vdi2230.PlateResilience(Vdi2230.Joint.ThroughBolted, 210000, 42, 21.11, 13.5, 80, out double tanPhi, out double gr);
+            double atGr = Vdi2230.PlateResilience(Vdi2230.Joint.ThroughBolted, 210000, 42, 21.11, 13.5, gr - 1e-9, out _, out _);
+            double below = Vdi2230.PlateResilience(Vdi2230.Joint.ThroughBolted, 210000, 42, 21.11, 13.5, 30, out _, out _);
+            Assert.True(below > full, "a narrower plate is softer");
+            Assert.True(Math.Abs(atGr - Vdi2230.PlateResilience(Vdi2230.Joint.ThroughBolted, 210000, 42, 21.11, 13.5, gr + 1e-9, out _, out _)) < 0.02 * atGr);
+        }
+
+        [Fact]
+        public void Vdi2230_cone_against_the_axisymmetric_fe_through_bolted_and_tapped()
+        {
+            // M10-like, d_W 16, d_h 11, steel, l_K = d_W, D_A = 3 d_W. Through-bolted: two equal plates, rigid head, against
+            // 1 / delta_P. Tapped: plate on a tapped base, the FE's head-to-thread approach against delta_P + delta_M (the base's
+            // deformation around the thread is booked under delta_M = 0.33 d / E A_N).
+            const double e = 205000, nu = 0.29, d = 10, dw = 16, dh = 11, lK = 16, dA = 48;
+            double dsv = BoltJointFe.MemberStiffness(e, nu, d, lK, dw, dh, dA / 2, 1, rigidHead: true).Km;
+            double dpD = Vdi2230.PlateResilience(Vdi2230.Joint.ThroughBolted, e, lK, dw, dh, dA, out _, out _);
+            var tapped = BoltJointFe.TappedMemberStiffness(e, nu, d, lK, dw, dh, dA);
+            double dpE = Vdi2230.PlateResilience(Vdi2230.Joint.Tapped, e, lK, dw, dh, dA, out _, out _);
+            double dM = 0.33 * d / (e * Math.PI * d * d / 4);
+            _out.WriteLine($"DSV FE / VDI {dsv * dpD:F3}; ESV FE / VDI(P+M) {tapped.Km * (dpE + dM):F3}, FE / VDI(P) {tapped.Km * dpE:F3}; plate lifts off the base at r = {tapped.ContactRadius:F1} mm");
+            Assert.InRange(dsv * dpD, 0.90, 1.10);
+            Assert.InRange(tapped.Km * (dpE + dM), 0.85, 1.25);
+            Assert.True(tapped.Km * dpE < 0.8, "the tapped joint's approach is softer than the plate cone alone");
+            Assert.InRange(tapped.ContactRadius, dw / 2, dA / 2);
+        }
     }
 }

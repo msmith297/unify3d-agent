@@ -79,7 +79,7 @@ namespace MoldSweep
             Console.WriteLine($"Sweep 1: {CoefficientSweep.Grid().Count()} rows at {n} elements on the short side...");
             var rep = CoefficientSweep.Run(n, log: Console.WriteLine);
             string rootNote = WallRootNote(p);
-            File.WriteAllText(p.Coefficients, CoefficientSweep.ToCsv(rep, n, rootNote, DateTime.Now), new UTF8Encoding(false));
+            File.WriteAllText(p.Coefficients, CoefficientSweep.ToCsv(rep, n, rootNote, DateTime.Now, PillarHeadNote(p)), new UTF8Encoding(false));
             foreach (var g in rep.Gates) Console.WriteLine("  gate: " + g);
             foreach (var f in rep.Failures.Take(40)) Console.WriteLine("  FAIL: " + f);
             Console.WriteLine($"  wrote {p.Coefficients} ({rep.Rows.Count} rows, {rep.Elapsed.TotalSeconds:F0} s)");
@@ -88,15 +88,28 @@ namespace MoldSweep
 
         static string WallRootNote(SweepPaths p)
         {
-            if (!File.Exists(p.Solid3dSummary)) return "1.2 (design default; run MoldSweep solid3d to calibrate)";
+            if (!File.Exists(p.Solid3dSummary)) return $"1 + {Solid3dValidation.DefaultWallRootSlope} w/h (default; run MoldSweep solid3d to calibrate)";
             var w = JObject.Parse(File.ReadAllText(p.Solid3dSummary))["wallRoot"];
-            return w == null ? null : $"{(string)w["recommendedFormula"]}; {(int?)w["cases"]} 3D solid cases, 3D / plate {(string)w["minRatio"]}-{(string)w["maxRatio"]} ({(string)w["source"]}); data/validation/solid3d-summary.json";
+            return w == null ? null : $"{(string)w["recommendedFormula"]}; {(int?)w["cases"]} 3D solid cases, 3D / plate {(string)w["minRatio"]}-{(string)w["maxRatio"]} ({(string)w["meshes"]} extrapolated; {(string)w["source"]}); data/validation/solid3d-summary.json";
+        }
+
+        static string PillarHeadNote(SweepPaths p)
+        {
+            var c = File.Exists(p.Solid3dSummary) ? JObject.Parse(File.ReadAllText(p.Solid3dSummary))["pillarCell"] : null;
+            double f = (double?)c?["pillarHeadFactor"] ?? Solid3dValidation.DefaultPillarHeadFactor;
+            return $"multiply Pillar alpha by {f.ToString("0.00", CultureInfo.InvariantCulture)} (3D pillar cell / plate deflection, largest {(string)c?["largestAlphaRatio"] ?? "?"}); Pillar beta covers the 3D top-surface peak at t/b >= 0.1 (largest ratio {(string)c?["largestBetaRatioTau0_1Plus"] ?? "?"}); below t/b 0.1 the head corner peaks higher (ratio up to {(string)c?["largestBetaRatioThin"] ?? "?"}): radius the head corners or apply K_f; data/validation/solid3d-summary.json";
         }
 
         static double WallRootSlope(SweepPaths p)
         {
-            if (!File.Exists(p.Solid3dSummary)) return 2.6;
-            return (double?)JObject.Parse(File.ReadAllText(p.Solid3dSummary))["wallRoot"]?["recommendedSlope"] ?? 2.6;
+            if (!File.Exists(p.Solid3dSummary)) return Solid3dValidation.DefaultWallRootSlope;
+            return (double?)JObject.Parse(File.ReadAllText(p.Solid3dSummary))["wallRoot"]?["recommendedSlope"] ?? Solid3dValidation.DefaultWallRootSlope;
+        }
+
+        static double PillarHeadFactor(SweepPaths p)
+        {
+            if (!File.Exists(p.Solid3dSummary)) return Solid3dValidation.DefaultPillarHeadFactor;
+            return (double?)JObject.Parse(File.ReadAllText(p.Solid3dSummary))["pillarCell"]?["pillarHeadFactor"] ?? Solid3dValidation.DefaultPillarHeadFactor;
         }
 
         static bool Table(SweepPaths p)
@@ -112,27 +125,40 @@ namespace MoldSweep
         {
             int n = Int(o, "n", 2000), seed = Int(o, "seed", 1);
             var table = CoefficientTable.Load(p.Coefficients);
-            double slope = WallRootSlope(p);
+            double slope = WallRootSlope(p), pillar = PillarHeadFactor(p);
             MonteCarloHarness.TrueRootFactor = wh => 1 + slope * wh;
-            StubSizing.RootFactor = wh => 1 + slope * wh;
-            Console.WriteLine($"Sweep 2: {n} random molds, seed {seed}, sizing: {StubSizing.Recommended.Name}...");
+            MonteCarloHarness.TruePillarFactor = pillar;
+            StubSizing.Calibrate(slope, pillar);
+            Console.WriteLine($"Sweep 2: {n} random molds, seed {seed}, truth {MonteCarloHarness.TruthMesh}; root factor 1 + {slope} w/h, pillar-head factor {pillar}");
+            Console.WriteLine($"  sizing: {StubSizing.Recommended.Name}...");
             var run = MonteCarloHarness.Run(n, seed, StubSizing.Create(table, StubSizing.Recommended), log: Console.WriteLine);
-            Console.WriteLine($"  max r_w {run.MaxRw:F3}, max r_s {run.MaxRs:F3}, median r_w (deflection-governed) {run.MedianRwGoverned:F3}; {run.Failures.Count} failures");
-            Console.WriteLine($"  the same molds sized by {StubSizing.DesignAsWritten.Name}...");
-            var asWritten = MonteCarloHarness.Run(n, seed, StubSizing.Create(table, StubSizing.DesignAsWritten), log: null);
-            Console.WriteLine($"  max r_w {asWritten.MaxRw:F3}, max r_s {asWritten.MaxRs:F3}; {asWritten.Failures.Count} failures");
+            Report(run);
             var summary = run.Summary(StubSizing.Recommended.Name);
-            var other = asWritten.Summary(StubSizing.DesignAsWritten.Name);
-            summary["compare_design_as_written"] = new JObject
+            foreach (var (key, opts) in new[] { ("compare_table_only", StubSizing.TableOnly), ("compare_design_as_written", StubSizing.DesignAsWritten) })
             {
-                ["sizing"] = other["sizing"], ["max_r_w"] = other["max_r_w"], ["max_r_s"] = other["max_r_s"],
-                ["median_r_w_deflection_governed"] = other["median_r_w_deflection_governed"], ["accepted"] = other["accepted"],
-                ["failures_count"] = asWritten.Failures.Count, ["by_element"] = other["by_element"],
-            };
+                Console.WriteLine($"  the same molds sized by {opts.Name}...");
+                var other = MonteCarloHarness.Run(n, seed, StubSizing.Create(table, opts));
+                Report(other);
+                var s = other.Summary(opts.Name);
+                summary[key] = new JObject
+                {
+                    ["sizing"] = s["sizing"], ["max_r_w"] = s["max_r_w"], ["max_r_s"] = s["max_r_s"],
+                    ["median_r_w_deflection_governed"] = s["median_r_w_deflection_governed"], ["accepted"] = s["accepted"],
+                    ["acceptance_failures"] = s["acceptance_failures"], ["failures_count"] = other.Failures.Count, ["by_group"] = s["by_group"],
+                };
+            }
             File.WriteAllText(p.MonteCarloCsv, run.ToCsv(), new UTF8Encoding(false));
             File.WriteAllText(p.MonteCarloSummary, summary.ToString(Formatting.Indented), new UTF8Encoding(false));
             Console.WriteLine($"  wrote {p.MonteCarloCsv} and {p.MonteCarloSummary}");
             return run.Accepted;
+        }
+
+        static void Report(MonteCarloRun run)
+        {
+            Console.WriteLine($"    max r_w {run.MaxRw:F3}, max r_s {run.MaxRs:F3}, median r_w (deflection-governed) {run.MedianRwGoverned:F3}; {run.Failures.Count} failures, {run.Errors.Count} errors, {run.Elapsed.TotalSeconds:F0} s");
+            foreach (var g in run.Stats())
+                Console.WriteLine($"    {g.Name}: {g.Live}/{g.Checks} live ({g.Coverage:P0}), max r_w {g.MaxRw:F3}, max r_s {g.MaxRs:F3}, median r_w {g.MedianRw:F3} over {g.DeflectionGoverned}");
+            foreach (var f in run.AcceptanceFailures()) Console.WriteLine("    NOT ACCEPTED: " + f);
         }
 
         static bool Solid3d(SweepPaths p, Dictionary<string, string> o)

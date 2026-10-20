@@ -56,6 +56,11 @@ namespace SwAgent.Mold.Structural.Fe
                 ys = GridLines.Build(m.B, ly, hRef, counts ? m.Ny : 0);
                 nxN = xs.Length; nyN = ys.Length; nn = nxN * nyN; ndof = 3 * nn;
                 yFast = nyN <= nxN;
+                // the band storage is about ndof x 3 (n_short + 2) doubles: refuse a model that would not fit before allocating
+                // anything big (a 1000 x 1 mm plate at 24 elements on the short side would take 1.2 GB inside SolidWorks)
+                double estimateMB = (double)ndof * (3.0 * Math.Min(nxN, nyN) + 7) * 8 / 1e6;
+                if (estimateMB > m.MaxMemoryMB)
+                    throw new InvalidOperationException($"Plate model too large: {nxN - 1} x {nyN - 1} elements need about {estimateMB:F0} MB (limit {m.MaxMemoryMB:F0} MB). Use a coarser mesh (ElementSize) or split the plate.");
 
                 fixedDof = new bool[ndof];
                 ApplyEdge(m.X0, true, 0); ApplyEdge(m.XA, true, nxN - 1);
@@ -179,8 +184,17 @@ namespace SwAgent.Mold.Structural.Fe
                             }
                             if (m.PressureField != null)
                             {
-                                double q = m.PressureField((x0 + x1) / 2, (y0 + y1) / 2);
-                                if (q != 0) for (int k = 0; k < 4; k++) f4[k] += q * (x1 - x0) * (y1 - y0) / 4;
+                                // n x n midpoint samples per element, each lumped by the shape functions: a field whose outline
+                                // cuts an element loads the covered part only (one centre sample could add or drop the whole element)
+                                int ns = Math.Max(1, m.PressureFieldSamples);
+                                double da = (x1 - x0) * (y1 - y0) / (ns * ns);
+                                for (int si = 0; si < ns; si++)
+                                    for (int sj = 0; sj < ns; sj++)
+                                    {
+                                        double xi = -1 + (2 * si + 1.0) / ns, et = -1 + (2 * sj + 1.0) / ns;
+                                        double q = m.PressureField(x0 + (xi + 1) / 2 * (x1 - x0), y0 + (et + 1) / 2 * (y1 - y0));
+                                        if (q != 0) for (int k = 0; k < 4; k++) f4[k] += q * da * Mitc4.N(k, xi, et);
+                                    }
                             }
                             for (int k = 0; k < 4; k++) f[dofs[3 * k]] += f4[k];
                         }
@@ -207,6 +221,8 @@ namespace SwAgent.Mold.Structural.Fe
 
             double[] SolveOnce(CancellationToken ct, out double[] fFull)
             {
+                double mb = (double)neq * (band + 1) * 8 / 1e6;
+                if (mb > m.MaxMemoryMB) throw new InvalidOperationException($"Plate model too large: {neq} equations, band {band}, {mb:F0} MB (limit {m.MaxMemoryMB:F0} MB).");
                 var k = new BandedLdlt(neq, band);
                 var f = new double[ndof];
                 ForEachContribution((dofs, ke, n) =>
@@ -341,7 +357,9 @@ namespace SwAgent.Mold.Structural.Fe
                         for (int k = 0; k < 3; k++) if (fixedDof[3 * n + k]) rr[3 * n + k] = ku[3 * n + k] - f[3 * n + k];
                         res.Reactions[i, j] = rr[3 * n];
                         res.SupportForce += rr[3 * n];
-                        res.SupportMomentX += rr[3 * n] * xs[i]; res.SupportMomentY += rr[3 * n] * ys[j];
+                        // a rigid rotation about the y axis is w = x, bx = 1 (gamma = w,x - bx = 0), so the moment balance takes the
+                        // rotation reactions of clamped and hard SS edges (and clamped regions) as they are, next to R_w x
+                        res.SupportMomentX += rr[3 * n] * xs[i] + rr[3 * n + 1]; res.SupportMomentY += rr[3 * n] * ys[j] + rr[3 * n + 2];
                     }
 
                 RecoverMoments(u, rr, res);

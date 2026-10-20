@@ -8,8 +8,11 @@ namespace SwAgent.Mold.Structural.Fe.Solid
     /// <summary>
     /// Axisymmetric linear-elastic solid on a structured r-z grid (bilinear quads, 2x2 Gauss, strains [er, ez, etheta, grz]),
     /// with an optional unilateral contact plane: nodes on z = 0 rest on a frictionless rigid plane (which is also the mirror plane
-    /// of a symmetric two-member joint) and lift off where the contact would pull. Banded LDL^T. Forces in N for the full ring (2 pi).
-    /// Used for the bolted-joint member stiffness check against Wileman and the cone models.
+    /// of a symmetric two-member joint) and lift off where the contact would pull. Optionally two bodies stacked at the grid line
+    /// Zs[InterfaceK] (a plate on a tapped base: the nodes there are doubled and held together by a frictionless unilateral
+    /// contact), void cells (a clearance hole), stiffer cells (a rigid washer) and an axial load on the bore (the engaged
+    /// thread). Banded LDL^T. Forces in N for the full ring (2 pi).
+    /// Used for the bolted-joint member stiffness checks against Wileman and the VDI 2230 cone (through-bolted and tapped).
     /// </summary>
     public sealed class AxisymmetricModel
     {
@@ -26,6 +29,17 @@ namespace SwAgent.Mold.Structural.Fe.Solid
         /// <summary>A rigid flat punch on the top face between radii (r1, r2): uz = -Depth there (penalty springs), radial motion free.</summary>
         public (double R1, double R2, double Depth)? TopPunch;
         public int MaxContactPasses = 30;
+
+        /// <summary>Grid index k of the line Zs[k] where a lower and an upper body meet in frictionless unilateral contact (-1: one body).</summary>
+        public int InterfaceK = -1;
+        /// <summary>Whether the cell with centre (r, z) is material (null: all).</summary>
+        public Func<double, double, bool> Solid;
+        /// <summary>Young's modulus multiplier of the cell with centre (r, z) (null: 1), e.g. a stiff washer under a bolt head.</summary>
+        public Func<double, double, double> Stiffness;
+        /// <summary>Axial forces (N, +z) spread uniformly over the bore r = Rs[0] between Z1 and Z2: an engaged thread pulling on its body.</summary>
+        public List<(double Z1, double Z2, double F)> BoreLoads = new List<(double, double, double)>();
+        /// <summary>Nodes (grid i, k; the lower body's node at the interface) held at uz = 0: removes the axial rigid-body motion of a self-equilibrated model.</summary>
+        public List<(int I, int K)> PinZ = new List<(int, int)>();
     }
 
     public enum BottomCondition { None, Bonded, Contact }
@@ -33,10 +47,15 @@ namespace SwAgent.Mold.Structural.Fe.Solid
     public sealed class AxisymmetricResult
     {
         public double[] Rs, Zs;
+        /// <summary>Displacements per grid node (the upper body's at the interface line); NaN where no material.</summary>
         public double[,] Ur, Uz;
+        /// <summary>The lower body's uz on the interface line (NaN where none, or when there is no interface).</summary>
+        public double[] UzInterfaceLower;
         public int Passes;
         /// <summary>Outer radius of the contact zone around the hole on z = 0 (where the plates first open, moving outward).</summary>
         public double ContactRadius;
+        /// <summary>Outer radius of the closed part of the body interface around the hole (when there is one).</summary>
+        public double InterfaceContactRadius;
         public double ContactForce, AppliedForce;
         /// <summary>Force the rigid punch pushes with (N), when there is one.</summary>
         public double PunchForce;
@@ -58,6 +77,25 @@ namespace SwAgent.Mold.Structural.Fe.Solid
             }
             return num / den;
         }
+
+        /// <summary>Length-weighted mean uz on the bore r = Rs[0] between z1 and z2 (the displacement conjugate to a uniform BoreLoad).</summary>
+        public double MeanBoreUz(double z1, double z2)
+        {
+            double num = 0, den = 0;
+            for (int k = 0; k + 1 < Zs.Length; k++)
+            {
+                double a = Math.Max(z1, Zs[k]), b = Math.Min(z2, Zs[k + 1]);
+                if (b <= a) continue;
+                // below the interface the segment's top node is the lower body's (Uz holds the upper body's there)
+                double lo = Uz[0, k], hi = k + 1 == InterfaceK && UzInterfaceLower != null ? UzInterfaceLower[0] : Uz[0, k + 1];
+                double h = Zs[k + 1] - Zs[k];
+                num += (b - a) * (lo + (hi - lo) * ((a + b) / 2 - Zs[k]) / h);
+                den += b - a;
+            }
+            return num / den;
+        }
+
+        internal int InterfaceK = -1;
     }
 
     public static class AxisymmetricSolver
@@ -67,8 +105,13 @@ namespace SwAgent.Mold.Structural.Fe.Solid
             var rs = m.Rs; var zs = m.Zs;
             int nr = rs.Length, nz = zs.Length;
             if (rs[0] <= 0) throw new ArgumentException("Inner radius must be positive (a bolt hole).");
-            int Node(int i, int k) => i * nz + k; // z fastest (the grid is taller in r)
-            int ndof = 2 * nr * nz;
+            int kI = m.InterfaceK;
+            if (kI == 0 || kI >= nz - 1) throw new ArgumentException("InterfaceK must be an inner grid line (or -1).");
+            bool split = kI > 0;
+            int stride = nz + (split ? 1 : 0);
+            // node of grid point (i, k) for the body above (upper) or below the interface; z fastest (the grid is taller in r)
+            int Node(int i, int k, bool upper) => i * stride + k + (split && (k > kI || (k == kI && upper)) ? 1 : 0);
+            int nNodes = nr * stride, ndof = 2 * nNodes;
             double e = m.E, nu = m.Nu, f = e / ((1 + nu) * (1 - 2 * nu));
             var d = new double[4, 4]
             {
@@ -77,26 +120,66 @@ namespace SwAgent.Mold.Structural.Fe.Solid
                 { f * nu, f * nu, f * (1 - nu), 0 },
                 { 0, 0, 0, f * (1 - 2 * nu) / 2 },
             };
+
+            // cells: material, stiffness scale, nodes
+            var cells = new List<(int i, int k, int[] dofs, double scale)>();
+            var used = new bool[nNodes];
+            for (int i = 0; i + 1 < nr; i++)
+                for (int k = 0; k + 1 < nz; k++)
+                {
+                    double rc = (rs[i] + rs[i + 1]) / 2, zc = (zs[k] + zs[k + 1]) / 2;
+                    if (m.Solid != null && !m.Solid(rc, zc)) continue;
+                    bool upper = split && k >= kI;
+                    int[] n = { Node(i, k, upper), Node(i + 1, k, upper), Node(i + 1, k + 1, upper), Node(i, k + 1, upper) };
+                    var dofs = new int[8];
+                    for (int a = 0; a < 4; a++) { dofs[2 * a] = 2 * n[a]; dofs[2 * a + 1] = 2 * n[a] + 1; used[n[a]] = true; }
+                    cells.Add((i, k, dofs, m.Stiffness?.Invoke(rc, zc) ?? 1.0));
+                }
+            if (cells.Count == 0) throw new InvalidOperationException("No material cells.");
+
             var load = new double[ndof];
             int top = nz - 1;
             foreach (var (r1, r2, p) in m.TopPressures)
                 for (int i = 0; i + 1 < nr; i++)
                 {
                     double a = Math.Max(r1, rs[i]), b = Math.Min(r2, rs[i + 1]);
-                    if (b <= a) continue;
+                    if (b <= a || !used[Node(i, top, true)] || !used[Node(i + 1, top, true)]) continue;
                     double h = rs[i + 1] - rs[i];
                     // integral of N_i r dr and N_(i+1) r dr over [a, b], N linear on [rs[i], rs[i+1]]
                     double I(Func<double, double> g) => Gauss2(a, b, r => g(r) * r); // quadratic integrand: exact
                     double fi = I(r => (rs[i + 1] - r) / h), fj = I(r => (r - rs[i]) / h);
-                    load[2 * Node(i, top) + 1] -= 2 * Math.PI * p * fi;
-                    load[2 * Node(i + 1, top) + 1] -= 2 * Math.PI * p * fj;
+                    load[2 * Node(i, top, true) + 1] -= 2 * Math.PI * p * fi;
+                    load[2 * Node(i + 1, top, true) + 1] -= 2 * Math.PI * p * fj;
                 }
             if (m.InnerPressure != 0)
                 for (int k = 0; k + 1 < nz; k++)
                 {
+                    bool upper = split && k >= kI;
                     double h = zs[k + 1] - zs[k], fr = 2 * Math.PI * rs[0] * m.InnerPressure * h / 2;
-                    load[2 * Node(0, k)] += fr; load[2 * Node(0, k + 1)] += fr;
+                    load[2 * Node(0, k, upper)] += fr; load[2 * Node(0, k + 1, upper)] += fr;
                 }
+            foreach (var (z1, z2, force) in m.BoreLoads)
+            {
+                // uniform axial traction on the bore between z1 and z2 (cells on the bore that are material), consistent nodal loads
+                double len = 0;
+                var segs = new List<(int k, double a, double b)>();
+                for (int k = 0; k + 1 < nz; k++)
+                {
+                    double a = Math.Max(z1, zs[k]), b = Math.Min(z2, zs[k + 1]);
+                    if (b <= a || (m.Solid != null && !m.Solid((rs[0] + rs[1]) / 2, (zs[k] + zs[k + 1]) / 2))) continue;
+                    segs.Add((k, a, b)); len += b - a;
+                }
+                if (len <= 0) throw new ArgumentException("Bore load range has no material on the bore.");
+                double q = force / len; // N per unit length of bore
+                foreach (var (k, a, b) in segs)
+                {
+                    bool upper = split && k >= kI;
+                    double h = zs[k + 1] - zs[k];
+                    double wk = ((zs[k + 1] - a) + (zs[k + 1] - b)) / 2 / h, wk1 = 1 - wk; // N_k and N_(k+1) at the segment's midpoint (linear: exact)
+                    load[2 * Node(0, k, upper) + 1] += q * (b - a) * wk;
+                    load[2 * Node(0, k + 1, upper) + 1] += q * (b - a) * wk1;
+                }
+            }
 
             // rigid punch: stiff springs pulling the top nodes under it to uz = -Depth
             var spring = new double[ndof];
@@ -104,96 +187,145 @@ namespace SwAgent.Mold.Structural.Fe.Solid
             {
                 double kp = 1e7 * e * (rs[nr - 1] - rs[0]);
                 for (int i = 0; i < nr; i++)
-                    if (rs[i] >= punch.Value.R1 - 1e-12 && rs[i] <= punch.Value.R2 + 1e-12)
+                    if (rs[i] >= punch.Value.R1 - 1e-12 && rs[i] <= punch.Value.R2 + 1e-12 && used[Node(i, top, true)])
                     {
-                        int dz = 2 * Node(i, top) + 1;
+                        int dz = 2 * Node(i, top, true) + 1;
                         spring[dz] = kp; load[dz] -= kp * punch.Value.Depth;
                     }
             }
+
+            // interface contact: a stiff two-node spring on uz per radius where both bodies have the node
+            var pairs = new List<(int i, int lo, int up, double k)>();
+            if (split)
+                for (int i = 0; i < nr; i++)
+                {
+                    int lo = Node(i, kI, false), up = Node(i, kI, true);
+                    if (!used[lo] || !used[up]) continue;
+                    double trib = ((i > 0 ? rs[i] - rs[i - 1] : 0) + (i < nr - 1 ? rs[i + 1] - rs[i] : 0)) / 2;
+                    double hz = Math.Min(zs[kI] - zs[kI - 1], zs[kI + 1] - zs[kI]);
+                    pairs.Add((i, 2 * lo + 1, 2 * up + 1, 1e4 * e * 2 * Math.PI * rs[i] * trib / hz));
+                }
+            var pairOn = pairs.Select(_ => true).ToArray();
+
             var fixedZ0 = new bool[nr];
             if (m.Bottom != BottomCondition.None) for (int i = 0; i < nr; i++) fixedZ0[i] = true;
-            var res = new AxisymmetricResult { Rs = rs, Zs = zs, AppliedForce = -load.Where((v, idx) => idx % 2 == 1 && spring[idx] == 0).Sum() };
+            var res = new AxisymmetricResult { Rs = rs, Zs = zs, InterfaceK = kI, AppliedForce = -load.Where((v, idx) => idx % 2 == 1 && spring[idx] == 0 && v < 0).Sum() };
             double[] u = null;
             double[] ku = null;
             for (int pass = 1; pass <= Math.Max(1, m.MaxContactPasses); pass++)
             {
                 res.Passes = pass;
                 var fix = new bool[ndof];
-                for (int i = 0; i < nr; i++) if (fixedZ0[i]) fix[2 * Node(i, 0) + 1] = true;
-                if (m.TopFixedZ) for (int i = 0; i < nr; i++) fix[2 * Node(i, top) + 1] = true;
-                if (m.Bottom == BottomCondition.None && !m.TopFixedZ) throw new InvalidOperationException("Axial rigid-body motion is free.");
-                u = SolveOnce(m, d, load, fix, spring, Node, ct, out ku);
+                for (int n = 0; n < nNodes; n++) if (!used[n]) fix[2 * n] = fix[2 * n + 1] = true;
+                for (int i = 0; i < nr; i++) if (fixedZ0[i]) fix[2 * Node(i, 0, false) + 1] = true;
+                if (m.TopFixedZ) for (int i = 0; i < nr; i++) fix[2 * Node(i, top, true) + 1] = true;
+                foreach (var (pi, pk) in m.PinZ) fix[2 * Node(pi, pk, false) + 1] = true;
+                if (m.Bottom == BottomCondition.None && !m.TopFixedZ && m.PinZ.Count == 0 && !m.TopPunch.HasValue)
+                    throw new InvalidOperationException("Axial rigid-body motion is free.");
+                var links = pairs.Where((p, q) => pairOn[q]).Select(p => (p.lo, p.up, p.k)).ToList();
+                u = SolveOnce(m, d, cells, ndof, load, fix, spring, links, ct, out ku);
                 if (m.TopPunch.HasValue)
                 {
                     double pf = 0;
                     for (int q = 0; q < ndof; q++) if (spring[q] > 0) pf += spring[q] * (u[q] + m.TopPunch.Value.Depth);
                     res.PunchForce = pf; res.AppliedForce = pf;
                 }
-                if (m.Bottom != BottomCondition.Contact) break;
                 bool changed = false;
-                for (int i = 0; i < nr; i++)
-                {
-                    int dz = 2 * Node(i, 0) + 1;
-                    if (fixedZ0[i])
+                if (m.Bottom == BottomCondition.Contact)
+                    for (int i = 0; i < nr; i++)
                     {
-                        double reaction = ku[dz] - load[dz]; // support force on the member along +z
-                        if (reaction < -1e-12 * res.AppliedForce) { fixedZ0[i] = false; changed = true; }
+                        int dz = 2 * Node(i, 0, false) + 1;
+                        if (!used[Node(i, 0, false)]) continue;
+                        if (fixedZ0[i])
+                        {
+                            double reaction = ku[dz] - load[dz]; // support force on the member along +z
+                            if (reaction < -1e-12 * res.AppliedForce) { fixedZ0[i] = false; changed = true; }
+                        }
+                        else if (u[dz] < 0) { fixedZ0[i] = true; changed = true; }
                     }
-                    else if (u[dz] < 0) { fixedZ0[i] = true; changed = true; }
+                double uMax = pairs.Count > 0 ? u.Max(v => Math.Abs(v)) : 0;
+                for (int q = 0; q < pairs.Count; q++)
+                {
+                    // closed: the spring must push the bodies apart (upper above lower would mean tension); open: no overlap
+                    double gap = u[pairs[q].up] - u[pairs[q].lo];
+                    if (pairOn[q] && gap > 1e-12 * uMax) { pairOn[q] = false; changed = true; }
+                    else if (!pairOn[q] && gap < 0) { pairOn[q] = true; changed = true; }
                 }
                 if (!changed) break;
             }
             res.Ur = new double[nr, nz]; res.Uz = new double[nr, nz];
             for (int i = 0; i < nr; i++)
-                for (int k = 0; k < nz; k++) { res.Ur[i, k] = u[2 * Node(i, k)]; res.Uz[i, k] = u[2 * Node(i, k) + 1]; }
+                for (int k = 0; k < nz; k++)
+                {
+                    int n = Node(i, k, true);
+                    if (!used[n] && split && k == kI) n = Node(i, k, false);
+                    res.Ur[i, k] = used[n] ? u[2 * n] : double.NaN; res.Uz[i, k] = used[n] ? u[2 * n + 1] : double.NaN;
+                }
+            if (split)
+            {
+                res.UzInterfaceLower = new double[nr];
+                for (int i = 0; i < nr; i++) { int n = Node(i, kI, false); res.UzInterfaceLower[i] = used[n] ? u[2 * n + 1] : double.NaN; }
+                bool closed = true;
+                for (int q = 0; q < pairs.Count; q++)
+                {
+                    if (!pairOn[q]) { closed = false; continue; }
+                    if (closed) res.InterfaceContactRadius = rs[pairs[q].i];
+                }
+            }
             bool inner = true;
             for (int i = 0; i < nr; i++)
             {
-                if (!fixedZ0[i] || m.Bottom == BottomCondition.None) { inner = false; continue; }
-                int dz = 2 * Node(i, 0) + 1;
+                if (!fixedZ0[i] || m.Bottom == BottomCondition.None || !used[Node(i, 0, false)]) { inner = false; continue; }
+                int dz = 2 * Node(i, 0, false) + 1;
                 res.ContactForce += ku[dz] - load[dz];
                 if (inner) res.ContactRadius = rs[i];
             }
             return res;
         }
 
-        static double[] SolveOnce(AxisymmetricModel m, double[,] d, double[] load, bool[] fix, double[] spring, Func<int, int, int> node, CancellationToken ct, out double[] ku)
+        static double[] SolveOnce(AxisymmetricModel m, double[,] d, List<(int i, int k, int[] dofs, double scale)> cells, int ndof, double[] load, bool[] fix, double[] spring,
+            List<(int lo, int up, double k)> links, CancellationToken ct, out double[] ku)
         {
             var rs = m.Rs; var zs = m.Zs;
-            int nr = rs.Length, nz = zs.Length, ndof = 2 * nr * nz;
             var eq = new int[ndof];
             int neq = 0;
             for (int q = 0; q < ndof; q++) eq[q] = fix[q] ? -1 : neq++;
+            if (neq == 0) throw new InvalidOperationException("Every DOF is fixed.");
             int band = 0;
-            for (int i = 0; i + 1 < nr; i++)
-                for (int k = 0; k + 1 < nz; k++)
-                {
-                    var dofs = Dofs(i, k, node);
-                    int lo = int.MaxValue, hi = -1;
-                    foreach (var q in dofs) if (eq[q] >= 0) { lo = Math.Min(lo, eq[q]); hi = Math.Max(hi, eq[q]); }
-                    if (hi >= 0) band = Math.Max(band, hi - lo);
-                }
+            foreach (var c in cells)
+            {
+                int lo = int.MaxValue, hi = -1;
+                foreach (var q in c.dofs) if (eq[q] >= 0) { lo = Math.Min(lo, eq[q]); hi = Math.Max(hi, eq[q]); }
+                if (hi >= 0) band = Math.Max(band, hi - lo);
+            }
+            foreach (var l in links) if (eq[l.lo] >= 0 && eq[l.up] >= 0) band = Math.Max(band, Math.Abs(eq[l.up] - eq[l.lo]));
             var k8 = new BandedLdlt(neq, band);
             var elems = new List<(int[] dofs, double[] ke)>();
-            for (int i = 0; i + 1 < nr; i++)
-                for (int k = 0; k + 1 < nz; k++)
+            foreach (var c in cells)
+            {
+                var ke = Element(rs[c.i], rs[c.i + 1], zs[c.k], zs[c.k + 1], d);
+                if (c.scale != 1) for (int q = 0; q < 64; q++) ke[q] *= c.scale;
+                elems.Add((c.dofs, ke));
+                for (int r = 0; r < 8; r++)
                 {
-                    var ke = Element(rs[i], rs[i + 1], zs[k], zs[k + 1], d);
-                    var dofs = Dofs(i, k, node);
-                    elems.Add((dofs, ke));
-                    for (int r = 0; r < 8; r++)
+                    int er = eq[c.dofs[r]];
+                    if (er < 0) continue;
+                    for (int cc = r; cc < 8; cc++)
                     {
-                        int er = eq[dofs[r]];
-                        if (er < 0) continue;
-                        for (int c = r; c < 8; c++)
-                        {
-                            int ec = eq[dofs[c]];
-                            if (ec < 0) continue;
-                            k8.Add(er, ec, ke[r * 8 + c]);
-                        }
+                        int ec = eq[c.dofs[cc]];
+                        if (ec < 0) continue;
+                        k8.Add(er, ec, ke[r * 8 + cc]);
                     }
                 }
+            }
             for (int q = 0; q < ndof; q++) if (spring[q] != 0 && eq[q] >= 0) k8.Add(eq[q], eq[q], spring[q]);
+            foreach (var l in links)
+            {
+                int a = eq[l.lo], b = eq[l.up];
+                if (a >= 0) k8.Add(a, a, l.k);
+                if (b >= 0) k8.Add(b, b, l.k);
+                if (a >= 0 && b >= 0) k8.Add(a, b, -l.k);
+            }
             var rhs = new double[neq];
             for (int q = 0; q < ndof; q++) if (eq[q] >= 0) rhs[eq[q]] = load[q];
             k8.Factor(ct);
@@ -209,15 +341,8 @@ namespace SwAgent.Mold.Structural.Fe.Solid
                     ku[dofs[r]] += s;
                 }
             for (int q = 0; q < ndof; q++) ku[q] += spring[q] * u[q];
+            foreach (var l in links) { double s = l.k * (u[l.up] - u[l.lo]); ku[l.up] += s; ku[l.lo] -= s; }
             return u;
-        }
-
-        static int[] Dofs(int i, int k, Func<int, int, int> node)
-        {
-            int[] n = { node(i, k), node(i + 1, k), node(i + 1, k + 1), node(i, k + 1) };
-            var d = new int[8];
-            for (int a = 0; a < 4; a++) { d[2 * a] = 2 * n[a]; d[2 * a + 1] = 2 * n[a] + 1; }
-            return d;
         }
 
         /// <summary>8 x 8 ring element stiffness (includes 2 pi), nodes (r1,z1), (r2,z1), (r2,z2), (r1,z2).</summary>
