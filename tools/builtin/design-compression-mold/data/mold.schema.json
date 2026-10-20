@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://unify3d.ai/schemas/unify3d.mold/1",
   "title": "unify3d.mold/1 - compression mold design record and simulator manifest",
-  "description": "mold.json in the folder '<mold file name>.mold' next to the mold part. Numbers are mm, deg, MPa, degC, kg, kN, cP, min unless the key names another unit (_g, _s, _Nm, _mm2, _mm3, _K, _um). Consumers ignore unknown keys; additive changes keep /1. Every array of objects has a string id; merges match on it.",
+  "description": "mold.json in the folder '<mold file name>.mold' next to the mold part. Numbers are mm, deg, MPa, degC, kg, kN, cP, min unless the key names another unit (_g, _s, _Nm, _mm2, _mm3, _K, _um, Pct). Consumers ignore unknown keys; additive changes keep /1. The arrays mold_record merges by id (checks, simulations, stages, decisions, bodies, airTraps, vents, layout.cavities, partingLine.planes, hardware.bolts/dowels/fits/stops/tcWells, part.fragile/criticalFaces/drawing.tolerances) carry a string id. Written by: mold_record init (schema, id, tool, status, dates, units, files.moldPart, inputs, reserved material data), mold_calc (materials.part, process, shrink, layout, hardware, structural, checks), mold_part (part), mold_bodies (bodies), the agent (identity, scope, files.moldedPart, frame, part.drawing, part.criticalFaces, partingLine, airTraps, vents, process.pour plan, stages, decisions, bodies[].machining.notes, hardware.bom, setup, views, report, simulations), mold_record setup_sheet / machining_sheet (setupSheet, machiningSheet).",
   "type": "object",
   "required": [ "schema", "id", "tool", "status", "units" ],
   "properties": {
@@ -15,15 +15,16 @@
         "name": { "const": "design-compression-mold" },
         "version": { "type": "string" },
         "addin": { "type": "string" },
-        "calc": { "type": "string", "description": "MoldCalc.Version used for the latest results." }
+        "calculator": { "type": "string", "description": "MoldCalc.Version at init." }
       }
     },
     "status": { "enum": [ "planning", "sizing", "building", "verifying", "done" ] },
-    "scope": { "enum": [ "build", "advisory" ], "description": "advisory: v1 plans but does not build this job (process class C, or class B deeper than wide)." },
+    "scope": { "enum": [ "build", "advisory" ], "description": "advisory: v1 plans but does not build this job (process class C, class B deeper than wide, landed-positive, or above 250 degC). An advisory job still ends with status done." },
     "createdAt": { "$ref": "#/$defs/time" },
     "updatedAt": { "$ref": "#/$defs/time" },
     "units": {
       "type": "object",
+      "required": [ "length", "pressure" ],
       "properties": {
         "length": { "const": "mm" }, "angle": { "const": "deg" }, "pressure": { "const": "MPa" }, "temperature": { "const": "degC" },
         "mass": { "const": "kg" }, "force": { "const": "kN" }, "viscosity": { "const": "cP" }, "time": { "const": "min" },
@@ -32,6 +33,7 @@
     },
     "identity": {
       "type": "object",
+      "description": "Written by the agent (Phase 0 and the G2 form). Both sheets print it.",
       "properties": {
         "moldNumber": { "type": "string" }, "revision": { "type": "string" }, "partNumber": { "type": "string" },
         "partName": { "type": "string" }, "customer": { "type": "string" }
@@ -42,11 +44,11 @@
       "properties": {
         "moldPart": { "type": "string" },
         "moldedPart": {
-          "type": "object",
+          "type": [ "object", "null" ],
           "properties": {
             "path": { "type": "string" }, "converted": { "type": [ "string", "null" ] }, "feature": { "type": "string" },
             "fromDrawing": { "type": "boolean", "description": "Phase 1a: modelled by the agent from the drawing." },
-            "sourceVolume_mm3": { "type": "number" }
+            "sourceVolume_mm3": { "type": [ "number", "null" ] }
           }
         },
         "drawings": { "type": "array", "items": { "type": "object", "properties": { "path": { "type": "string" }, "pages": { "type": "integer" } } } }
@@ -54,13 +56,7 @@
     },
     "inputs": {
       "type": "object",
-      "description": "Page values keyed by input id: SI-like value plus what the user saw.",
-      "additionalProperties": {
-        "type": "object",
-        "properties": {
-          "value": {}, "unit": { "type": "string" }, "display": { "type": "string" }, "table": {}, "edited": { "type": "boolean" }, "notSet": { "type": "boolean" }
-        }
-      }
+      "description": "The page's values by input id, as mold_record init received them (numbers in SI-like units, choice labels, size arrays, selections, file lists, or {value, unit, display, si, notSet} objects). The agent merges answers it collected later (press meaning, lifting answers) here, because mold_calc reads them from here."
     },
     "materials": {
       "type": "object",
@@ -68,18 +64,14 @@
         "part": {
           "type": "object",
           "properties": {
-            "id": { "type": "string" }, "name": { "type": "string" }, "processType": { "type": "string" },
-            "used": { "type": "object" }, "confidence": { "type": "string" }, "sources": { "type": "array", "items": { "type": "string" } },
-            "shrinkBasis": { "type": "string" }, "hazards": { "type": "string" },
+            "id": { "type": "string" }, "used": { "type": "object", "description": "The values the calculator used (page edits over the table)." },
+            "confidence": { "type": "string" }, "sources": { "type": "array", "items": { "type": "string" } },
             "rheology": { "$ref": "#/$defs/reservedData", "description": "Viscosity vs time and temperature (for fill simulators)." },
             "kinetics": { "$ref": "#/$defs/reservedData", "description": "Gel time and cure kinetics." },
             "thermal": { "$ref": "#/$defs/reservedData", "description": "Conductivity, heat capacity, reaction heat of the part material." },
             "mechanical": { "$ref": "#/$defs/reservedData", "description": "Modulus or hardness vs temperature, friction and release (for demold simulators)." }
           }
-        },
-        "plates": { "$ref": "#/$defs/gradeAtTemp" },
-        "inserts": { "$ref": "#/$defs/gradeAtTemp" },
-        "stops": { "$ref": "#/$defs/gradeAtTemp" }
+        }
       }
     },
     "process": {
@@ -87,48 +79,49 @@
       "properties": {
         "class": { "enum": [ "A", "B", "C" ] },
         "processType": { "type": "string" },
+        "processLabel": { "type": "string" },
+        "builtByV1": { "type": "boolean" },
         "moldType": { "type": "string", "description": "flash_full_land | flash_stop_pads | semi_positive | landed_positive | positive" },
-        "pressTempC": { "type": "number" },
         "pour": {
           "type": "object",
+          "description": "side, tiltDeg and points are the agent's plan (Phase 2); the timing keys are mold_calc's (class A, D3).",
           "properties": {
-            "side": { "enum": [ "base", "lid", "both", "charge" ] }, "tiltDeg": { "type": "number" },
-            "time_s": { "type": "number" }, "rate_g_s": { "type": "number" }, "handling_s": { "type": "number" },
-            "points": { "type": "array", "items": { "type": "object", "properties": { "cavity": { "type": "string" }, "at": { "$ref": "#/$defs/vec3" } } } }
+            "side": { "enum": [ "base", "lid", "both", "charge in base", "charge in lid" ] }, "tiltDeg": { "type": "number" },
+            "points": { "type": "array", "items": { "type": "object", "properties": { "cavity": { "type": "string" }, "at": { "$ref": "#/$defs/vec3" } } } },
+            "secondsPerCavity": { "type": "number" }, "secondsTotal": { "type": "number" }, "limitSeconds": { "type": [ "number", "null" ] },
+            "massRate_g_s": { "type": "number" }, "handlingSeconds": { "type": "number" }
           }
         },
-        "charge": { "type": "object", "properties": { "perCavity_g": { "type": "number" }, "shot_g": { "type": "number" }, "tolerancePct": { "type": "number" }, "preform": { "type": "string" } } },
-        "overflowRequired_mm3": { "type": "number" },
+        "charge": {
+          "type": "object",
+          "properties": {
+            "perCavity_g": { "type": "number" }, "shot_g": { "type": "number" }, "holdUpPct": { "type": "number" },
+            "tolerancePct": { "type": "number" }, "excessPct": { "type": "number" }
+          }
+        },
+        "overflowRequired_mm3": { "type": [ "number", "null" ] },
+        "grooveRadius_mm": { "type": [ "number", "null" ] },
+        "loadingWell": { "type": [ "object", "null" ] },
         "cureMin": { "type": "number" },
-        "cureNote": { "type": "string", "description": "Class A: datasheet demold time (+ warning below moldTempC.min). Class B: halving per 10 degC within the material's range." },
-        "postCure": { "type": [ "object", "null" ], "properties": { "tempC": { "type": "number" }, "hours": { "type": "number" }, "notes": { "type": "string" } } },
+        "cureNote": { "type": "string", "description": "E6: class A datasheet demold time (+ a warning below moldTempC.min); class B halving per 10 degC within the material's range." },
+        "postCure": {
+          "type": [ "object", "null" ],
+          "properties": { "required": { "type": "boolean" }, "tempC": { "type": [ "number", "null" ] }, "hours": { "type": [ "number", "null" ] }, "notes": { "type": [ "string", "null" ] } }
+        },
         "press": {
           "type": "object",
           "properties": {
-            "ramArea_mm2": { "type": "number" }, "rated_kN": { "type": "number" }, "ratedGauge_MPa": { "type": "number" },
-            "force_kN": { "type": "number" }, "required_kN": { "type": "number" }, "platen_mm": { "$ref": "#/$defs/numArray" },
-            "daylight_mm": { "type": [ "number", "null" ] }, "stroke_mm": { "type": [ "number", "null" ] }
+            "meaning": { "type": "string" }, "ramArea_mm2": { "type": "number" }, "force_kN": { "type": "number" },
+            "aProj_mm2": { "type": "number" }, "aProjForce_mm2": { "type": "number" }, "pLC1_MPa": { "type": "number" }, "pLC1x_MPa": { "type": "number" },
+            "pReq_MPa": { "type": "number" }, "fReq_kN": { "type": "number" }, "gaugeNeeded_MPa": { "type": "number" }, "gaugeForInput_MPa": { "type": "number" },
+            "loadCentre_mm": { "$ref": "#/$defs/numArray" }
           }
         },
         "gauge": {
           "type": "object",
           "properties": {
-            "recommended_MPa": { "type": "number" }, "max_MPa": { "type": "number" }, "maxBasis": { "type": "string" },
-            "basis": { "type": "string" }, "conversion": { "type": "string" }, "unitShown": { "type": "string" }
-          }
-        },
-        "closedHeight_mm": { "type": "number" },
-        "loadCentre": { "type": "string" },
-        "minActiveCavities": { "type": "integer" },
-        "partialLoading": {
-          "type": "array",
-          "description": "Setup-sheet table: gauge per number of active cavities (critique E3).",
-          "items": {
-            "type": "object", "required": [ "id" ],
-            "properties": {
-              "id": { "type": "string" }, "active": { "type": "integer" }, "pattern": { "type": "string" },
-              "gauge_MPa": { "type": "number" }, "pressureOnPart_MPa": { "type": "number" }, "allowed": { "type": "boolean" }, "note": { "type": "string" }
-            }
+            "recommended_MPa": { "type": "number" }, "max_MPa": { "type": [ "number", "null" ] }, "maxBasis": { "type": [ "string", "null" ] },
+            "basis": { "type": "string" }, "unitShown": { "type": "string", "description": "Reserved: the unit the user's gauge reads in (psi, bar, MPa, kgf/cm2)." }
           }
         }
       }
@@ -144,9 +137,11 @@
     "shrink": {
       "type": "object",
       "properties": {
-        "pct": { "type": "number" }, "basis": { "type": "string" }, "formula": { "type": "string" },
+        "pct": { "type": "number" }, "basis": { "type": "string" }, "basisLabel": { "type": "string" }, "effectivePct": { "type": "number" },
         "alphaRef": { "type": "number" }, "alphaCavity": { "type": "number" }, "deltaT_K": { "type": "number" },
-        "scale": { "$ref": "#/$defs/numArray" }, "about": { "type": "string" }, "feature": { "type": "string" }
+        "scale": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 },
+        "pctAxis": { "type": [ "object", "array", "null" ] }, "about": { "type": "string" }, "feature": { "type": "string" },
+        "steelSafe": { "type": "array" }
       }
     },
     "part": {
@@ -161,8 +156,15 @@
         "drawing": {
           "type": "object",
           "properties": {
-            "flashClass": { "type": [ "string", "null" ] }, "finish": { "type": [ "string", "null" ] },
-            "tolerances": { "$ref": "#/$defs/idArray" }, "notes": { "$ref": "#/$defs/idArray" },
+            "flashClass": { "type": [ "string", "null" ] }, "finish": { "type": [ "string", "null" ], "description": "Cavity finish (SPI or Ra); the machining sheet prints it." },
+            "tolerances": {
+              "type": "array",
+              "items": {
+                "type": "object", "required": [ "id" ],
+                "properties": { "id": { "type": "string" }, "what": { "type": "string" }, "tol_mm": { "type": "number" }, "closure": { "type": "boolean" }, "sheet": { "type": "string" } }
+              }
+            },
+            "notes": { "$ref": "#/$defs/idArray" },
             "keyDims": { "$ref": "#/$defs/idArray", "description": "Phase 1a: dimensions the user confirmed before the part was modelled." }
           }
         }
@@ -182,24 +184,30 @@
     "layout": {
       "type": "object",
       "properties": {
-        "pattern": { "type": "string" }, "footprint_mm": { "$ref": "#/$defs/numArray" },
-        "cavities": { "$ref": "#/$defs/idArray" }, "moats": { "type": "string" }
+        "pattern": { "type": "string" }, "footprint_mm": { "$ref": "#/$defs/numArray" }, "moats": { "type": "string" },
+        "cavities": {
+          "type": "array",
+          "items": { "type": "object", "required": [ "id" ], "properties": { "id": { "type": "string" }, "origin": { "$ref": "#/$defs/vec3" }, "rotationDeg": { "type": "number" } } }
+        }
       }
     },
     "bodies": {
       "type": "array",
+      "description": "Every solid body, from mold_bodies report (A2). The sheets list only machined roles.",
       "items": {
         "type": "object", "required": [ "id" ],
         "properties": {
-          "id": { "type": "string", "description": "BASE-n, MID-n, LID-n, SUB-n, INS-<cavity>-n, STOP-n, PART-REF" },
-          "role": { "enum": [ "base", "middle", "lid", "subplate", "insert", "stop", "reference" ] },
-          "folder": { "type": "string" }, "createdBy": { "type": "string" }, "swName": { "type": "string" },
-          "material": { "type": "string" }, "materialName": { "type": "string" }, "swMaterial": { "type": [ "string", "null" ] },
-          "volume_mm3": { "type": "number" }, "mass_kg": { "type": "number" }, "box_mm": { "$ref": "#/$defs/numArray" },
-          "centroid": { "$ref": "#/$defs/vec3" }, "limits": { "type": "object" }, "cavities": { "type": "array", "items": { "type": "string" } },
-          "lift": { "type": "string", "description": "one person (2 handles) | two people | hoist (2 x M12 hoist rings) ..." },
-          "machining": { "$ref": "#/$defs/machining" },
-          "step": { "type": "string" }
+          "id": { "type": "string", "description": "BASE-n, MID-n, LID-n, SUB-n, INS-<cavity>-n, STOP-n, PART-REF, GARBAGE-n, BODY-n (unfiled)" },
+          "role": { "enum": [ "base", "middle", "lid", "subplate", "insert", "stop", "reference", "garbage", "unfiled" ] },
+          "folder": { "type": [ "string", "null" ] }, "swName": { "type": [ "string", "null" ] }, "swMaterial": { "type": [ "string", "null" ] },
+          "volume_mm3": { "type": "number" }, "mass_kg": { "type": [ "number", "null" ], "description": "null when no density is known (Garbage, reference bodies)." },
+          "massBasis": { "type": "string" }, "box_mm": { "$ref": "#/$defs/numArray" }, "boxFrame_mm": { "$ref": "#/$defs/numArray" },
+          "centroid": { "$ref": "#/$defs/vec3" }, "limits": { "type": "object" },
+          "machining": {
+            "type": "object",
+            "description": "What only the agent knows about this piece, for the machining sheet: setups, pocket corner reliefs with the cutter, shut-off heights, finish per face group, engraving.",
+            "properties": { "notes": { "$ref": "#/$defs/strings" } }
+          }
         }
       }
     },
@@ -212,51 +220,43 @@
             "type": "object", "required": [ "id" ],
             "properties": {
               "id": { "type": "string" }, "joint": { "type": "string" }, "size": { "type": "string" }, "spec": { "type": "string" },
-              "count": { "type": "integer" }, "length": { "type": "string" }, "grip_mm": { "type": "number" },
-              "preload_kN": { "type": "number" }, "preloadMin_kN": { "type": "number" }, "preloadMax_kN": { "type": "number" },
+              "count": { "type": "integer" }, "grip_mm": { "type": "number" }, "stockLength_mm": { "type": [ "number", "null" ] },
+              "engagement_mm": { "type": "number" }, "tapDepth_mm": { "type": "number" },
+              "preload_kN": { "type": "number" }, "preloadBand_kN": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
               "torqueDry_Nm": { "type": "number" }, "torqueLubed_Nm": { "type": "number" },
-              "insert": { "type": [ "string", "null" ] }, "washer": { "type": [ "string", "null" ] }, "cbore": { "type": "string" }
+              "insert": { "type": [ "string", "null" ] }, "washer": { "type": [ "string", "null" ] },
+              "cboreForWasher_mm": { "type": "number" }, "cboreDepth_mm": { "type": "number" }, "retorque": { "type": "string" }
             }
           }
         },
-        "dowels": { "$ref": "#/$defs/idArray" },
+        "dowels": {
+          "type": "array",
+          "items": { "type": "object", "required": [ "id" ], "properties": { "id": { "type": "string" }, "d_mm": { "type": "number" }, "kind": { "type": "string" }, "at": { "$ref": "#/$defs/vec3" } } }
+        },
+        "dowelScheme": { "type": "object", "properties": { "scheme": { "type": "string" }, "mismatch_mm": { "type": "number" }, "lidBaseDeltaT_K": { "type": "number" } } },
         "fits": { "$ref": "#/$defs/idArray" },
         "stops": { "$ref": "#/$defs/idArray" },
         "tcWells": { "$ref": "#/$defs/idArray" },
-        "jackScrews": { "$ref": "#/$defs/idArray" },
-        "lift": { "type": "array", "items": { "type": "object" } },
+        "lift": { "type": "array", "items": { "type": "object", "properties": { "body": { "type": "string" }, "kind": { "type": "string" } } } },
+        "slideIn": { "type": [ "object", "null" ], "description": "mold_calc: locating stop, base pull handles, nothing proud below the base (E4)." },
         "bom": {
           "type": "array",
-          "description": "Purchased hardware (critique E2).",
+          "description": "Purchased items mold_calc doesn't size (bushings, jack screws, air poppets, shims, part numbers), written by the agent; the machining sheet lists them after the derived screws, washers, inserts and dowels.",
           "items": {
-            "type": "object", "required": [ "id" ],
+            "type": "object", "required": [ "item", "qty" ],
             "properties": {
-              "id": { "type": "string" }, "item": { "type": "string" }, "spec": { "type": "string" }, "size": { "type": "string" },
-              "length": { "type": "string" }, "qty": { "type": "integer" }, "partNumber": { "type": [ "string", "null" ] },
-              "use": { "type": "string" }, "note": { "type": "string" }
+              "id": { "type": "string" }, "item": { "type": "string" }, "size": { "type": "string" }, "qty": { "type": "integer" },
+              "partNumber": { "type": [ "string", "null" ] }, "note": { "type": "string" }
             }
           }
         }
-      }
-    },
-    "handling": {
-      "type": "object",
-      "properties": {
-        "lid": {
-          "type": "object",
-          "properties": {
-            "mass_kg": { "type": "number" }, "limit_kg": { "type": "number" }, "limitSource": { "type": "string" },
-            "rwl_kg": { "type": [ "number", "null" ] }, "liftingIndex": { "type": [ "number", "null" ] },
-            "where": { "type": "string" }, "reach_mm": { "type": "number" }, "liftsPerHour": { "type": "number" }, "method": { "type": "string" }
-          }
-        },
-        "slideIn": { "type": "array", "items": { "type": "string" } }
       }
     },
     "structural": {
       "type": "object",
       "properties": {
         "inputs": { "type": "object" },
+        "materials": { "type": "object", "description": "plates and inserts: {id, tempC, E_GPa, Sy_MPa, Su_MPa, service, note}." },
         "loadCases": {
           "type": "object",
           "properties": {
@@ -267,7 +267,35 @@
             "LC1x": { "type": "object" }, "LC2": { "type": "object" }, "LC3": { "type": "object" }, "LC4": { "type": "object" }, "LC5": { "type": "object" }
           }
         },
-        "results": { "type": "object" },
+        "results": {
+          "type": "object",
+          "properties": {
+            "pieces": { "$ref": "#/$defs/idArray" },
+            "stackHeight_mm": { "type": "number" },
+            "lid": {
+              "type": "object",
+              "description": "Lid weight against its limit (the user's max_lid_mass or the NIOSH limit) and the lifting index (A2).",
+              "properties": { "mass_kg": { "type": "number" }, "limit_kg": { "type": "number" }, "limitBasis": { "type": "string" }, "liftingIndex": { "type": "number" } }
+            },
+            "partialLoading": {
+              "type": "object",
+              "description": "Running fewer cavities (E3): gauge and force per number of active cavities.",
+              "properties": {
+                "rows": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "active": { "type": "integer" }, "gauge_MPa": { "type": "number" }, "force_kN": { "type": "number" },
+                      "patterns": { "type": "integer" }, "of": { "type": "integer" }, "example": { "type": [ "string", "null" ] }, "note": { "type": "string" }
+                    }
+                  }
+                },
+                "neverFewerThan": { "type": "integer" }
+              }
+            }
+          }
+        },
         "coefficients": { "type": "object" }
       }
     },
@@ -283,7 +311,7 @@
           "demand": { "type": [ "number", "null" ] }, "capacity": { "type": [ "number", "null" ] }, "unit": { "type": [ "string", "null" ] },
           "margin": { "type": [ "number", "null" ], "description": "capacity/demand - 1 for upper limits; demand/capacity - 1 for lower limits." },
           "status": { "enum": [ "pass", "warn", "fail", "not_run", "waived" ] },
-          "method": { "type": "string" }, "stage": { "type": "string" }, "note": { "type": "string" },
+          "method": { "type": "string" }, "stage": { "type": [ "string", "null" ] }, "note": { "type": [ "string", "null" ] },
           "waivedBy": { "type": [ "string", "null" ] }, "reason": { "type": [ "string", "null" ] },
           "location": { "$ref": "#/$defs/location" }
         }
@@ -311,7 +339,7 @@
       "items": {
         "type": "object", "required": [ "id" ],
         "properties": {
-          "id": { "type": "string" }, "name": { "type": "string" }, "status": { "enum": [ "pending", "running", "done", "failed", "skipped" ] },
+          "id": { "type": "string" }, "name": { "type": "string" }, "status": { "enum": [ "pending", "running", "in_progress", "done", "failed", "skipped" ] },
           "checkpoint": { "type": [ "string", "null" ], "description": "Exact checkpoint name (yyyyMMdd-HHmmss-<name>) to restore this stage's start." },
           "features": { "type": "array", "items": { "type": "string" } }, "check": { "type": "string" }, "at": { "$ref": "#/$defs/time" }
         }
@@ -329,12 +357,10 @@
     },
     "setup": {
       "type": "object",
-      "description": "Operator text the agent writes for the setup sheet (lists are printed in order).",
+      "description": "Operator text only the agent can write (lists print in order). Preheat, first-article, maintenance, slide-in and the numbers come from SetupSheet.Build.",
       "properties": {
-        "assembly": { "$ref": "#/$defs/strings" }, "preheat": { "type": "string" }, "material": { "$ref": "#/$defs/strings" },
-        "pourSequence": { "$ref": "#/$defs/strings" }, "demold": { "$ref": "#/$defs/strings" }, "release": { "type": "string" },
-        "cleaning": { "type": "string" }, "firstArticle": { "$ref": "#/$defs/strings" }, "safety": { "$ref": "#/$defs/strings" },
-        "maintenance": { "$ref": "#/$defs/strings" }
+        "assembly": { "$ref": "#/$defs/strings" }, "material": { "$ref": "#/$defs/strings" }, "pourSequence": { "$ref": "#/$defs/strings" },
+        "demold": { "$ref": "#/$defs/strings" }, "release": { "type": "string" }, "cleaning": { "type": "string" }, "safety": { "$ref": "#/$defs/strings" }
       }
     },
     "views": {
@@ -345,7 +371,10 @@
     "report": {
       "type": "object",
       "properties": {
-        "lowestMargins": { "$ref": "#/$defs/idArray" },
+        "lowestMargins": {
+          "type": "array",
+          "items": { "type": "object", "required": [ "id" ], "properties": { "id": { "type": "string" }, "type": { "type": [ "string", "null" ] }, "margin": { "type": [ "number", "null" ] }, "status": { "type": "string" } } }
+        },
         "openItems": { "$ref": "#/$defs/strings" },
         "summary": { "type": "string" }
       }
@@ -362,32 +391,20 @@
       "type": "array",
       "items": { "type": "object", "required": [ "id" ], "properties": { "id": { "type": "string" } } }
     },
-    "gradeAtTemp": {
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" }, "name": { "type": "string" },
-        "atTemp": {
-          "type": "object",
-          "properties": {
-            "tempC": { "type": "number" }, "E_GPa": { "type": "number" }, "Sy_MPa": { "type": "number" }, "Su_MPa": { "type": "number" },
-            "service": { "type": "string", "description": "ok | ok-derated | limited | not allowed | no data (S12)" }
-          }
-        }
-      }
-    },
     "reservedData": {
       "type": "object",
       "required": [ "status" ],
       "properties": {
         "status": { "enum": [ "unknown", "estimated", "measured", "datasheet" ] },
+        "note": { "type": "string" },
         "source": { "type": [ "string", "null" ] },
         "data": { "description": "Free form until a simulator defines it (tables with units in their keys)." }
       }
     },
     "location": {
       "type": "object",
-      "description": "Portable geometry reference a simulator can return (critique F1). Map back with IModelDoc2.ClosestDistance or a ray along -normal.",
-      "required": [ "bodyId", "point" ],
+      "description": "Portable geometry reference a simulator can return (critique F1), in mold-frame mm. Map back with IModelDoc2.ClosestDistance or a short ray along -normal on the body with that id.",
+      "required": [ "bodyId", "point", "normal" ],
       "properties": {
         "bodyId": { "type": "string", "description": "Record body id (BASE-1, PART-REF ...), matching exports/bodies/<bodyId>.step" },
         "point": { "$ref": "#/$defs/vec3" },
@@ -423,7 +440,7 @@
             "samples": {
               "type": "array",
               "items": {
-                "type": "object", "required": [ "bodyId", "point", "p_MPa" ],
+                "type": "object", "required": [ "bodyId", "point", "normal", "p_MPa" ],
                 "properties": { "bodyId": { "type": "string" }, "point": { "$ref": "#/$defs/vec3" }, "normal": { "$ref": "#/$defs/vec3" }, "p_MPa": { "type": "number" } }
               }
             },
@@ -431,61 +448,6 @@
           }
         }
       ]
-    },
-    "machining": {
-      "type": "object",
-      "description": "Per-body machining sheet data (critique E1).",
-      "properties": {
-        "stock": {
-          "type": "object",
-          "properties": {
-            "grade": { "type": "string" }, "finished_mm": { "$ref": "#/$defs/numArray" }, "blank_mm": { "$ref": "#/$defs/numArray" },
-            "stockThickness": { "type": "string" }, "allowance": { "type": "string" }
-          }
-        },
-        "setups": { "type": "array", "items": { "$ref": "#/$defs/vec3" } },
-        "setupsText": { "type": "string" },
-        "minInsideRadius_mm": { "type": "number" }, "maxDepth_mm": { "type": "number" },
-        "holes": {
-          "type": "array",
-          "items": {
-            "type": "object", "required": [ "id" ],
-            "properties": {
-              "id": { "type": "string" }, "kind": { "type": "string" }, "size": { "type": "string" }, "qty": { "type": "integer" },
-              "depth": { "type": "string" }, "drill": { "type": "string" }, "fit": { "type": "string" }, "from": { "type": "string" }, "note": { "type": "string" }
-            }
-          }
-        },
-        "fits": {
-          "type": "array",
-          "items": {
-            "type": "object", "required": [ "id" ],
-            "properties": {
-              "id": { "type": "string" }, "feature": { "type": "string" }, "nominal_mm": { "type": "number" },
-              "upper_mm": { "type": "number" }, "lower_mm": { "type": "number" }, "fit": { "type": "string" }, "note": { "type": "string" }
-            }
-          }
-        },
-        "tolerances": {
-          "type": "array",
-          "items": {
-            "type": "object", "required": [ "id" ],
-            "properties": { "id": { "type": "string" }, "what": { "type": "string" }, "value_mm": { "type": "number" }, "datum": { "type": "string" }, "note": { "type": "string" } }
-          }
-        },
-        "finish": {
-          "type": "array",
-          "items": { "type": "object", "required": [ "id" ], "properties": { "id": { "type": "string" }, "faces": { "type": "string" }, "spec": { "type": "string" }, "ra_um": { "type": [ "number", "null" ] } } }
-        },
-        "reliefs": {
-          "type": "array",
-          "items": {
-            "type": "object", "required": [ "id" ],
-            "properties": { "id": { "type": "string" }, "pocket": { "type": "string" }, "kind": { "type": "string" }, "radius_mm": { "type": "number" }, "cutter_mm": { "type": "number" } }
-          }
-        },
-        "notes": { "$ref": "#/$defs/strings" }
-      }
     }
   }
 }
