@@ -42,12 +42,6 @@ namespace SwAgent.UI
             ("view", 4, "Attach View", "Attach a screenshot of the current view to your message", () => Icons.Camera),
         };
 
-        /// <summary>Built-in Unify3D tools: shipped with the add-in, their own box on the tab.</summary>
-        private static readonly (string Arg, int Id, string Title, string Hint, Func<byte[]> Icon)[] BuiltIn =
-        {
-            ("smartrebuild", 7, "Smart Rebuild", "Rebuild the whole design around a change far back in its history - a new customer part, a changed dimension", () => Icons.SmartRebuild),
-        };
-
         private static readonly (string Arg, int Id, string Title, string Hint, Func<byte[]> Icon)[] Trailing =
         {
             ("newtool", 5, "New Tool", "Create a new tool with the agent", () => Icons.NewTool),
@@ -65,7 +59,7 @@ namespace SwAgent.UI
 
         private static string Signature() => string.Join("|", UserTools.ListTools().Where(t => (string)t["kind"] == "tool").Select(t =>
         {
-            var png = Path.Combine(UserTools.Root, (string)t["name"], "icon.png");
+            var png = Path.Combine(UserTools.DirOf((string)t["name"]) ?? "", "icon.png");
             return $"{t["name"]}:{t["title"]}:{(File.Exists(png) ? File.GetLastWriteTimeUtc(png).Ticks : 0)}";
         }));
 
@@ -100,7 +94,6 @@ namespace SwAgent.UI
 
                 var commands = new List<(string Arg, int Id, string Title, string Hint, byte[] Icon)>();
                 commands.AddRange(Fixed.Select(f => (f.Arg, f.Id, f.Title, f.Hint, f.Icon())));
-                commands.AddRange(BuiltIn.Select(f => (f.Arg, f.Id, f.Title, f.Hint, f.Icon())));
                 foreach (var t in tools)
                 {
                     var name = (string)t["name"];
@@ -139,12 +132,13 @@ namespace SwAgent.UI
 
                 // One tab: Unify3D Agent commands + Options | built-in Unify3D tools | the user's tools + New Tool.
                 int Cmd(int id) => group.get_CommandID(indexes[id]);
+                var builtIn = tools.Where(t => (bool?)t["builtIn"] == true).ToList();
                 var boxes = new List<int[]>
                 {
                     Fixed.Select(f => Cmd(f.Id)).Concat(new[] { Cmd(6) }).ToArray(),
-                    BuiltIn.Select(f => Cmd(f.Id)).ToArray(),
-                    tools.Select(t => Cmd(ids[(string)t["name"]])).Concat(new[] { Cmd(5) }).ToArray(),
-                };
+                    builtIn.Select(t => Cmd(ids[(string)t["name"]])).ToArray(),
+                    tools.Where(t => (bool?)t["builtIn"] != true).Select(t => Cmd(ids[(string)t["name"]])).Concat(new[] { Cmd(5) }).ToArray(),
+                }.Where(b => b.Length > 0).ToList();
                 foreach (var type in DocTypes)
                 {
                     var tab = _cmdMgr.AddCommandTab(type, TabName);
@@ -225,7 +219,7 @@ namespace SwAgent.UI
         {
             try
             {
-                var png = Path.Combine(UserTools.Root, name, "icon.png");
+                var png = Path.Combine(UserTools.DirOf(name) ?? "", "icon.png");
                 return File.Exists(png) ? File.ReadAllBytes(png) : null;
             }
             catch

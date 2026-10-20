@@ -84,31 +84,8 @@ ${C.sections.toolCode}
    Then sanity-check the macro's output against the model on a realistic case - ideally the user's real part, or a scratch part with the features the tool must work around (holes, notches, several pockets): do the reported sizes and positions match what you see in capture_views? A gathering macro that is wrong on the first real model is worse than none.
 7. Tell the user in two or three lines what it does and where it is. New or renamed tools appear on ${C.terms.toolbar} after ${C.name} restarts (call offer_restart for the Save and restart button); until then the tool runs from the Workflows menu. Hotkeys: ${C.terms.hotkeys}.
 
-## Smart Rebuild (built-in tool)
-A message starting with [Smart rebuild] comes from the Smart Rebuild screen: change a design far back in its history (a revised customer part, two cavities to three, a changed skeleton dimension) and end up with a design as if it had been built that way - same intent, working features, on the new geometry. On a big multi-body part this is hard: done carelessly, one early edit cascades into dozens of broken features. Think like the engineer who built the file before touching it. Work in phases and don't skip any.
-
-Phase 1 - Survey (read only, no changes yet)
-- rebuild_journal read: earlier attempts on this design, their plans and lessons. Never repeat a recorded mistake. If the brief says to continue, pick up from the journal's last stage.
-- snapshot_design "baseline" (from_saved_file if the user already made the change), then analyze_design: inserted parts, the skeleton, where each body comes from, the features that pick bodies and the blast radius of early features. Read describe_model_history and look at the model (capture_views).
-- Understand the anatomy: which features are shared (plates, skeleton, base), which repeat per instance (a cavity's kit of inserts, indents, cuts, vents), which do body housekeeping (Delete/Keep, Combine, Move/Copy). Write down the design intent of each group ("plate = cavity span + 2 in each side", "core pocket = part + 0.125 lip").
-
-Phase 2 - Strategy and plan (before any change)
-- Choose the approach that changes the least of what already works:
-  - Additive: keep everything that exists and append new features at the END of the tree (after the last body-picking feature analyze_design reports) - e.g. add a third cavity by copying/patterning the cavity kit and extending shared plates by their driving dimension, not by inserting bodies early. Usually best for adding instances.
-  - Edit in place: change a driving dimension or swap the inserted part, then repair - when the change is a size/shape change that doesn't change how many bodies exist before the body-picking features.
-  - Rebuild a section: delete a group and rebuild it cleanly on the new geometry - when patching would touch more than it keeps.
-- Never change the number or order of bodies before body-picking features unless you also plan how each of them gets its bodies back.
-- Write the plan: the strategy and why, ordered stages (each with its expected result and how you will check it), the risks, and the decisions the user should make. Show it on the model (show_overlay) and get the user's go-ahead with ask_form, offering alternatives where there is a real choice. Append the agreed plan to the journal.
-
-Phase 3 - Execute in stages
-- checkpoint save before each stage. Do the stage, rebuild, compare_design, and check the stage's expected result.
-- If the stage made things worse and two attempts to fix it don't converge: checkpoint restore to the last good state, append the lesson to the journal (what you did, what broke, why, what to do instead), revise the plan, and continue - don't undo in circles and don't start over.
-- Never close or reopen the document from your own code (it cuts this conversation off from the file); checkpoint restore is the only way back.
-- Make the user's decisions as the brief says (decide routine ones, ask on big ones with options drawn on the model).
-
-Phase 4 - Finish
-- Clean up the bodies (multi-body parts) once every stage is done and the rebuild is clean: put every body that is no longer part of the result into a solid-body folder named "Garbage" - old bodies the rebuild superseded (the previous version of an inserted part, a replaced cavity or insert, copies you made along the way) and tool bodies left over from boolean operations (bodies kept after a Combine, Indent, Cut-with-body or Split that only served as the tool). Reuse the "Garbage" folder if the part already has one. Don't delete them and don't move a body the finished design still needs (plates, inserts, the bodies the user works with); if it's unclear whether a body is leftover, leave it out and list it in the report. Check the folder afterwards (it holds exactly the bodies you meant) and name them in the report.
-- compare_design with the baseline: no errors or warnings, every baseline feature still exists or its replacement is explained, bodies changed only as the change implies; check the intents you wrote down in phase 1. Append the outcome to the journal. Report: the strategy, what changed, what was repaired, the decisions, anything to check. Never save over the original file.
+## Built-in tools
+Unify3D ships some tools of its own (marked built-in in the index below, e.g. smart-rebuild). They run like the user's tools - their page, then [Run tool: name] with the inputs - and work the same way: read_user_tool(name) for the procedure, then follow it exactly. They are read-only: never edit_user_tool or save_user_tool them; if the user wants one to work differently, save their own version under a new name.
 
 ## Code that can crash ${C.name}
 ${C.sections.crashSafety}
@@ -174,7 +151,7 @@ export const CAD: CadProfile = SOLIDWORKS;
 export function buildSystemPrompt(opts: {
   realisticAppearance: boolean;
   verbosity?: Verbosity;
-  userTools: { name: string; title: string; description: string; kind?: string }[];
+  userTools: { name: string; title: string; description: string; kind?: string; builtIn?: boolean }[];
   cad?: CadProfile;
 }): string {
   const C = opts.cad ?? CAD;
@@ -182,7 +159,7 @@ export function buildSystemPrompt(opts: {
 }
 
 /** One line per saved user tool, appended to the system prompt (changes only when tools are saved or deleted). */
-export function toolIndex(tools: { name: string; title: string; description: string; kind?: string }[]): string {
-  const lines = tools.map((t) => `- ${t.name} (${t.kind ?? "workflow"}): ${t.title} - ${t.description}`);
+export function toolIndex(tools: { name: string; title: string; description: string; kind?: string; builtIn?: boolean }[]): string {
+  const lines = tools.map((t) => `- ${t.name} (${t.builtIn ? "built-in " : ""}${t.kind ?? "workflow"}): ${t.title} - ${t.description}`);
   return `\n\n# The user's workflows and tools\n${lines.length ? lines.join("\n") : "(none saved yet)"}`;
 }

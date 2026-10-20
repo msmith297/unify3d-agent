@@ -46,7 +46,64 @@ namespace SwAgent.Tools
             return agent == false && hasMacro ? "false" : "true";
         }
 
+        /// <summary>The user's own tools and workflows (%APPDATA%\SwAgent\tools): created and changed by the agent.</summary>
         public static string Root => Directory.CreateDirectory(Path.Combine(Paths.RoamingDir, "tools")).FullName;
+
+        /// <summary>
+        /// Built-in Unify3D tools: the same folder layout as the user's (TOOL.md, inputs.json, macro.cs, icons), shipped with
+        /// the add-in in builtin-tools next to SwAgent.dll (source: tools/builtin in the repository). Read-only: they are
+        /// replaced by every install, so the agent never edits them and their names can't be used for the user's tools.
+        /// Per-PC settings for them (e.g. the intelligence level) go in the user's tools folder (builtin-settings.json).
+        /// </summary>
+        public static string BuiltInRoot => Path.Combine(Paths.AddInDir, "builtin-tools");
+
+        private static string BuiltInSettingsPath => Path.Combine(Root, "builtin-settings.json");
+
+        /// <summary>The folder of a tool: the user's, else a built-in one; null if there is none.</summary>
+        public static string DirOf(string name)
+        {
+            name = (name ?? "").Trim().ToLowerInvariant();
+            if (!NamePattern.IsMatch(name)) return null;
+            var user = Path.Combine(Root, name);
+            if (Directory.Exists(user) && File.Exists(Path.Combine(user, "TOOL.md"))) return user;
+            var builtIn = Path.Combine(BuiltInRoot, name);
+            return Directory.Exists(builtIn) && File.Exists(Path.Combine(builtIn, "TOOL.md")) ? builtIn : null;
+        }
+
+        /// <summary>A built-in Unify3D tool (shipped with the add-in, read-only).</summary>
+        public static bool IsBuiltIn(string name)
+        {
+            var dir = DirOf(name);
+            return dir != null && dir.StartsWith(BuiltInRoot, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool BuiltInExists(string name) => File.Exists(Path.Combine(BuiltInRoot, name, "TOOL.md"));
+
+        /// <summary>The user's settings for built-in tools: { name: { key: value } }.</summary>
+        internal static Dictionary<string, string> BuiltInSettings(string name)
+        {
+            try
+            {
+                if (File.Exists(BuiltInSettingsPath) && JObject.Parse(File.ReadAllText(BuiltInSettingsPath))[name] is JObject o)
+                    return o.Properties().ToDictionary(p => p.Name, p => (string)p.Value, StringComparer.OrdinalIgnoreCase);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("builtin-settings.json unreadable: " + ex.Message);
+            }
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        /// <summary>Front matter of a tool with the user's settings applied (built-in tools keep those outside their folder).</summary>
+        internal static Dictionary<string, string> EffectiveFrontMatter(string name, string dir)
+        {
+            var fm = ReadFrontMatter(File.ReadAllText(Path.Combine(dir, "TOOL.md")));
+            if (dir.StartsWith(BuiltInRoot, StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (var kv in BuiltInSettings(name)) fm[kv.Key] = kv.Value;
+            }
+            return fm;
+        }
 
         /// <summary>Raised after a tool is saved or deleted (the UI refreshes its palette and the agent's index).</summary>
         public static event Action Changed;
@@ -233,7 +290,7 @@ namespace SwAgent.Tools
             "running it, and before editing it.")]
         public ToolResult Read(ToolContext ctx, ReadInput input)
         {
-            var dir = ToolDir(input.Name, mustExist: true);
+            var dir = ToolDir(input.Name, mustExist: true, forWrite: false);
             var target = string.IsNullOrWhiteSpace(input.File) ? Path.Combine(dir, "TOOL.md") : SafePath(dir, input.File);
             if (!File.Exists(target)) return ToolResult.Error($"No file '{input.File}' in tool '{input.Name}'.");
             var others = Directory.GetFiles(dir, "*", SearchOption.AllDirectories)
@@ -242,6 +299,7 @@ namespace SwAgent.Tools
                 .ToList();
             var text = File.ReadAllText(target);
             if (others.Count > 0 && string.IsNullOrWhiteSpace(input.File)) text += "\n\n---\nExtra files in this tool: " + string.Join(", ", others);
+            if (IsBuiltIn(input.Name)) text += "\n\n(Built-in Unify3D tool: read-only. If the user wants it to work differently, save their own version under a new name.)";
             return ToolResult.Ok(text);
         }
 
@@ -252,6 +310,7 @@ namespace SwAgent.Tools
         {
             var name = (input.Name ?? "").Trim().ToLowerInvariant();
             if (!NamePattern.IsMatch(name)) return ToolResult.Error("Name must be 2-48 characters: lowercase letters, digits and dashes.");
+            if (BuiltInExists(name)) return ToolResult.Error($"'{name}' is a built-in Unify3D tool. Save the user's version under another name (e.g. \"{name}-custom\").");
             var icon = Icons.Contains(input.Icon) ? input.Icon : "macro";
             var kind = string.Equals((input.Kind ?? "").Trim(), "tool", StringComparison.OrdinalIgnoreCase) ? "tool" : "workflow";
             var dir = Directory.CreateDirectory(Path.Combine(Root, name)).FullName;
@@ -408,6 +467,16 @@ namespace SwAgent.Tools
         /// <summary>Change one front-matter value of a saved tool (e.g. its intelligence, from the tool's page).</summary>
         public static void SetValue(string name, string key, string value)
         {
+            if (IsBuiltIn(name))
+            {
+                var all = File.Exists(BuiltInSettingsPath) ? JObject.Parse(File.ReadAllText(BuiltInSettingsPath)) : new JObject();
+                var mine = all[name] as JObject ?? new JObject();
+                mine[key] = value;
+                all[name] = mine;
+                File.WriteAllText(BuiltInSettingsPath, all.ToString(Newtonsoft.Json.Formatting.Indented));
+                Changed?.Invoke();
+                return;
+            }
             var md = Path.Combine(ToolDir(name, mustExist: true), "TOOL.md");
             var lines = File.ReadAllText(md).Replace("\r\n", "\n").Split('\n').ToList();
             var end = lines.Count > 0 && lines[0].Trim() == "---" ? lines.FindIndex(1, l => l.Trim() == "---") : -1;
@@ -427,7 +496,7 @@ namespace SwAgent.Tools
         /// <summary>A tool's macro, or null if it has none.</summary>
         public static string ReadMacro(string name)
         {
-            var path = Path.Combine(ToolDir(name, mustExist: true), "macro.cs");
+            var path = Path.Combine(ToolDir(name, mustExist: true, forWrite: false), "macro.cs");
             return File.Exists(path) ? File.ReadAllText(path) : null;
         }
 
@@ -453,17 +522,22 @@ namespace SwAgent.Tools
         public static List<JObject> ListTools()
         {
             var result = new List<JObject>();
-            foreach (var dir in Directory.GetDirectories(Root).OrderBy(d => d, StringComparer.OrdinalIgnoreCase))
+            var builtIn = Directory.Exists(BuiltInRoot) ? Directory.GetDirectories(BuiltInRoot) : new string[0];
+            var dirs = builtIn.OrderBy(d => d, StringComparer.OrdinalIgnoreCase)
+                .Concat(Directory.GetDirectories(Root).OrderBy(d => d, StringComparer.OrdinalIgnoreCase)
+                    .Where(d => !BuiltInExists(Path.GetFileName(d)))); // a built-in name can't be a user tool
+            foreach (var dir in dirs)
             {
                 var md = Path.Combine(dir, "TOOL.md");
                 if (!File.Exists(md)) continue;
                 try
                 {
-                    var fm = ReadFrontMatter(File.ReadAllText(md));
                     var name = Path.GetFileName(dir);
+                    var fm = EffectiveFrontMatter(name, dir);
                     result.Add(new JObject
                     {
                         ["name"] = name,
+                        ["builtIn"] = dir.StartsWith(BuiltInRoot, StringComparison.OrdinalIgnoreCase),
                         ["title"] = fm.TryGetValue("title", out var t) ? t : name,
                         ["description"] = fm.TryGetValue("description", out var d) ? d : "",
                         ["icon"] = fm.TryGetValue("icon", out var i) && Icons.Contains(i) ? i : "macro",
@@ -497,10 +571,17 @@ namespace SwAgent.Tools
             Changed?.Invoke();
         }
 
-        private static string ToolDir(string name, bool mustExist)
+        private static string ToolDir(string name, bool mustExist, bool forWrite = true)
         {
             name = (name ?? "").Trim().ToLowerInvariant();
             if (!NamePattern.IsMatch(name)) throw new ToolException($"'{name}' is not a valid tool name.");
+            if (IsBuiltIn(name))
+            {
+                if (forWrite)
+                    throw new ToolException($"'{name}' is a built-in Unify3D tool and can't be changed or deleted. If the user wants it to work differently, " +
+                                            "save their own version under a new name with save_user_tool.");
+                return DirOf(name);
+            }
             var dir = Path.Combine(Root, name);
             if (mustExist && !Directory.Exists(dir)) throw new ToolException($"No tool named '{name}'. Use list_user_tools to see what exists.");
             return dir;
