@@ -259,9 +259,10 @@ namespace SwAgent.Tests.Mold
         {
             var root = RepoRoot();
             if (root == null) return;   // not running from a checkout
-            foreach (var script in new[] { "gen_materials.py", "build_mold_materials.py", "gen_defaults.py", "examples_check.py" })
+            // gen_coefficients.py --check regenerates the table (numpy, ~2 min): here only its fast hash check runs
+            foreach (var (script, arg) in new[] { ("gen_materials.py", "--check"), ("build_mold_materials.py", "--check"), ("gen_defaults.py", "--check"), ("examples_check.py", "--check"), ("gen_coefficients.py", "--check-hash") })
             {
-                var psi = new ProcessStartInfo("python", "-I \"" + Path.Combine(root, "tools", "dev", "mold-data", script) + "\" --check")
+                var psi = new ProcessStartInfo("python", "-I \"" + Path.Combine(root, "tools", "dev", "mold-data", script) + "\" " + arg)
                 {
                     UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true,
                 };
@@ -270,7 +271,7 @@ namespace SwAgent.Tests.Mold
                 catch (System.ComponentModel.Win32Exception) { return; }   // no python on this machine: the CI diff is the generators' own --check
                 var output = p.StandardOutput.ReadToEnd() + p.StandardError.ReadToEnd();
                 p.WaitForExit(120000);
-                Assert.True(p.ExitCode == 0, script + " --check: " + output);
+                Assert.True(p.ExitCode == 0, script + " " + arg + ": " + output);
             }
         }
     }

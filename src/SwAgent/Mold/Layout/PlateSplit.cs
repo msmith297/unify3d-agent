@@ -21,6 +21,8 @@ namespace SwAgent.Mold
     public sealed class SplitInput
     {
         public string PlateId = "BASE";
+        /// <summary>Id prefix of the backing plate the pieces key into (SUB under the base, LSUB on top of a split lid).</summary>
+        public string SubplateId = "SUB";
         /// <summary>Plate centred on the origin: L along U, W along V, thickness T (mm).</summary>
         public double L, W, T;
         public List<Pocket> Pockets = new List<Pocket>();
@@ -190,7 +192,7 @@ namespace SwAgent.Mold
             var st = StockRounding.Thickness(req, i.SubplateGrade, data, i.Imperial);
             o.SubplateT = st.Finished;
             o.SubplateStock = st.Stock;
-            var whole = Pieces(i, new List<double>(), new List<double>(), o.SubplateT, "SUB", false);
+            var whole = Pieces(i, new List<double>(), new List<double>(), o.SubplateT, i.SubplateId, false);
             if (whole.All(p => p.Ok))
             {
                 o.SubPieces = whole;
@@ -215,7 +217,7 @@ namespace SwAgent.Mold
                     var cand = new SplitOption();
                     for (var k = 0; k < su.Count && k < 8; k++) if ((mu & (1 << k)) != 0) cand.SubCutsU.Add(su[k]);
                     for (var k = 0; k < sv.Count && k < 8; k++) if ((mv & (1 << k)) != 0) cand.SubCutsV.Add(sv[k]);
-                    cand.SubPieces = Pieces(i, cand.SubCutsU, cand.SubCutsV, o.SubplateT, "SUB", false);
+                    cand.SubPieces = Pieces(i, cand.SubCutsU, cand.SubCutsV, o.SubplateT, i.SubplateId, false);
                     if (!cand.SubPieces.All(p => p.Ok)) continue;
                     if (best == null || cand.SubPieces.Count < best.SubPieces.Count ||
                         (cand.SubPieces.Count == best.SubPieces.Count && cand.SubPieces.Max(p => p.Mass) < best.SubPieces.Max(p => p.Mass) - 1e-9))

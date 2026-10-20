@@ -33,6 +33,7 @@ namespace SwAgent.Mold
 
         public PressMeaning Meaning;
         public double PressValue, RatedForce_kN, RatedGauge_MPa;
+        public bool PressValueGiven;
         public double? RamArea_mm2, PlatenL, PlatenW, Daylight, Stroke;
         public bool SlideIn = true, FlatOnPlaten = true;
 
@@ -56,7 +57,7 @@ namespace SwAgent.Mold
             ["press_pressure"] = "pressure", ["press_rated_gauge"] = "pressure", ["molding_pressure"] = "pressure",
             ["press_rated_force"] = "force", ["press_force"] = "force", ["press_force_reading"] = "force",
             ["platen_size"] = "length", ["daylight"] = "length", ["stroke"] = "length", ["max_plate_size"] = "length",
-            ["lid_reach"] = "length", ["ram_bore"] = "length", ["ram_area_mm2"] = "area", ["ram_area"] = "area",
+            ["lid_reach"] = "length", ["lid_reach_cm"] = "length_cm", ["ram_bore"] = "length", ["ram_area_mm2"] = "area", ["ram_area"] = "area",
             ["max_plate_mass"] = "mass", ["max_base_mass"] = "mass", ["max_lid_mass"] = "mass",
             ["press_temp"] = "temperature", ["viscosity_cp"] = "viscosity", ["pot_life_min"] = "time", ["cure_min"] = "time",
             ["draft_min_deg"] = "angle", ["shrink_pct"] = "percent", ["charge_excess_pct"] = "percent",
@@ -91,9 +92,18 @@ namespace SwAgent.Mold
             var units = (string)design.SelectToken("units.display") ?? S("units", "unit_system");
             d.Imperial = units == null || !units.Trim().ToLowerInvariant().StartsWith("metric");
 
-            // --- materials
+            // --- materials. The page inputs always win: the agent merges corrections into `inputs`, and the values the
+            // calculator wrote back into the record (materials.*.id, materials.part.used, shrink.basis) are only the
+            // fallback for a design that has no such input (a hand-written design, or an input the page left empty).
             var partId = (string)design.SelectToken("materials.part.id");
-            d.PartRow = data.PartMaterial(partId) ?? data.FindPartMaterial(S("part_grade"), S("part_family"));
+            var gradeIn = S("part_grade");
+            if (gradeIn != null)
+            {
+                d.PartRow = data.FindPartMaterial(gradeIn, S("part_family"));
+                if (d.PartRow == null)
+                    throw new ArgumentException("Unknown part material '" + gradeIn + "': set inputs.part_grade (or materials.part.id) to a materials.json id or name (e.g. \"pu-tdi-ether-90a\").");
+            }
+            else d.PartRow = data.PartMaterial(partId);
             if (d.PartRow == null)
                 throw new ArgumentException("Unknown part material: set materials.part.id or inputs.part_grade to a materials.json id or name (e.g. \"pu-tdi-ether-90a\").");
             d.ProcessType = (string)d.PartRow["processType"];
@@ -101,33 +111,39 @@ namespace SwAgent.Mold
 
             var moldMaterial = S("mold_material") ?? "Aluminium + steel inserts";
             d.SteelThroughout = moldMaterial.Trim().ToLowerInvariant().StartsWith("tool steel") || moldMaterial.Trim().ToLowerInvariant() == "steel";
-            var plateId = (string)design.SelectToken("materials.plates.id");
-            d.PlateGrade = data.MoldGrade(plateId) ?? data.MoldGrade(S("mold_grade")) ?? data.DefaultGrade(d.SteelThroughout ? "steel" : "aluminium", "plate");
-            var insId = (string)design.SelectToken("materials.inserts.id");
-            d.InsertGrade = data.MoldGrade(insId) ?? data.MoldGrade(S("insert_grade")) ?? data.DefaultGrade("steel", "insert");
+            var plateIn = S("mold_grade");
+            if (plateIn != null && data.MoldGrade(plateIn) == null) throw new ArgumentException("Unknown plate grade '" + plateIn + "': set inputs.mold_grade to a mold-materials.json id or label.");
+            d.PlateGrade = data.MoldGrade(plateIn) ?? data.MoldGrade((string)design.SelectToken("materials.plates.id")) ?? data.DefaultGrade(d.SteelThroughout ? "steel" : "aluminium", "plate");
+            var insIn = S("insert_grade");
+            if (insIn != null && data.MoldGrade(insIn) == null) throw new ArgumentException("Unknown insert grade '" + insIn + "': set inputs.insert_grade to a mold-materials.json id or label.");
+            d.InsertGrade = data.MoldGrade(insIn) ?? data.MoldGrade((string)design.SelectToken("materials.inserts.id")) ?? data.DefaultGrade("steel", "insert");
             if (d.PlateGrade == null) throw new ArgumentException("Unknown plate grade: set inputs.mold_grade to a mold-materials.json id or label.");
 
-            // --- part material values: the user's page edits win over the row (design 1.4: editable fields)
-            var used = design.SelectToken("materials.part.used") as JObject ?? new JObject();
+            // --- part material values: the user's page edits win over the row (design 1.4: editable fields). The record's
+            // `used` block is what the last run used; it only stands in for a missing input, and only for the same material.
+            var sameMaterial = partId == null || partId == (string)d.PartRow["id"];
+            var used = sameMaterial ? design.SelectToken("materials.part.used") as JObject ?? new JObject() : new JObject();
             double Row(string path, double fallback) => Si.Num(d.PartRow.SelectToken(path)) ?? fallback;
             double? RowN(string path) => Si.Num(d.PartRow.SelectToken(path));
-            d.ShrinkPct = Si.Num(used["shrinkPct"]) ?? N("shrink_pct") ?? Row("shrinkPct.typ", 0);
-            d.Sg = Si.Num(used["sg"]) ?? N("sg") ?? Row("sg.typ", 1.0);
-            d.ViscosityCp = Si.Num(used["viscosityCp"]) ?? N("viscosity_cp") ?? RowN("viscosityCp.typ");
-            d.Mooney = Si.Num(used["mooney"]) ?? N("mooney") ?? RowN("mooney.typ");
-            d.PotLifeMin = Si.Num(used["potLifeMin"]) ?? N("pot_life_min") ?? RowN("potLifeMin.typ") ?? 0;
-            d.CureMin = Si.Num(used["cureMin"]) ?? N("cure_min") ?? Row("demoldMin.typ", 0);
-            d.DraftMinDeg = Si.Num(used["draftMinDeg"]) ?? N("draft_min_deg") ?? Row("draftDeg.min", 0.5);
-            d.ExcessPct = Si.Num(used["chargeExcessPct"]) ?? N("charge_excess_pct") ?? Row("flashAllowancePct.typ", 5);
+            d.ShrinkPct = N("shrink_pct") ?? Si.Num(used["shrinkPct"]) ?? Row("shrinkPct.typ", 0);
+            d.Sg = N("sg") ?? Si.Num(used["sg"]) ?? Row("sg.typ", 1.0);
+            d.ViscosityCp = N("viscosity_cp") ?? Si.Num(used["viscosityCp"]) ?? RowN("viscosityCp.typ");
+            d.Mooney = N("mooney") ?? Si.Num(used["mooney"]) ?? RowN("mooney.typ");
+            d.PotLifeMin = N("pot_life_min") ?? Si.Num(used["potLifeMin"]) ?? RowN("potLifeMin.typ") ?? 0;
+            d.CureMin = N("cure_min") ?? Si.Num(used["cureMin"]) ?? Row("demoldMin.typ", 0);
+            d.DraftMinDeg = N("draft_min_deg") ?? Si.Num(used["draftMinDeg"]) ?? Row("draftDeg.min", 0.5);
+            d.ExcessPct = N("charge_excess_pct") ?? Si.Num(used["chargeExcessPct"]) ?? Row("flashAllowancePct.typ", 5);
             d.OverflowPct = Row("overflowPctOfPartVolume.typ", 0);
             var mpTyp = Row("moldingPressurePsi.typ", 0) * Si.PsiToMPa;
             var mpMax = Row("moldingPressurePsi.max", 0) * Si.PsiToMPa;
-            var mpUser = Si.Num(used["moldingPressure_MPa"]) ?? N("molding_pressure");
+            var mpUser = N("molding_pressure") ?? Si.Num(used["moldingPressure_MPa"]);
             d.MoldingPressureTyp = mpUser ?? mpTyp;
             // an edited molding pressure above the table maximum raises the class A design pressure too (C3)
             d.MoldingPressureMax = Math.Max(mpMax, mpUser ?? 0);
-            d.ShrinkBasis = (string)design.SelectToken("shrink.basis") ?? S("shrink_basis") ?? (string)d.PartRow["shrinkBasisChoice"] ?? (string)d.PartRow["shrinkBasis"];
-            var axis = design.SelectToken("shrink.pctAxis") ?? I("shrink_pct_axis") ?? d.PartRow["shrinkPctAxis"];
+            var recordBasis = sameMaterial ? (string)design.SelectToken("shrink.basis") : null;
+            d.ShrinkBasis = S("shrink_basis") ?? recordBasis ?? (string)d.PartRow["shrinkBasisChoice"] ?? (string)d.PartRow["shrinkBasis"];
+            var recordAxis = sameMaterial ? design.SelectToken("shrink.pctAxis") : null;
+            var axis = I("shrink_pct_axis") ?? (recordAxis != null && recordAxis.HasValues ? recordAxis : null) ?? d.PartRow["shrinkPctAxis"];
             if (axis is JObject ax && ax.HasValues)
                 d.ShrinkPerAxisPct = new[] { Si.Num(ax["u"] ?? ax["x"]) ?? d.ShrinkPct, Si.Num(ax["v"] ?? ax["y"]) ?? d.ShrinkPct, Si.Num(ax["w"] ?? ax["z"]) ?? d.ShrinkPct };
             else if (axis is JArray aa && aa.Count == 3)
@@ -139,7 +155,10 @@ namespace SwAgent.Mold
             d.Cavities = (int)Math.Round(N("cavities") ?? (design.SelectToken("layout.cavities") as JArray)?.Count ?? 1);
             if (d.Cavities < 1) d.Cavities = 1;
             d.Meaning = Press.ParseMeaning(S("press_pressure_is"));
-            d.PressValue = d.Meaning == PressMeaning.ForceReading ? (N("press_force", "press_force_reading") ?? N("press_pressure") ?? 0) : (N("press_pressure") ?? 0);
+            // a force reading is its own number (kN): a pressure typed into the psi box is never read as a force (C2)
+            var pv = d.Meaning == PressMeaning.ForceReading ? N("press_force", "press_force_reading") : N("press_pressure");
+            d.PressValueGiven = pv != null;
+            d.PressValue = pv ?? 0;
             d.RatedForce_kN = N("press_rated_force") ?? 0;
             d.RatedGauge_MPa = N("press_rated_gauge") ?? 0;
             var bore = N("ram_bore");
@@ -198,12 +217,23 @@ namespace SwAgent.Mold
                 throw new ArgumentException("The part geometry is missing: run mold_part analyze (it writes part.box_mm, projectedArea_mm2, perimeter_mm and volume_mm3) or pass them in design.part.");
         }
 
+        /// <summary>
+        /// The press numbers every press calculation needs, whatever the meaning of the user's value: the nameplate force
+        /// (PRESS-CAPACITY) and the ram area (from the rated gauge, or ram_bore / ram_area), without which no gauge
+        /// setting can be given (critique C2: the rating is always on the page).
+        /// </summary>
         public void RequirePress()
         {
             if (Meaning == PressMeaning.Unknown)
                 throw new ArgumentException("press_pressure_is is \"Not sure\": ask the user whether the number is a gauge reading, the pressure on the part, or a force reading, then merge it into inputs.");
-            if (RamArea_mm2 == null && (RatedForce_kN <= 0 || RatedGauge_MPa <= 0) && Meaning != PressMeaning.ForceReading)
-                throw new ArgumentException("The ram area is unknown: set press_rated_force and press_rated_gauge (or ram_bore).");
+            if (!PressValueGiven)
+                throw new ArgumentException(Meaning == PressMeaning.ForceReading
+                    ? "press_pressure_is is \"Force reading (tons)\" but inputs.press_force is not set: ask the user for the force the press shows (US ton, t or kN) and merge it into inputs.press_force."
+                    : "inputs.press_pressure is not set: ask the user for the press setting and merge it into inputs.");
+            if (RatedForce_kN <= 0)
+                throw new ArgumentException("The press rating is unknown: set inputs.press_rated_force (the nameplate force) and inputs.press_rated_gauge (the gauge reading at that force).");
+            if ((RamArea_mm2 == null || RamArea_mm2 <= 0) && RatedGauge_MPa <= 0)
+                throw new ArgumentException("The ram area is unknown: set inputs.press_rated_gauge (the gauge reading at the rated force) or inputs.ram_bore (with ram_count).");
         }
     }
 }

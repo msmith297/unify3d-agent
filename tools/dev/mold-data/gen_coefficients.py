@@ -13,16 +13,32 @@
 # Plates: SS4 (hard simply supported), C4 (clamped), Rails (two opposite edges simply supported along x, the others free).
 #
 # Run: python -I gen_coefficients.py > ..\..\..\src\SwAgent\Mold\Structural\coefficients.csv   (needs numpy; ~2 min)
+#      python -I gen_coefficients.py --check        regenerates and compares the data section and the header hash with
+#                                                   the shipped CSV (needs numpy, ~2 min); exit 1 when they differ
+#      python -I gen_coefficients.py --check-hash   only checks that the shipped header's sha256 matches its data
+#                                                   section (no numpy; also valid for Track A2's replacement table)
 import sys, os, hashlib, datetime
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import numpy as np
-import proto_plate as plate
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+SHIPPED = os.path.normpath(os.path.join(HERE, "..", "..", "..", "src", "SwAgent", "Mold", "Structural", "coefficients.csv"))
+np = None
+plate = None
+
+
+def _numpy():
+    # numpy and the prototype are only needed to regenerate, not for the hash check
+    global np, plate
+    if np is None:
+        import numpy
+        import proto_plate
+        np, plate = numpy, proto_plate
 
 NU = 0.3
 TAUS = [0.02, 0.1, 0.2, 0.3, 0.5]
 
 
 def coeffs(a, b, t, edges, nshort=12, ref=None, cap=96):
+    _numpy()
     ref = ref or min(a, b)
     nx = min(cap, max(2, int(round(nshort * a / min(a, b)))))
     ny = min(cap, max(2, int(round(nshort * b / min(a, b)))))
@@ -64,11 +80,44 @@ def rows():
     return out
 
 
-def main():
+def data_text():
     body = ["bc,aspect,tau,nu,loadFrac,alpha,beta,wMaxX,wMaxY"]
     for (bc, r, tau, al, be, wx, wy) in rows():
         body.append("%s,%g,%g,%g,%g,%.5f,%.4f,%.3f,%.3f" % (bc, r, tau, NU, 1.0, al, be, wx, wy))
-    text = "\n".join(body) + "\n"
+    return "\n".join(body) + "\n"
+
+
+def split_shipped(path=SHIPPED):
+    """(header sha256, data section, provisional?) of a coefficients.csv; the data section is every non-comment line,
+    each ending in a newline - the convention the C# reader and its test hash."""
+    with open(path, encoding="ascii") as f:
+        lines = f.read().splitlines()
+    sha = next((l.split(":", 1)[1].strip() for l in lines if l.startswith("# sha256:")), None)
+    data = "".join(l + "\n" for l in lines if l.strip() and not l.startswith("#"))
+    return sha, data, any(l.startswith("# provisional") for l in lines)
+
+
+def check(full):
+    sha, data, provisional = split_shipped()
+    actual = hashlib.sha256(data.encode("ascii")).hexdigest()
+    ok = sha == actual
+    print("coefficients.csv: header sha256 %s the data section (%s)" % ("matches" if ok else "DOES NOT match", actual))
+    if full:
+        if not provisional:
+            print("the shipped table is not the provisional one (Track A2 replaced it): only the hash is checked")
+        else:
+            same = data_text() == data
+            print("regenerated data section %s the shipped one" % ("matches" if same else "DIFFERS from"))
+            ok = ok and same
+    return 0 if ok else 1
+
+
+def main():
+    if "--check-hash" in sys.argv:
+        sys.exit(check(False))
+    if "--check" in sys.argv:
+        sys.exit(check(True))
+    text = data_text()
     sha = hashlib.sha256(text.encode("ascii")).hexdigest()
     head = ["# provisional",
             "# generator: tools/dev/mold-data/gen_coefficients.py (proto MITC4, 12 elements on the short side, nu 0.3, full load only)",

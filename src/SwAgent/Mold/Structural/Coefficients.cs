@@ -14,13 +14,15 @@ namespace SwAgent.Mold
     /// Columns: bc, aspect, tau, nu, loadFrac, alpha, beta, wMaxX, wMaxY. Interpolation is bilinear in (aspect, tau²) - tau² is
     /// the natural variable because FSDT deflection is linear in tau² for simply supported plates.
     ///
-    /// Boundary sets: SS4, C4, Rails (plates; aspect = long/short, so a/b and b/a are the same), Wall-C, Wall-S (walls;
-    /// aspect = L/h, below 1 allowed). Walls above the last tabulated L/h use the cantilever strip with shear
-    /// (critique A4): alpha = 12(1-nu²)/8 + (1+nu)/kappa tau², beta = 3; and no wall row is allowed above the strip (the strip
-    /// is the L/h -> infinity limit; a mesh overshoot is clamped). Below the first tau the first row is used; above the last
-    /// tau alpha is extended linearly in tau² (results there are flagged by the tauMax gate anyway). nu and loadFrac pick
-    /// the nearest tabulated nu and interpolate loadFrac
-    /// (clamped), until Track A2's full sweep fills those columns.
+    /// Boundary sets: SS4, C4 (symmetric plates: aspect = long/short, so a/b and b/a are the same), Rails, C2S2, Overhang,
+    /// Pillar (aspect as the set defines it, clamped to the table), Wall-C, Wall-S (walls; aspect = L/h, below 1 allowed).
+    /// Walls above the last tabulated L/h use max(the last row, the cantilever strip with shear) (critique A4, Track A2):
+    /// alpha = 12(1-nu²)/8 + (1+nu)/kappa tau², beta = 3. Rows are not clamped to the strip: thick walls overshoot it by up to
+    /// about 1% near L/h 6 (a real Mindlin effect, Track A2). Below the first tau the first row is used; above the last tau
+    /// alpha is extended linearly in tau² (results there are flagged by the tauMax gate anyway). nu is interpolated linearly
+    /// between the tabulated values (clamped), loadFrac likewise. The interpolated alpha and beta are multiplied by the
+    /// table's interpolation allowance (Track A2: 1.01 covers the worst under-read between rows), read from a header line
+    /// "# allowance: x"; without one, 1.01 for a swept table and 1.0 for the provisional one.
     /// </summary>
     public static class Coefficients
     {
@@ -37,6 +39,8 @@ namespace SwAgent.Mold
             public List<Row> Rows = new List<Row>();
             public string Version = "unknown", Sha = "", Header = "";
             public bool Provisional;
+            public double? AllowanceHeader;
+            public double Allowance => AllowanceHeader ?? (Provisional ? 1.0 : 1.01);
 
             public static Table Load()
             {
@@ -62,6 +66,8 @@ namespace SwAgent.Mold
                         var l = line.TrimStart('#').Trim();
                         if (l.StartsWith("provisional", StringComparison.OrdinalIgnoreCase)) t.Provisional = true;
                         if (l.StartsWith("version:", StringComparison.OrdinalIgnoreCase)) t.Version = l.Substring(8).Trim();
+                        else if (l.StartsWith("generator:", StringComparison.OrdinalIgnoreCase) && t.Version == "unknown") t.Version = l.Substring(10).Trim().Split(';')[0].Trim();
+                        if (l.StartsWith("allowance:", StringComparison.OrdinalIgnoreCase) && double.TryParse(l.Substring(10).Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var al)) t.AllowanceHeader = al;
                         if (l.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase)) t.Sha = l.Substring(7).Trim();
                         continue;
                     }
@@ -74,6 +80,7 @@ namespace SwAgent.Mold
                 }
                 t.Header = head.ToString();
                 t.BodySha = Hex(SHA256.Create().ComputeHash(Encoding.ASCII.GetBytes(body.ToString())));
+                if (t.Version == "unknown" && t.Sha.Length >= 12) t.Version = "sha-" + t.Sha.Substring(0, 12);
                 return t;
             }
 
@@ -89,6 +96,8 @@ namespace SwAgent.Mold
         public static string HeaderSha => _table.Value.Sha;
         public static string DataSha => _table.Value.BodySha;
         public static bool Provisional => _table.Value.Provisional;
+        /// <summary>The factor on interpolated alpha and beta (see the class comment).</summary>
+        public static double Allowance => _table.Value.Allowance;
         public static IReadOnlyList<string> BoundarySets => _table.Value.Rows.Select(r => r.Bc).Distinct().ToList();
 
         /// <summary>Cantilever strip with shear (kappa 5/6): the L/h -> infinity limit of the wall sets.</summary>
@@ -101,39 +110,58 @@ namespace SwAgent.Mold
         /// </summary>
         public static (double Alpha, double Beta) OneWay(string bc, double tau, double nu)
         {
+            // an overhang tends to the cantilever strip; clamped long edges (C4, C2S2) to the clamped strip; the rest to the
+            // simply supported strip
+            if (string.Equals(bc, "Overhang", StringComparison.OrdinalIgnoreCase)) return Strip(tau, nu);
             var shear = (1 + nu) / (4 * (5.0 / 6.0)) * tau * tau;
-            return string.Equals(bc, "C4", StringComparison.OrdinalIgnoreCase)
+            return string.Equals(bc, "C4", StringComparison.OrdinalIgnoreCase) || string.Equals(bc, "C2S2", StringComparison.OrdinalIgnoreCase)
                 ? (12 * (1 - nu * nu) / 384 + shear, 0.5)
                 : (5 * 12 * (1 - nu * nu) / 384 + shear, 0.75);
         }
 
         public static bool IsWall(string bc) => bc.StartsWith("Wall", StringComparison.OrdinalIgnoreCase);
 
+        /// <summary>Sets whose a/b and b/a are the same plate (all four edges alike).</summary>
+        public static bool IsSymmetric(string bc) => string.Equals(bc, "SS4", StringComparison.OrdinalIgnoreCase) || string.Equals(bc, "C4", StringComparison.OrdinalIgnoreCase);
+
+        public static bool Has(string bc) => _table.Value.Rows.Any(r => string.Equals(r.Bc, bc, StringComparison.OrdinalIgnoreCase));
+
         public static (double Alpha, double Beta) Get(string bc, double aspect, double tOverB, double nu, double loadFrac)
         {
             var rows = _table.Value.Rows.Where(r => string.Equals(r.Bc, bc, StringComparison.OrdinalIgnoreCase)).ToList();
             if (rows.Count == 0) throw new ArgumentException("No coefficients for boundary set '" + bc + "' (have " + string.Join(", ", BoundarySets) + ")");
             var wall = IsWall(bc);
-            if (!wall && aspect < 1) aspect = 1 / aspect;   // a/b and b/a are the same plate
+            if (IsSymmetric(bc) && aspect < 1) aspect = 1 / aspect;   // a/b and b/a are the same plate
 
-            // nearest tabulated nu, then loadFrac interpolation (clamped)
-            var nuNear = rows.Select(r => r.Nu).Distinct().OrderBy(n => Math.Abs(n - nu)).First();
-            rows = rows.Where(r => r.Nu == nuNear).ToList();
-            var fracs = rows.Select(r => r.LoadFrac).Distinct().OrderBy(x => x).ToArray();
-            // the strip limit uses the table's nu, so the wall coefficients stay monotonic in L/h across the last row
-            (double, double) AtFrac(double f) => Bilinear(rows.Where(r => r.LoadFrac == f).ToList(), aspect, tOverB, wall, nuNear);
-            (double A, double B) res;
-            if (fracs.Length == 1 || loadFrac >= fracs[fracs.Length - 1]) res = AtFrac(fracs[fracs.Length - 1]);
-            else if (loadFrac <= fracs[0]) res = AtFrac(fracs[0]);
-            else
+            // nu: linear between the tabulated values (clamped); per nu, loadFrac likewise
+            var nus = rows.Select(r => r.Nu).Distinct().OrderBy(x => x).ToArray();
+            var nuC = Math.Max(nus[0], Math.Min(nus[nus.Length - 1], nu));
+            (double, double) AtNu(double n)
             {
+                var set = rows.Where(r => r.Nu == n).ToList();
+                var fracs = set.Select(r => r.LoadFrac).Distinct().OrderBy(x => x).ToArray();
+                (double, double) AtFrac(double f) => Bilinear(set.Where(r => r.LoadFrac == f).ToList(), aspect, tOverB, wall, n);
+                if (fracs.Length == 1 || loadFrac >= fracs[fracs.Length - 1]) return AtFrac(fracs[fracs.Length - 1]);
+                if (loadFrac <= fracs[0]) return AtFrac(fracs[0]);
                 var i = Array.FindLastIndex(fracs, f => f <= loadFrac);
                 var a = AtFrac(fracs[i]);
                 var b = AtFrac(fracs[i + 1]);
                 var w = (loadFrac - fracs[i]) / (fracs[i + 1] - fracs[i]);
+                return (a.Item1 + (b.Item1 - a.Item1) * w, a.Item2 + (b.Item2 - a.Item2) * w);
+            }
+            (double A, double B) res;
+            var lo = nus.Where(x => x <= nuC).Max();
+            var hi = nus.Where(x => x >= nuC).Min();
+            if (hi <= lo) res = AtNu(lo);
+            else
+            {
+                var a = AtNu(lo);
+                var b = AtNu(hi);
+                var w = (nuC - lo) / (hi - lo);
                 res = (a.Item1 + (b.Item1 - a.Item1) * w, a.Item2 + (b.Item2 - a.Item2) * w);
             }
-            return res;
+            var k = _table.Value.Allowance;
+            return (res.A * k, res.B * k);
         }
 
         private static (double, double) Bilinear(List<Row> rows, double aspect, double tau, bool wall, double nu)
@@ -141,7 +169,11 @@ namespace SwAgent.Mold
             var aspects = rows.Select(r => r.Aspect).Distinct().OrderBy(x => x).ToArray();
             var strip = Strip(tau, nu);
             if (wall && aspect > aspects[aspects.Length - 1])
-                return strip; // critique A4: above the last row the strip with shear, never the last row
+            {
+                // critique A4 + Track A2: above the last row the larger of that row and the strip with shear
+                var lastW = InTau(rows.Where(r => r.Aspect == aspects[aspects.Length - 1]).ToList(), tau);
+                return (Math.Max(lastW.Item1, strip.Alpha), Math.Max(lastW.Item2, strip.Beta));
+            }
             if (!wall && aspect > aspects[aspects.Length - 1])
             {
                 // a long plate tends to the one-way strip across the short side; never less than the last row (same idea as A4)
@@ -154,14 +186,7 @@ namespace SwAgent.Mold
             var r0 = InTau(rows.Where(r => r.Aspect == a0).ToList(), tau);
             var r1 = InTau(rows.Where(r => r.Aspect == a1).ToList(), tau);
             var w = a1 > a0 ? (aspect - a0) / (a1 - a0) : 0;
-            var al = r0.Item1 + (r1.Item1 - r0.Item1) * w;
-            var be = r0.Item2 + (r1.Item2 - r0.Item2) * w;
-            if (wall)
-            {
-                al = Math.Min(al, strip.Alpha);
-                be = Math.Min(be, strip.Beta);
-            }
-            return (al, be);
+            return (r0.Item1 + (r1.Item1 - r0.Item1) * w, r0.Item2 + (r1.Item2 - r0.Item2) * w);
         }
 
         private static (double, double) InTau(List<Row> rows, double tau)

@@ -56,12 +56,16 @@ namespace SwAgent.Mold
             var bolts = (j.SelectToken("hardware.bolts") as JArray)?.OfType<JObject>().ToList() ?? new List<JObject>();
             var tcs = (j.SelectToken("hardware.tcWells") as JArray)?.OfType<JObject>().ToList() ?? new List<JObject>();
             var fits = (j.SelectToken("hardware.fits") as JArray)?.OfType<JObject>().ToList() ?? new List<JObject>();
-            var dowelRow = DowelRow(data, dowels.Select(d => Si.Num(d["d_mm"])).FirstOrDefault(x => x != null) ?? 12.7, imperial);
+            // the press fit depends on what the dowel is pressed into: the aluminium hot-fit column (S60) only in aluminium
+            var plateGrade = data.MoldGrade((string)j.SelectToken("structural.materials.plates.id") ?? (string)j.SelectToken("materials.plates.id"));
+            var plateFamily = (string)plateGrade?["family"] ?? "aluminium";
+            var tempC = Si.Num(j.SelectToken("structural.inputs.tempC")) ?? 20;
+            var dowelRow = DowelRow(data, dowels.Select(d => Si.Num(d["d_mm"])).FirstOrDefault(x => x != null) ?? 12.7, imperial, plateFamily, tempC);
             var bodies = new JArray();
             foreach (var b in source)
             {
                 var id = (string)b["id"];
-                var role = (string)b["role"] ?? (id.StartsWith("LID") ? "lid" : id.StartsWith("SUB") ? "subplate" : id.StartsWith("INS") ? "insert" : "base");
+                var role = (string)b["role"] ?? (id.StartsWith("LSUB") ? "subplate" : id.StartsWith("LID") ? "lid" : id.StartsWith("SUB") ? "subplate" : id.StartsWith("INS") ? "insert" : "base");
                 var plan = planned.FirstOrDefault(p => (string)p["id"] == id);
                 var box = Si.Lengths(b["box_mm"]) ?? new double[3];
                 var stock = Si.Num(plan?["stock_mm"]) ?? (box.Length > 2 ? box[2] + 2 * allowT : 0);
@@ -74,18 +78,19 @@ namespace SwAgent.Mold
                     holes.Add(new JObject
                     {
                         ["id"] = d["id"], ["kind"] = round ? "dowel" : "dowel slot (radial)", ["qty"] = 1, ["dia_mm"] = d["d_mm"],
-                        ["fit"] = pressHere ? "press (aluminium, 150 C)" : (round ? "slip" : "slot: slip across, free along the line to D1"),
+                        ["fit"] = pressHere ? (string)dowelRow?["pressLabel"] ?? "press" : (round ? "slip" : "slot: slip across, free along the line to D1"),
                         ["limits"] = pressHere ? dowelRow?["press"] : dowelRow?["slip"],
                         ["depth_mm"] = Si.R(1.5 * (Si.Num(d["d_mm"]) ?? 12.7), 4), ["note"] = d["at"]?.ToString(Newtonsoft.Json.Formatting.None),
                     });
                 }
                 foreach (var bt in bolts)
                 {
-                    // "SUB/BASE-1": tapped in BASE-1, counterbored in the subplate piece(s) under it
+                    // "SUB/BASE-1": tapped in BASE-1, counterbored in the subplate piece(s) SUB-n under it ("LSUB/LID-1" for a
+                    // split class B lid: counterbored in the lid plate LSUB-n on top)
                     var joint = ((string)bt["joint"] ?? "").Split('/');
                     var tappedIn = joint.Last();
                     var under = planned.FirstOrDefault(p => (string)p["id"] == tappedIn);
-                    var top = role == "subplate" && joint[0] == "SUB" && Overlaps(reg, Region(under));
+                    var top = joint.Length == 2 && id.StartsWith(joint[0] + "-", StringComparison.Ordinal) && Overlaps(reg, Region(under));
                     if (!top && id != tappedIn) continue;
                     holes.Add(new JObject
                     {
@@ -110,7 +115,7 @@ namespace SwAgent.Mold
                     flat.Add(new JObject { ["face"] = "platen face", ["tol_mm"] = platenFlat, ["note"] = "flat on the platen, no insulating gaps" });
                     flat.Add(new JObject { ["face"] = "parallelism platen face to parting face", ["tol_mm"] = Si.R(Math.Max(landFlat, 0.02), 3), ["note"] = "" });
                 }
-                if (role == "subplate") flat.Add(new JObject { ["face"] = "both faces parallel", ["tol_mm"] = subParallel, ["note"] = "pieces sit on it" });
+                if (role == "subplate") flat.Add(new JObject { ["face"] = "both faces parallel", ["tol_mm"] = subParallel, ["note"] = "pieces key into it" });
                 var notes = new JArray();
                 foreach (var f in fits.Where(x => (x["bodies"] as JArray)?.Any(y => (string)y == id) == true))
                     notes.Add($"Insert pocket {f["id"]}: d {f["d_mm"]} mm, cold interference {f["coldInterference_mm"]} mm ({f["pocketHot_mm"]}); {f["retention"]}; {f["cornerRelief"]}");
@@ -151,21 +156,37 @@ namespace SwAgent.Mold
         private static bool Overlaps(double[] a, double[] b) =>
             a == null || b == null || (a[0] < b[1] - 1e-6 && b[0] < a[1] - 1e-6 && a[2] < b[3] - 1e-6 && b[2] < a[3] - 1e-6);
 
-        private static JObject DowelRow(MoldData data, double dMm, bool imperial)
+        /// <summary>
+        /// Hole limits for the dowel size nearest dMm. Pressed into aluminium: the press_hole_aluminium_150C column (S60,
+        /// about 0.0016 d more interference so the fit survives the heat; fitted by heating the plate). Pressed into
+        /// steel: the press_hole_steel column (inch), or N7 for the m6 metric pin (the table's own advice).
+        /// </summary>
+        private static JObject DowelRow(MoldData data, double dMm, bool imperial, string plateFamily, double tempC)
         {
             var dw = data.Raw("mold-materials.json")?["dowels"];
+            var steel = plateFamily != "aluminium";
+            var label = steel ? "press (steel plate)" : "press (aluminium: hot-fit interference for up to 150 C" + (tempC > 150 ? " - at " + Si.F(tempC) + " C retain with a flange or Loctite 620 too" : "") + "; fit by heating the plate)";
             if (imperial)
             {
                 var row = (dw?.SelectToken("inch_hardened_ground.sizes") as JArray)?.OfType<JObject>().OrderBy(r => Math.Abs((double)r["d_in"] * Si.InToMm - dMm)).FirstOrDefault();
                 if (row == null) return null;
                 return new JObject
                 {
-                    ["slip"] = "hole " + Lim(row["slip_hole_in"], "in"), ["press"] = "hole " + Lim(row["press_hole_aluminium_150C_in"], "in"), ["pin"] = Lim(row["standard_pin_in"], "in"),
+                    ["slip"] = "hole " + Lim(row["slip_hole_in"], "in"), ["press"] = "hole " + Lim(row[steel ? "press_hole_steel_in" : "press_hole_aluminium_150C_in"], "in"),
+                    ["pin"] = Lim(row["standard_pin_in"], "in"), ["pressLabel"] = label,
                 };
             }
             var m = (dw?.SelectToken("metric_hardened.sizes") as JArray)?.OfType<JObject>().OrderBy(r => Math.Abs((double)r["d_mm"] - dMm)).FirstOrDefault();
             if (m == null) return null;
-            return new JObject { ["slip"] = "hole " + Lim(m["slip_hole_mm"], "mm"), ["press"] = "hole " + Lim(m["press_hole_aluminium_150C_mm"], "mm"), ["pin"] = "m6" };
+            var press = steel ? "hole N7 " + N7((double)m["d_mm"]) + " (m6 pin)" : "hole " + Lim(m["press_hole_aluminium_150C_mm"], "mm");
+            return new JObject { ["slip"] = "hole " + Lim(m["slip_hole_mm"], "mm"), ["press"] = press, ["pin"] = "m6", ["pressLabel"] = label };
+        }
+
+        /// <summary>ISO 286 N7 hole limits (mm) for d up to 50 mm.</summary>
+        private static string N7(double d)
+        {
+            var dev = d <= 3 ? (-4, -14) : d <= 6 ? (-4, -16) : d <= 10 ? (-4, -19) : d <= 18 ? (-5, -23) : d <= 30 ? (-7, -28) : (-8, -33);
+            return (d + dev.Item2 / 1000.0).ToString("0.000", CultureInfo.InvariantCulture) + " - " + (d + dev.Item1 / 1000.0).ToString("0.000", CultureInfo.InvariantCulture) + " mm";
         }
 
         private static string Lim(JToken t, string unit) => t is JArray a && a.Count == 2
@@ -208,8 +229,21 @@ namespace SwAgent.Mold
             foreach (var l in (j.SelectToken("hardware.lift") as JArray ?? new JArray()).OfType<JObject>())
             {
                 var kind = (string)l["kind"] ?? "";
-                if (kind.Contains("handles")) bom.Add(Item("Handle (heat-insulated) on steel thread inserts", "", 2, "body " + l["body"] + "; outside the platen outline or below the lid's platen face"));
-                if (kind.Contains("hoist")) bom.Add(Item("Swivel hoist ring (DIN 580 rated)", "", 2, "body " + l["body"] + ": size from the piece mass"));
+                var threads = (l["threads"] as JArray)?.OfType<JObject>().ToList() ?? new List<JObject>();
+                var hs = threads.FirstOrDefault(t => ((string)t["what"] ?? "").StartsWith("handle"));
+                var hr = threads.FirstOrDefault(t => ((string)t["what"] ?? "").StartsWith("hoist"));
+                if (kind.Contains("handles"))
+                {
+                    bom.Add(Item("Handle (heat-insulated)", hs == null ? "" : "for " + hs["size"] + " screws", 2, "body " + l["body"] + "; outside the platen outline or below the lid's platen face"));
+                    if (hs != null && hs["insert"] != null && hs["insert"].Type != JTokenType.Null)
+                        bom.Add(Item("Thread insert (" + hs["insert"] + ")", (string)hs["size"], (int?)hs["count"] ?? 4, "handle screws, body " + l["body"] + "; STI tap " + hs["size"] + (StiDrill(data, (string)hs["size"]) is string d1 ? ", STI drill " + d1 : "")));
+                }
+                if (kind.Contains("hoist"))
+                {
+                    bom.Add(Item("Swivel hoist ring (DIN 580 / ASME B30.26)", hr == null ? "" : (string)hr["size"], 2, "body " + l["body"] + (hr == null ? ": size from the piece mass" : ": " + hr["rating"])));
+                    if (hr != null && hr["insert"] != null && hr["insert"].Type != JTokenType.Null)
+                        bom.Add(Item("Thread insert (" + hr["insert"] + ")", (string)hr["size"], 2, "hoist ring threads, body " + l["body"] + "; STI tap " + hr["size"] + (StiDrill(data, (string)hr["size"]) is string d2 ? ", STI drill " + d2 : "")));
+                }
             }
             foreach (var s in (j.SelectToken("hardware.stops") as JArray ?? new JArray()).OfType<JObject>())
                 bom.Add(Item("Stop pad, hardened " + s["hardness"], s["side_mm"] + " mm square", 1, (string)s["at"] + "; shim to set the closed height"));

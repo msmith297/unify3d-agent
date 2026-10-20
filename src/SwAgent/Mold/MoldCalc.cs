@@ -68,17 +68,24 @@ namespace SwAgent.Mold
                 sb.AppendLine($"pot life {R3("potLifeMin")} min; mold {R3("moldTempC")} C; demold {R3("demoldMin")} min; pressure {R3("moldingPressurePsi")} psi; draft min {R3("draftDeg.min")} deg");
                 sb.AppendLine($"land {R3("flash.landWidthMm")} mm; vent {R3("flash.ventDepthMm")} mm; charge excess {R3("flashAllowancePct")} %; aluminium {row.SelectToken("moldCompat.aluminium")}; corrosive {row["corrosiveness"]}");
                 sb.AppendLine("sources: " + string.Join(", ", (row["sources"] as JArray ?? new JArray()).Select(x => (string)x)));
-                json = row;
+                json = (JObject)row.DeepClone();   // never hand out the shared table row
             }
             else if (q["mold"] != null)
             {
                 var g = data.MoldGrade((string)q["mold"]) ?? throw new ArgumentException("No mold grade '" + q["mold"] + "'.");
                 var t = Si.Num(q["temp_c"] ?? q["tempC"]) ?? 20;
                 var a = AtTemperature.Get(g, t);
-                sb.AppendLine($"{g["name"]} [{g["id"]}] at {Si.F(t)} C (10,000 h basis): E {Si.F(a.E / 1000)} GPa, Sy {Si.F(a.Sy)} MPa, Su {Si.F(a.Su)} MPa - {a.Service}");
-                if (a.Note != null) sb.AppendLine(a.Note);
+                // above the data (A8) there are no numbers to give: refuse rather than print the 250 C values as if they held
+                if (a.Service == "no-data") sb.AppendLine($"{g["name"]} [{g["id"]}] at {Si.F(t)} C: no data - {a.Note}");
+                else sb.AppendLine($"{g["name"]} [{g["id"]}] at {Si.F(t)} C (10,000 h basis): E {Si.F(a.E / 1000)} GPa, Sy {Si.F(a.Sy)} MPa, Su {Si.F(a.Su)} MPa - {a.Service}");
+                if (a.Note != null && a.Service != "no-data") sb.AppendLine(a.Note);
                 sb.AppendLine($"limits: full strength {g.SelectToken("max_service_C.full_strength")} C, derated {g.SelectToken("max_service_C.derated")} C, never above {g.SelectToken("max_service_C.never_above")} C; CTE {g["cte_per_K"]} /K; density {g["density_kg_m3"]} kg/m3; confidence {g["confidence"]}");
-                json = new JObject { ["id"] = g["id"], ["tempC"] = t, ["E_GPa"] = Si.R(a.E / 1000, 4), ["Sy_MPa"] = Si.R(a.Sy, 4), ["Su_MPa"] = Si.R(a.Su, 4), ["service"] = a.Service, ["note"] = a.Note };
+                var noData = a.Service == "no-data";
+                json = new JObject
+                {
+                    ["id"] = g["id"], ["tempC"] = t, ["E_GPa"] = noData ? null : (JToken)Si.R(a.E / 1000, 4), ["Sy_MPa"] = noData ? null : (JToken)Si.R(a.Sy, 4),
+                    ["Su_MPa"] = noData ? null : (JToken)Si.R(a.Su, 4), ["service"] = a.Service, ["note"] = a.Note,
+                };
             }
             else if (q["fastener"] != null)
             {
@@ -89,13 +96,13 @@ namespace SwAgent.Mold
                 sb.AppendLine($"{b.Size} {b.Spec}: A_t {Si.F(b.At)} mm², proof {Si.F(b.Fp / 1000)} kN (hot x{Si.F(kT)} at {Si.F(t)} C), Su {Si.F(b.Su)} MPa");
                 sb.AppendLine($"torque per 0.10 F_p: dry {Si.F(0.2 * b.D * 0.1 * b.Fp / 1000)} N·m; scatter +-{Si.F(cfg.D("bolts.tighteningScatter", 0.25) * 100)} % (A1)");
                 sb.AppendLine($"cbore {Si.F(b.CboreDia)} x {Si.F(b.CboreDepth)} mm; with washer: cbore {Si.F(b.WasherOd + 0.5)} mm; tap drill {Si.F(b.TapDrill)} mm; clearance {Si.F(b.ClearanceHole)} mm");
-                json = f;
+                json = (JObject)f.DeepClone();
             }
             else if (q["stock"] != null)
             {
                 var s = data.Raw("mold-materials.json")?["stock_thickness"]?[(string)q["stock"]] as JObject ?? throw new ArgumentException("No stock list '" + q["stock"] + "'.");
                 sb.AppendLine((string)q["stock"] + ": inch " + s["inch"]?.ToString(Formatting.None) + "; metric " + s["metric_mm"]?.ToString(Formatting.None));
-                json = s;
+                json = (JObject)s.DeepClone();
             }
             else if (q["family"] != null)
             {
@@ -129,8 +136,9 @@ namespace SwAgent.Mold
             var json = new JObject { ["process"] = r.Process, ["shrink"] = r.ShrinkJson };
             var patch = new JObject
             {
+                [MoldRecord.ReplaceChecksKey] = new JArray("process", "scope"),
                 ["process"] = r.Process.DeepClone(), ["shrink"] = r.ShrinkJson.DeepClone(),
-                ["materials"] = new JObject { ["part"] = PartMaterialJson(d) },
+                ["materials"] = new JObject { ["part"] = PartMaterialJson(d, design) },
                 ["checks"] = new JArray(r.Checks),
             };
             return Done(sb, json, patch, r.Checks);
@@ -158,6 +166,7 @@ namespace SwAgent.Mold
             };
             var patch = new JObject
             {
+                [MoldRecord.ReplaceChecksKey] = new JArray("press", "scope"),
                 ["process"] = new JObject { ["gauge"] = r.PressJson["gauge"].DeepClone(), ["press"] = r.PressJson.DeepClone() },
                 ["structural"] = new JObject { ["loadCases"] = loadCases },
                 ["checks"] = new JArray(r.Checks),
@@ -176,7 +185,12 @@ namespace SwAgent.Mold
             foreach (var c in l.Cavities) sb.AppendLine($"  {c.Id} at U {u.Len(c.U)}, V {u.Len(c.V)}");
             AppendNotes(sb, r.Notes);
             var json = l.ToJson();
-            return Done(sb, json, new JObject { ["layout"] = json.DeepClone() }, r.Checks);
+            var patch = new JObject
+            {
+                [MoldRecord.ReplaceKey] = new JArray("layout.cavities"), [MoldRecord.ReplaceChecksKey] = new JArray("scope"),
+                ["layout"] = json.DeepClone(), ["checks"] = new JArray(r.Checks),
+            };
+            return Done(sb, json, patch, r.Checks);
         }
 
         // ------------------------------------------------------------------ size / check
@@ -215,8 +229,12 @@ namespace SwAgent.Mold
                 ["bolts"] = r.Hardware["bolts"]?.DeepClone(),
                 ["failing"] = new JArray(r.Checks.Where(Check.Fails).Select(c => (string)c["id"])),
             };
+            // everything size/check computes replaces the earlier run's lists and checks (MoldRecord "$replace")
+            var replace = new JArray("structural.results", "structural.gauge", "hardware.bolts", "hardware.dowels", "hardware.fits", "hardware.stops", "hardware.tcWells", "hardware.lift", "hardware.slideIn");
+            if (!asBuilt && r.Layout != null) replace.Add("layout.cavities");
             var patch = new JObject
             {
+                [MoldRecord.ReplaceKey] = replace, [MoldRecord.ReplaceChecksKey] = new JArray("all"),
                 ["structural"] = s.DeepClone(), ["hardware"] = r.Hardware.DeepClone(),
                 ["process"] = new JObject { ["gauge"] = s["gauge"]?.DeepClone() },
                 ["checks"] = new JArray(r.Checks.Select(c => { var x = (JObject)c.DeepClone(); if (asBuilt) x["stage"] = "5"; return x; })),
@@ -234,17 +252,25 @@ namespace SwAgent.Mold
             Sizing.Process(r, cfg, data);
             var d = r.Design;
             var u = new Fmt(d.Imperial);
-            var plate = (string)q["plate"] ?? "base";
+            var plate = ((string)q["plate"] ?? "base").Trim().ToLowerInvariant();
+            if (plate.StartsWith("lid")) plate = "lid";
+            else if (plate.StartsWith("base")) plate = "base";
+            else throw new ArgumentException("split plate must be \"base\" or \"lid\".");
+            if (plate == "lid" && d.Class == ProcessClass.A_Pour)
+                throw new ArgumentException("A class A lid is never split (its seam would cross the seal): use fewer cavities, a smaller footprint, lightening pockets on the platen face, a lift assist or a hinge.");
             var pieces = design.SelectToken("structural.results.pieces") as JArray;
-            var piece = pieces?.OfType<JObject>().FirstOrDefault(p => string.Equals((string)p["role"], plate, StringComparison.OrdinalIgnoreCase) || string.Equals((string)p["id"], plate, StringComparison.OrdinalIgnoreCase));
-            var box = Si.Lengths(q["box_mm"]) ?? Si.Lengths(piece?["box_mm"]);
+            // the plate's size: the footprint with the plate's thickness, else the unsplit plan piece
+            var piece = pieces?.OfType<JObject>().FirstOrDefault(p => string.Equals((string)p["role"], plate, StringComparison.OrdinalIgnoreCase));
+            var fp = Si.Lengths(design.SelectToken("layout.footprint_mm"));
+            var tPlate = Si.Num(design.SelectToken("structural.results.plates." + plate + ".t_mm"));
+            var box = Si.Lengths(q["box_mm"]) ?? (fp != null && fp.Length >= 2 && tPlate != null ? new[] { fp[0], fp[1], tPlate.Value } : Si.Lengths(piece?["box_mm"]));
             if (box == null) throw new ArgumentException("split needs the plate size: run mold_calc size first, or pass query.box_mm [L, W, T].");
             var pu = d.PartU * r.Shrink.Su;
             var pv = d.PartV * r.Shrink.Sv;
-            var depth = (Si.Num(q["depth_mm"]) ?? d.DepthBase) * r.Shrink.Sw;
+            var depth = (Si.Num(q["depth_mm"]) ?? (plate == "lid" ? d.DepthLid : d.DepthBase)) * r.Shrink.Sw;
             var input = new SplitInput
             {
-                PlateId = plate.ToUpperInvariant() == "BASE" ? "BASE" : plate.ToUpperInvariant(), L = box[0], W = box[1], T = box[2],
+                PlateId = plate == "base" ? "BASE" : "LID", SubplateId = plate == "base" ? "SUB" : "LSUB", L = box[0], W = box[1], T = box[2],
                 Density_kg_m3 = (double?)d.PlateGrade["density_kg_m3"] ?? 2700, MaxMass_kg = d.MaxPlateMass, MaxBox = d.MaxPlateSize,
                 AllowLW = data.ShopMm("plates.blankAllowancePerSide", 3), AllowT = data.ShopMm("plates.blankAllowanceThicknessPerSide", 1.5),
                 CavityClearance = cfg.D("splitClearanceFromCavity_mm", 15),
@@ -286,8 +312,9 @@ namespace SwAgent.Mold
                 foreach (var p in o.Pieces) sb.AppendLine($"  {p.Id}: {u.Len(p.Box[0])} x {u.Len(p.Box[1])}, {u.Mass(p.Mass)} ({string.Join(" ", p.Cavities)})");
                 sb.AppendLine($"  keyed subplate {u.Len(o.SubplateT)} thick: {o.SubPieces.Count} piece(s), heaviest {u.Mass(o.SubPieces.Max(p => p.Mass))}{(o.SubplateOk ? "" : " - BREAKS THE LIMITS")}{(string.IsNullOrEmpty(o.Note) ? "" : " - " + o.Note)}");
             }
-            sb.AppendLine("Merge the chosen option as structural.split, then run size again (keys and bolts are sized for it).");
-            var json = new JObject { ["options"] = new JArray(opts.Select(o => o.ToJson())) };
+            sb.AppendLine($"Merge the chosen option i (json.options[i]) as {{\"$replace\": [\"structural.split.{plate}\"], \"structural\": {{\"split\": {{\"{plate}\": <option>}}}}}}, then run size again (keys and bolts are sized for it). To drop a split, merge {{\"structural\": {{\"split\": {{\"{plate}\": null}}}}}}.");
+            if (plate == "lid") sb.AppendLine("A split lid is still lifted as one bolted unit: WEIGHT-LID keeps the whole lid assembly; the split only helps the machining limits.");
+            var json = new JObject { ["plate"] = plate, ["options"] = new JArray(opts.Select(o => o.ToJson())) };
             return Done(sb, json, null, new List<JObject>());
         }
 
@@ -311,7 +338,8 @@ namespace SwAgent.Mold
             foreach (var c in checks.Take(40))
             {
                 var m = c["margin"]?.Type == JTokenType.Null || c["margin"] == null ? "" : $" margin {(double)c["margin"] * 100:0.#}%";
-                var dc = c["demand"] == null || c["demand"].Type == JTokenType.Null ? "" : $" {Si.F((double)c["demand"], 4)} vs {Si.F((double)c["capacity"], 4)} {c["unit"]}";
+                string Val(JToken t) => t == null || t.Type == JTokenType.Null ? "n/a" : Si.F((double)t, 4);
+                var dc = (c["demand"] == null || c["demand"].Type == JTokenType.Null) && (c["capacity"] == null || c["capacity"].Type == JTokenType.Null) ? "" : $" {Val(c["demand"])} vs {Val(c["capacity"])} {c["unit"]}";
                 sb.Append($"  {((string)c["status"]).ToUpperInvariant(),-5} {c["id"]}{dc}{m} - {c["method"]}");
                 var note = (string)c["note"];
                 if (!string.IsNullOrEmpty(note)) sb.Append(" [" + note + "]");
@@ -373,19 +401,28 @@ namespace SwAgent.Mold
             return new CalcResult { Text = sb.ToString(), Json = json, RecordPatch = patch, Checks = checks };
         }
 
-        private static JObject PartMaterialJson(Design d) => new JObject
+        /// <summary>
+        /// materials.part for the record: the row id and the values this run used. The F2 simulator sections (rheology,
+        /// kinetics, thermal, mechanical) belong to whoever measures them: they are only created here when the design has
+        /// none (MoldRecord.Init normally creates them), never overwritten.
+        /// </summary>
+        private static JObject PartMaterialJson(Design d, JObject design)
         {
-            ["id"] = d.PartRow["id"],
-            ["used"] = new JObject
+            var j = new JObject
             {
-                ["shrinkPct"] = d.ShrinkPct, ["shrinkBasis"] = d.ShrinkBasis, ["sg"] = d.Sg, ["viscosityCp"] = d.ViscosityCp, ["mooney"] = d.Mooney,
-                ["potLifeMin"] = d.PotLifeMin, ["cureMin"] = d.CureMin, ["draftMinDeg"] = d.DraftMinDeg,
-                ["moldingPressure_MPa"] = Si.R(d.MoldingPressureTyp, 5), ["chargeExcessPct"] = d.ExcessPct,
-            },
-            ["confidence"] = d.PartRow["confidence"], ["sources"] = d.PartRow["sources"]?.DeepClone(),
-            ["rheology"] = new JObject { ["status"] = "unknown" }, ["kinetics"] = new JObject { ["status"] = "unknown" },
-            ["thermal"] = new JObject { ["status"] = "unknown" }, ["mechanical"] = new JObject { ["status"] = "unknown" },
-        };
+                ["id"] = d.PartRow["id"],
+                ["used"] = new JObject
+                {
+                    ["shrinkPct"] = d.ShrinkPct, ["shrinkBasis"] = d.ShrinkBasis, ["sg"] = d.Sg, ["viscosityCp"] = d.ViscosityCp, ["mooney"] = d.Mooney,
+                    ["potLifeMin"] = d.PotLifeMin, ["cureMin"] = d.CureMin, ["draftMinDeg"] = d.DraftMinDeg,
+                    ["moldingPressure_MPa"] = Si.R(d.MoldingPressureTyp, 5), ["chargeExcessPct"] = d.ExcessPct,
+                },
+                ["confidence"] = d.PartRow["confidence"], ["sources"] = d.PartRow["sources"]?.DeepClone(),
+            };
+            foreach (var k in new[] { "rheology", "kinetics", "thermal", "mechanical" })
+                if (design?.SelectToken("materials.part." + k) == null) j[k] = new JObject { ["status"] = "unknown" };
+            return j;
+        }
     }
 
     /// <summary>Dual-unit formatting for reports: the document's system first, SI in brackets (design unit conventions).</summary>

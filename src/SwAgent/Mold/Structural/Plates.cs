@@ -32,10 +32,11 @@ namespace SwAgent.Mold
         }
 
         /// <summary>(S27) pocket plate t >= max(t_floor + h_max, 0.05 L, min plate, counterbore + 6 mm, L_e + 0.5 d + 3 mm).</summary>
-        public static double PocketPlate(bool aluminium, double tFloor, double hMax, double longestSide, Cfg cfg, double cboreDepth = 0, double threadNeed = 0)
+        /// <remarks>lengthFraction overrides the 0.05 L rule (0 drops it: critique A2.6, case A lids over the lift limit).</remarks>
+        public static double PocketPlate(bool aluminium, double tFloor, double hMax, double longestSide, Cfg cfg, double cboreDepth = 0, double threadNeed = 0, double? lengthFraction = null)
         {
             var t = tFloor + hMax;
-            t = Math.Max(t, cfg.D("minPlateFractionOfLongestSide", 0.05) * longestSide);
+            t = Math.Max(t, (lengthFraction ?? cfg.D("minPlateFractionOfLongestSide", 0.05)) * longestSide);
             t = Math.Max(t, cfg.D(aluminium ? "minPlate_mm.aluminium" : "minPlate_mm.steel", aluminium ? 12 : 10));
             if (cboreDepth > 0) t = Math.Max(t, cboreDepth + 6);
             if (threadNeed > 0) t = Math.Max(t, threadNeed);
@@ -43,9 +44,9 @@ namespace SwAgent.Mold
         }
 
         /// <summary>(S28) lid t >= max(0.05 L, min plate, plug height + 10 mm, hardware).</summary>
-        public static double Lid(bool aluminium, double longestSide, Cfg cfg, double plugHeight = 0, double hardware = 0)
+        public static double Lid(bool aluminium, double longestSide, Cfg cfg, double plugHeight = 0, double hardware = 0, double? lengthFraction = null)
         {
-            var t = cfg.D("minPlateFractionOfLongestSide", 0.05) * longestSide;
+            var t = (lengthFraction ?? cfg.D("minPlateFractionOfLongestSide", 0.05)) * longestSide;
             t = Math.Max(t, cfg.D(aluminium ? "minPlate_mm.aluminium" : "minPlate_mm.steel", aluminium ? 12 : 10));
             if (plugHeight > 0) t = Math.Max(t, plugHeight + 10);
             return Math.Max(t, hardware);

@@ -118,6 +118,7 @@ namespace SwAgent.Mold
   ""minPerJointEnd"": 2,
   ""washerSpreadDeg"": 45,
   ""minDiameter_mm"": 6.0,
+  ""maxRows"": 2,
   ""note"": ""preload fractions are ceilings: the sizing picks the highest preload that passes the hot and separation checks with tightening scatter; minDiameter_mm: the smallest screw used on mold plates (1/4 in or M6) [K]""
  },
  ""fatigue"": {
@@ -199,6 +200,7 @@ namespace SwAgent.Mold
   ""loadConstant_kg"": 23,
   ""unknownLid_kg"": 11,
   ""occasionalPlate_kg"": 23,
+  ""handlingLoadFactor"": 2.0,
   ""locations"": {
    ""table"": {
     ""H_cm"": 40,

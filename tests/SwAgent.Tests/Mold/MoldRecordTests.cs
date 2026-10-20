@@ -252,7 +252,7 @@ namespace SwAgent.Tests.Mold
             Assert.Contains("SUB-1", html);
             Assert.Contains("counterbored clearance (hardened washer)", html);
             Assert.Contains("tapped for insert (STI tap)", html);
-            Assert.Contains("press (aluminium, 150 C)", html);               // dowel fits with limits
+            Assert.Contains("press (aluminium: hot-fit interference", html);  // dowel fits with limits (S60 column in aluminium)
             Assert.Contains("0.4990 - 0.4992 in", html);                      // 1/2 in press hole in aluminium (dowel table)
             Assert.Contains("lap flat", html);
             Assert.Contains("never proud", html);                             // A12 shut-off rule

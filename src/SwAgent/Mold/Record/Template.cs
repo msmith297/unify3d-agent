@@ -126,8 +126,26 @@ namespace SwAgent.Mold
 
         private static JToken Select(JContainer c, string path)
         {
-            try { return c.SelectToken(path); }
+            try { return c.SelectToken(IndexSegments(path)); }
             catch (Newtonsoft.Json.JsonException) { return null; }
+        }
+
+        /// <summary>"bodies.0.id" -> "bodies[0].id": SelectToken only indexes arrays with brackets.</summary>
+        private static string IndexSegments(string path)
+        {
+            var parts = path.Split('.');
+            var sb = new StringBuilder();
+            for (var k = 0; k < parts.Length; k++)
+            {
+                var seg = parts[k];
+                if (k > 0 && seg.Length > 0 && seg.All(char.IsDigit)) sb.Append('[').Append(seg).Append(']');
+                else
+                {
+                    if (k > 0) sb.Append('.');
+                    sb.Append(seg);
+                }
+            }
+            return sb.ToString();
         }
 
         private static bool Truthy(JToken v)

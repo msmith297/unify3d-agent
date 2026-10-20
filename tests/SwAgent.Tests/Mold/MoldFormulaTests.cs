@@ -90,7 +90,13 @@ namespace SwAgent.Tests.Mold
             Assert.Equal("liquidBelow1000cP", GapBudget.FlowClass(ProcessClass.A_Pour, "liquid_cast_hot", "liquid_low", 600));
             Assert.Equal("liquidAbove10000cP", GapBudget.FlowClass(ProcessClass.A_Pour, "liquid_cast_rt", "liquid_low", 40000)); // the page value, not the class
             Assert.Equal("paste_lsr", GapBudget.FlowClass(ProcessClass.B_Compression, "liquid_compression", "paste_lsr", 300000));
-            Assert.Throws<InvalidOperationException>(() => GapBudget.Compute("rubber", new Cfg(Data.Defaults, new JObject { ["landFlatness_mm.rubber"] = 0.06 })));
+            var used = new Cfg(Data.Defaults, new JObject { ["landFlatness_mm.rubber"] = 0.06 });
+            Assert.Contains("delta_allow_mm", Assert.Throws<ArgumentException>(() => GapBudget.Compute("rubber", used)).Message);
+            // the override is applied before the budget is tested, so it rescues a used-up budget; walls have their own
+            var rescued = GapBudget.Compute("rubber", used, deltaOverride: 0.01, wallOverride: 0.02);
+            Assert.Equal(0.01, rescued.DeltaGap, 9);
+            Assert.Equal(0.02, rescued.DeltaWall, 9);
+            Assert.Throws<ArgumentException>(() => GapBudget.Compute("rubber", c, deltaOverride: 0));
         }
 
         // ---------------------------------------------------------------- A9 press force area, C2 force reading, S7 flags

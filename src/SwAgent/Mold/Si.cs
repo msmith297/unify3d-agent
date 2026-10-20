@@ -58,35 +58,15 @@ namespace SwAgent.Mold
         }
 
         /// <summary>
-        /// Reads a number from a token that may be a number, a numeric string ("2000 psi"), or an object
-        /// {value|si, unit}. Returns null for null/missing/"not set".
-        /// </summary>
-        /// <summary>
-        /// As Num(t), and an {"si": x} object (the page payload's true SI value: Pa, m, N, Pa·s, s, rad) is converted to the
-        /// calculator unit of `quantity` (pressure, length, area, force, time, viscosity, angle; others pass through).
+        /// Reads a number in calculator units from a token that may be a number, a numeric string ("2000 psi"), or an
+        /// object {value, unit} / {si, value?, display?}. `quantity` (pressure, length, length_cm, area, force, time,
+        /// viscosity, angle; temperature, mass, percent and count are the same in SI and calculator units) says what an
+        /// "si" value measures: whenever "si" is present it is converted by the quantity - also when the object carries a
+        /// display `value` next to it, as Track B's payload entries do ({"value": "2000 psi (13.79 MPa)", "si": 13789514.6}).
+        /// Without a quantity an "si" object is read from its value and unit (or the value text's own unit) instead, and the
+        /// raw si number is only taken for a dimensionless value. Returns null for null/missing/"not set".
         /// </summary>
         public static double? Num(JToken t, string quantity)
-        {
-            if (quantity != null && t is JObject o && o["si"] != null && o["si"].Type != JTokenType.Null && o["value"] == null)
-            {
-                var si = Num(o["si"]);
-                if (si == null) return null;
-                switch (quantity)
-                {
-                    case "pressure": return si / 1e6;
-                    case "length": return si * 1000.0;
-                    case "area": return si * 1e6;
-                    case "force": return si / 1000.0;
-                    case "time": return si / 60.0;
-                    case "viscosity": return si * 1000.0;
-                    case "angle": return si * 180.0 / Math.PI;
-                    default: return si;
-                }
-            }
-            return Num(t);
-        }
-
-        public static double? Num(JToken t)
         {
             if (t == null || t.Type == JTokenType.Null || t.Type == JTokenType.Undefined) return null;
             switch (t.Type)
@@ -96,22 +76,65 @@ namespace SwAgent.Mold
                     return (double)t;
                 case JTokenType.Boolean:
                     return null;
+                case JTokenType.String:
+                    return ParseWithUnit((string)t, out _);
                 case JTokenType.Object:
                     var o = (JObject)t;
-                    var inner = o["si"] ?? o["value"];
-                    if (inner == null) return null;
-                    var n = Num(inner);
-                    var u = (string)o["unit"];
-                    return n == null ? (double?)null : (o["si"] != null ? n : ToCalc(n.Value, u));
-                case JTokenType.String:
-                    return ParseWithUnit((string)t);
+                    var siTok = o["si"];
+                    if (siTok != null && siTok.Type != JTokenType.Null)
+                    {
+                        var si = Num(siTok, null);
+                        if (si == null) return null;
+                        if (quantity != null) return FromSi(si.Value, quantity);
+                        // no quantity: trust a value that says its unit, never the bare SI number of a dimensional value
+                        var val = o["value"];
+                        if (val != null && (val.Type == JTokenType.Integer || val.Type == JTokenType.Float) && o["unit"] != null)
+                            return ToCalc((double)val, (string)o["unit"]);
+                        if (val != null && val.Type == JTokenType.String && ParseWithUnit((string)val, out var known) is double pv && known)
+                            return pv;
+                        var disp = o["display"];
+                        if (disp != null && disp.Type == JTokenType.String && ParseWithUnit((string)disp, out var known2) is double dv && known2)
+                            return dv;
+                        return si;
+                    }
+                    var inner = o["value"];
+                    if (inner == null || inner.Type == JTokenType.Null) return null;
+                    var n = Num(inner, null);
+                    return n == null ? (double?)null : ToCalc(n.Value, (string)o["unit"]);
                 default:
                     return null;
             }
         }
 
-        private static double? ParseWithUnit(string s)
+        public static double? Num(JToken t) => Num(t, null);
+
+        /// <summary>A true SI number (Pa, m, m², N, s, Pa·s, rad; degC, kg, % unchanged) in the calculator unit of `quantity`.</summary>
+        public static double FromSi(double si, string quantity)
         {
+            switch (quantity)
+            {
+                case "pressure": return si / 1e6;
+                case "length": return si * 1000.0;
+                case "length_cm": return si * 100.0;
+                case "area": return si * 1e6;
+                case "force": return si / 1000.0;
+                case "time": return si / 60.0;
+                case "viscosity": return si * 1000.0;
+                case "angle": return si * 180.0 / Math.PI;
+                default: return si;   // temperature (degC), mass (kg), percent, count, dimensionless
+            }
+        }
+
+        private static readonly string[] KnownUnits =
+        {
+            "psi", "ksi", "bar", "kgf/cm2", "kgf/cm²", "kg/cm2", "pa", "kpa", "mpa", "in", "inch", "\"", "m", "cm", "mm", "lb", "lbs",
+            "g", "kg", "lbf", "n", "kn", "us ton", "ton", "tons", "short ton", "t", "tf", "tonne", "tonnes", "degf", "°f", "f", "degc",
+            "°c", "c", "k", "pa*s", "pa·s", "pas", "cp", "s", "min", "h", "rad", "deg", "°", "%",
+        };
+
+        private static double? ParseWithUnit(string s, out bool knownUnit)
+        {
+            knownUnit = false;
             if (string.IsNullOrWhiteSpace(s)) return null;
             s = s.Trim();
             var i = 0;
@@ -123,8 +146,14 @@ namespace SwAgent.Mold
             }
             if (i == 0) return null;
             if (!double.TryParse(s.Substring(0, i).Replace(",", ""), NumberStyles.Float, CultureInfo.InvariantCulture, out var v)) return null;
-            var unit = s.Substring(i).Trim();
-            return unit.Length == 0 ? v : ToCalc(v, unit);
+            // the unit is what follows the number up to a bracket: "2000 psi (13.79 MPa)" -> psi
+            var unit = s.Substring(i);
+            var br = unit.IndexOfAny(new[] { '(', '[' });
+            if (br >= 0) unit = unit.Substring(0, br);
+            unit = unit.Trim();
+            if (unit.Length == 0) return v;
+            knownUnit = Array.IndexOf(KnownUnits, unit.ToLowerInvariant()) >= 0;
+            return ToCalc(v, unit);
         }
 
         /// <summary>Reads a length array (e.g. [610, 610] mm, or {"value":[24,24],"unit":"in"}) in mm; null when absent.</summary>
@@ -156,7 +185,7 @@ namespace SwAgent.Mold
                 var r = new double[parts.Length];
                 for (var i = 0; i < parts.Length; i++)
                 {
-                    var n = ParseWithUnit(parts[i]);
+                    var n = ParseWithUnit(parts[i], out _);
                     if (n == null) return null;
                     r[i] = n.Value;
                 }

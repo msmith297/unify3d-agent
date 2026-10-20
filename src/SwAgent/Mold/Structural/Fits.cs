@@ -79,6 +79,8 @@ namespace SwAgent.Mold
         public string Reason;
         public double LateralStress, LateralDeflection, Allow, DeltaAllow;
         public double AxialStiffness, AxialForce, EulerLoad, AxialStress;
+        /// <summary>LC1x (class A abuse, A3 / design 3.2): lateral stress at F/A_proj and the cavity pressure at yield (SF 1.0).</summary>
+        public double SigmaAbuse, PAbuseCap = double.PositiveInfinity;
         public List<JCheck> Checks = new List<JCheck>();
     }
 
@@ -90,10 +92,12 @@ namespace SwAgent.Mold
     /// (S63, new - critique A12) shut-off pins sit 0.01-0.03 mm below the land, never proud. The axial check assumes the
     /// pin ends proud by the full height tolerance band: F = (E A/H) x band against Euler P_cr = pi² E I/(K H)² (K = 2
     /// fixed-free, 0.7 with a guided tip) and bearing F/A <= S_y, both with SF 2.
+    /// LC1x (class A, design 3.2 "walls and inserts"): the same lateral bending at p = F/A_proj against S_y,T with SF 1.0;
+    /// the pressure at which the pin yields caps the maximum gauge like the walls do.
     /// </summary>
     public static class Pins
     {
-        public static PinResult Check(string id, double d, double H, double p, GradeAtT g, double allowStress, double deltaAllow, Cfg cfg, bool shutOff = false, bool guidedTip = false)
+        public static PinResult Check(string id, double d, double H, double p, GradeAtT g, double allowStress, double deltaAllow, Cfg cfg, bool shutOff = false, bool guidedTip = false, double pAbuse = 0)
         {
             var r = new PinResult { Allow = allowStress, DeltaAllow = deltaAllow };
             if (d < cfg.D("pins.insertIfDiameterBelow_mm", 3.0)) { r.InsertRequired = true; r.Reason = "core pin under " + Si.F(cfg.D("pins.insertIfDiameterBelow_mm", 3.0)) + " mm"; }
@@ -105,6 +109,13 @@ namespace SwAgent.Mold
             r.LateralDeflection = q * Math.Pow(H, 4) / (8 * g.E * I);
             r.Checks.Add(new JCheck { Id = "PIN-STRESS-" + id, Type = "stress", Demand = r.LateralStress, Capacity = allowStress, Unit = "MPa", LoadCase = "LC1", Method = "S62: 32 M/(pi d^3), M = 0.5 p d H^2/2" });
             r.Checks.Add(new JCheck { Id = "PIN-DEFL-" + id, Type = "deflection", Demand = r.LateralDeflection, Capacity = deltaAllow, Unit = "mm", LoadCase = "LC1", Method = "S62: q H^4/(8 E I)" });
+            if (pAbuse > 0 && p > 0)
+            {
+                var sf = cfg.D("classA.abuseSf", 1.0);
+                r.SigmaAbuse = r.LateralStress * pAbuse / p;
+                r.PAbuseCap = g.Sy / sf / (r.LateralStress / p);
+                r.Checks.Add(new JCheck { Id = "PIN-ABUSE-" + id, Type = "stress", Demand = r.SigmaAbuse, Capacity = g.Sy / sf, Unit = "MPa", LoadCase = "LC1x", Method = "S62/LC1x: lateral bending at F/A_proj <= Sy,T (SF 1.0)" });
+            }
             if (shutOff)
             {
                 var band = cfg.Arr("pins.shutOffRecess_mm");

@@ -69,11 +69,19 @@ def fat(a, N, kf):
     return dict(Sa=Sa, smax=smax, fat=smax / (kf * 1.5), static=a["Sy"] / 2)
 
 # ---------------------------------------------------------------- coefficients (bilinear in aspect and tau²; strip above walls)
+# Mirrors the C# reader's rules (not its code): full-load rows (the largest loadFrac), nu interpolated linearly between the
+# tabulated values, walls above the last L/h = max(last row, strip with shear), no clamp to the strip inside the table,
+# and the table's interpolation allowance (header "# allowance:", else 1.01 for a swept table, 1.0 for the provisional one).
 TAB = {}
-for line in open(CSV):
-    if line.startswith("#") or line.startswith("bc,") or not line.strip(): continue
-    c = line.strip().split(",")
-    TAB.setdefault(c[0], {}).setdefault(float(c[1]), []).append((float(c[2]), float(c[5]), float(c[6])))
+HEAD = [l for l in open(CSV) if l.startswith("#")]
+PROVISIONAL = any(l.startswith("# provisional") for l in HEAD)
+ALLOW = next((float(l.split(":", 1)[1]) for l in HEAD if l.startswith("# allowance:")), 1.0 if PROVISIONAL else 1.01)
+_rows = [l.strip().split(",") for l in open(CSV) if not l.startswith("#") and not l.startswith("bc,") and l.strip()]
+_full = {}
+for c in _rows: _full[c[0]] = max(_full.get(c[0], 0.0), float(c[4]))
+for c in _rows:
+    if float(c[4]) != _full[c[0]]: continue
+    TAB.setdefault(c[0], {}).setdefault(float(c[3]), {}).setdefault(float(c[1]), []).append((float(c[2]), float(c[5]), float(c[6])))
 def strip(tau, nu=0.3): return 12 * (1 - nu * nu) / 8 + (1 + nu) / (5 / 6) * tau * tau, 3.0
 def in_tau(rows, tau):
     rows = sorted(rows); t2 = tau * tau
@@ -83,25 +91,33 @@ def in_tau(rows, tau):
             w = (t2 - ta * ta) / (tb * tb - ta * ta); return aa + (ab - aa) * w, ba + (bb - ba) * w
     (ta, aa, ba), (tb, ab, bb) = rows[-2], rows[-1]
     return ab + max(0, (ab - aa) / (tb * tb - ta * ta)) * (t2 - tb * tb), bb
-def coef(bc, aspect, tau):
-    t = TAB[bc]; wall = bc.startswith("Wall")
-    if not wall and aspect < 1: aspect = 1 / aspect
+def coef_nu(bc, aspect, tau, nu):
+    t = TAB[bc][nu]; wall = bc.startswith("Wall")
+    if bc in ("SS4", "C4") and aspect < 1: aspect = 1 / aspect
     asp = sorted(t)
-    if wall and aspect > asp[-1]: return strip(tau)
+    if wall and aspect > asp[-1]:
+        last = in_tau(t[asp[-1]], tau); s = strip(tau, nu)
+        return max(last[0], s[0]), max(last[1], s[1])
     a0 = max([x for x in asp if x <= aspect] or [asp[0]]); a1 = min([x for x in asp if x >= aspect] or [asp[-1]])
     r0 = in_tau(t[a0], tau); r1 = in_tau(t[a1], tau); w = (aspect - a0) / (a1 - a0) if a1 > a0 else 0
-    al, be = r0[0] + (r1[0] - r0[0]) * w, r0[1] + (r1[1] - r0[1]) * w
-    if wall: s = strip(tau); al, be = min(al, s[0]), min(be, s[1])
-    return al, be
+    return r0[0] + (r1[0] - r0[0]) * w, r0[1] + (r1[1] - r0[1]) * w
+def coef(bc, aspect, tau, nu=0.33):
+    nus = sorted(TAB[bc]); n = min(max(nu, nus[0]), nus[-1])
+    lo = max(x for x in nus if x <= n); hi = min(x for x in nus if x >= n)
+    a = coef_nu(bc, aspect, tau, lo)
+    if hi > lo:
+        b = coef_nu(bc, aspect, tau, hi); w = (n - lo) / (hi - lo)
+        a = (a[0] + (b[0] - a[0]) * w, a[1] + (b[1] - a[1]) * w)
+    return a[0] * ALLOW, a[1] * ALLOW
 
 # ---------------------------------------------------------------- walls (S21-S23)
-def wall(p, h, L, b, E, delta, allow, root=1.2):
+def wall(p, h, L, b, E, delta, allow, root=1.2, nu=0.33):
     w = 0.3 * h
     for _ in range(200):
-        wn = (root * coef("Wall-C", L / h, w / h)[0] * p * h ** 4 / (E * delta)) ** (1 / 3)
+        wn = (root * coef("Wall-C", L / h, w / h, nu)[0] * p * h ** 4 / (E * delta)) ** (1 / 3)
         if abs(wn - w) / w < 1e-10: w = wn; break
         w = wn
-    sig = lambda x: coef("Wall-C", L / h, x / h)[1] * p * h * h / x ** 2 + p * b / (2 * x)
+    sig = lambda x: coef("Wall-C", L / h, x / h, nu)[1] * p * h * h / x ** 2 + p * b / (2 * x)
     ws = w
     for _ in range(200):
         if sig(ws) <= allow * (1 + 1e-12): break
@@ -157,8 +173,8 @@ rr = R + clr + dowel / 2; c0 = lip + W - R
 aa = (key + math.sqrt(2 * rr * rr - key * key)) / 2
 edge = max(lip + W + clr, aa + inset + c0)
 gap = 1.5 * IN
-wV = wall(pLC1, h, pu, pv, a6["E"], dwall, allow)    # walls facing +-V (long, L/h ~ 6)
-wU = wall(pLC1, h, pv, pu, a6["E"], dwall, allow)    # walls facing +-U
+wV = wall(pLC1, h, pu, pv, a6["E"], dwall, allow, nu=a6["nu"])    # walls facing +-V (long, L/h ~ 6)
+wU = wall(pLC1, h, pv, pu, a6["E"], dwall, allow, nu=a6["nu"])    # walls facing +-U
 L = ceil_step(2 * pu + max(gap, max(wU[0], wU[1])) + 2 * max(edge, max(wU[0], wU[1])), 0.5 * IN)
 Wd = ceil_step(pv + 2 * max(edge, max(wV[0], wV[1])), 0.5 * IN)
 edgeU = (L - (2 * pu + gap)) / 2; edgeV = (Wd - pv) / 2
@@ -170,7 +186,7 @@ mbase = (L * Wd * tbase - 2 * V * s ** 3) * rho
 mlid = L * Wd * tlid * rho
 drawnU, drawnV = min(edgeU, gap), edgeV
 def at_drawn(Lw, b, w):
-    al, be = coef("Wall-C", Lw / h, w / h)
+    al, be = coef("Wall-C", Lw / h, w / h, a6["nu"])
     return be * pLC1 * h * h / w ** 2 + pLC1 * b / (2 * w), 1.2 * al * pLC1 * h ** 4 / (a6["E"] * w ** 3)
 sigV, defV = at_drawn(pu, pv, drawnV)
 sigU, defU = at_drawn(pv, pu, drawnU)
@@ -224,15 +240,15 @@ examples.append({"id": "E2", "title": "Class A, the user's typical job: TDI-ethe
 # ---------------------------------------------------------------- E3 class B wall (L/h = 6, per structural 5.3)
 a150 = at("al_6061_t651", 150); p20 = at("st_p20", 150)
 f3 = fat(a150, 1e5, 1.5)
-w0 = wall(10.3, 25, 150, 0, a150["E"], 0.05, 1e9, root=1.0)[0]
-w1, ws1, sig1 = wall(10.3, 25, 150, 0, a150["E"], 0.05, min(f3["fat"], f3["static"]))
+w0 = wall(10.3, 25, 150, 0, a150["E"], 0.05, 1e9, root=1.0, nu=a150["nu"])[0]
+w1, ws1, sig1 = wall(10.3, 25, 150, 0, a150["E"], 0.05, min(f3["fat"], f3["static"]), nu=a150["nu"])
 pa = fat(p20, 1e5, 1.5); pb = fat(p20, 1e6, 1.5)
-wp, wsp, sigp = wall(10.3, 25, 150, 0, p20["E"], 0.05, min(pa["fat"], pa["static"]))
-wp6, wsp6, _ = wall(10.3, 25, 150, 0, p20["E"], 0.05, min(pb["fat"], pb["static"]))
+wp, wsp, sigp = wall(10.3, 25, 150, 0, p20["E"], 0.05, min(pa["fat"], pa["static"]), nu=p20["nu"])
+wp6, wsp6, _ = wall(10.3, 25, 150, 0, p20["E"], 0.05, min(pb["fat"], pb["static"]), nu=p20["nu"])
 examples.append({"id": "E3", "title": "Class B wall: p = 10.3 MPa, h = 25 mm, L = 150 mm (L/h = 6), delta = 0.05 mm, K_f = 1.5, membrane off, N = 1e5",
     "kind": "wall", "input": {"p": 10.3, "h": 25, "L": 150, "bPerp": 0, "delta": 0.05, "kf": 1.5, "N": 1e5},
     "expected": {"Al.E_MPa": a150["E"], "Al.Sy_MPa": a150["Sy"], "Al.wDefl_noRoot_mm": w0, "Al.wDefl_mm": w1, "Al.allowFatigue_MPa": f3["fat"], "Al.wStruct_mm": max(w1, ws1),
-                 "P20.wDefl_mm": wp, "P20.sigmaAtDefl_MPa": coef("Wall-C", 6, wp / 25)[1] * 10.3 * 625 / wp ** 2,
+                 "P20.wDefl_mm": wp, "P20.sigmaAtDefl_MPa": coef("Wall-C", 6, wp / 25, p20["nu"])[1] * 10.3 * 625 / wp ** 2,
                  "P20.allow1e5_MPa": min(pa["fat"], pa["static"]), "P20.wStruct1e5_mm": max(wp, wsp), "P20.allow1e6_MPa": min(pb["fat"], pb["static"]), "P20.wStruct1e6_mm": max(wp6, wsp6)},
     "flags": {"Al.stocky": max(w1, ws1) / 25 > 0.5},
     "notes": "Re-derived for the L/h = 6 row (critique A4). Before: the L/h = 4 row gave 13.3 / 16.9 mm (Al) and 8.65 mm at 232 MPa against 231 MPa (P20, critique H1: fails by 0.4% -> 8.66 mm). The aluminium wall is still stocky (w/h > 0.5): prefer P20 or a 3D check.",
@@ -295,10 +311,9 @@ examples.append({"id": "E8", "title": "Thread engagement, 6061 at 150 C, 12.9 sc
     "expected": {"LeOverD": 0.5 * 1220 / (310 * 0.75), "insert": True, "helicalNeedD": 0.5 * 1220 / (310 * 0.75) / 1.2, "helicalLengthD": 2.5},
     "hand": {"LeOverD": 2.62}, "notes": "Re-checked at the helical insert's 1.2 d shear diameter: 2.18 d needed, so the 2.5 d stock length (2 d is not enough).",
     "tolerancePct": 0.5})
-TA = TAB["SS4"][1.0]
 t = 20.0
 for _ in range(200):
-    tn = (in_tau(TA, t / 100)[0] * 10 * 100 ** 4 / (66000 * 0.025)) ** (1 / 3)
+    tn = (coef("SS4", 1.0, t / 100, 0.3)[0] * 10 * 100 ** 4 / (66000 * 0.025)) ** (1 / 3)
     if abs(tn - t) < 1e-10: break
     t = tn
 examples.append({"id": "E9", "title": "T16 thickness: SS4, a/b = 1, p = 10 MPa, b = 100 mm, E = 66 GPa, delta = 0.025 mm", "kind": "span",

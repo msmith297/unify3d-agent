@@ -51,6 +51,10 @@ namespace SwAgent.Mold
 
         public static JObject Upper(string id, string type, double demand, double capacity, string unit, string method, string body = null, string loadCase = null, string note = null)
         {
+            if (Invalid(demand, capacity, out var why)) return Broken(id, type, demand, capacity, unit, method, body, loadCase, note, why);
+            // a negative demand is a sign of broken geometry (a negative wall or edge), never a pass
+            if (demand < -1e-9 * Math.Max(1.0, Math.Abs(capacity)))
+                return Broken(id, type, demand, capacity, unit, method, body, loadCase, note, "negative demand: the geometry behind it is inconsistent (re-run layout or size)");
             // a demand that is zero up to rounding (a centred load centre) has no finite margin
             var margin = demand <= 1e-9 * Math.Max(1.0, Math.Abs(capacity)) ? double.PositiveInfinity : capacity / demand - 1.0;
             return Make(id, type, demand, capacity, unit, margin, method, body, loadCase, note);
@@ -58,9 +62,32 @@ namespace SwAgent.Mold
 
         public static JObject Lower(string id, string type, double achieved, double minimum, string unit, string method, string body = null, string loadCase = null, string note = null)
         {
-            var margin = minimum <= 0 ? double.PositiveInfinity : achieved / minimum - 1.0;
+            // an infinite achieved value is legitimate here (no load: a separation factor of infinity)
+            if (double.IsNaN(achieved) || double.IsNaN(minimum) || double.IsInfinity(minimum) || double.IsNegativeInfinity(achieved))
+                return Broken(id, type, achieved, minimum, unit, method, body, loadCase, note, "the numbers could not be computed (NaN or infinite)");
+            var margin = minimum <= 0 || double.IsPositiveInfinity(achieved) ? double.PositiveInfinity : achieved / minimum - 1.0;
             return Make(id, type, achieved, minimum, unit, margin, method, body, loadCase, note);
         }
+
+        private static bool Invalid(double demand, double capacity, out string why)
+        {
+            why = null;
+            if (double.IsNaN(demand) || double.IsNaN(capacity) || double.IsInfinity(demand) || double.IsNegativeInfinity(capacity))
+                why = "the numbers could not be computed (NaN or infinite) - an input is missing or the geometry is inconsistent";
+            return why != null;
+        }
+
+        /// <summary>A check whose numbers are not usable: it fails (never passes silently) and no NaN reaches the record.</summary>
+        private static JObject Broken(string id, string type, double demand, double capacity, string unit, string method, string body, string loadCase, string note, string why)
+        {
+            var j = Make(id, type, 0, 0, unit, double.NaN, method, body, loadCase, string.IsNullOrEmpty(note) ? why : note + "; " + why);
+            j["demand"] = Finite(demand);
+            j["capacity"] = Finite(capacity);
+            j["status"] = "fail";
+            return j;
+        }
+
+        private static JToken Finite(double v) => double.IsNaN(v) || double.IsInfinity(v) ? null : (JToken)Si.R(v, 4);
 
         /// <summary>An advisory or yes/no result (status given directly).</summary>
         public static JObject Status(string id, string type, string status, string method, string note, string body = null)
@@ -80,13 +107,26 @@ namespace SwAgent.Mold
             return new JObject
             {
                 ["id"] = id, ["source"] = "mold_calc@" + MoldCalc.Version, ["type"] = type, ["body"] = body, ["loadCase"] = loadCase,
-                ["demand"] = Si.R(demand, 4), ["capacity"] = Si.R(capacity, 4), ["unit"] = unit,
+                ["demand"] = Finite(demand), ["capacity"] = Finite(capacity), ["unit"] = unit,
                 ["margin"] = finite ? (JToken)Math.Round(margin, 4) : null, ["status"] = status,
                 ["method"] = method, ["stage"] = "3", ["note"] = note ?? "", ["waivedBy"] = null,
             };
         }
 
         public static bool Fails(JObject c) => (string)c["status"] == "fail";
+
+        /// <summary>
+        /// Which calculator action owns a check id, so a re-run replaces exactly what it recomputes (MoldRecord
+        /// "$replaceChecks"): press (PRESS-*), process (CHG-*), scope (SCOPE-*), structural (everything size/check emit).
+        /// </summary>
+        public static string Group(string id)
+        {
+            id = id ?? "";
+            if (id.StartsWith("PRESS-", StringComparison.Ordinal)) return "press";
+            if (id.StartsWith("CHG-", StringComparison.Ordinal)) return "process";
+            if (id.StartsWith("SCOPE-", StringComparison.Ordinal)) return "scope";
+            return "structural";
+        }
 
         /// <summary>Checks ordered lowest margin first (failing ones on top), as the report shows them.</summary>
         public static List<JObject> Ordered(IEnumerable<JObject> checks) =>

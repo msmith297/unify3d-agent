@@ -74,6 +74,12 @@ namespace SwAgent.Mold
             var r = new PressResult();
             // (S1) ram area from the rating: mm² = N / (N/mm²)
             r.RamArea_mm2 = i.RamArea_mm2 ?? (i.RatedGauge_MPa > 0 ? i.RatedForce_kN * 1000.0 / i.RatedGauge_MPa : double.NaN);
+            if (!(r.RamArea_mm2 > 0) || double.IsInfinity(r.RamArea_mm2))
+                throw new ArgumentException("The ram area is unknown: set press_rated_force and press_rated_gauge (or ram_bore).");
+            if (!(i.RatedForce_kN > 0))
+                throw new ArgumentException("The press rating is unknown: set press_rated_force (the nameplate force).");
+            if (i.Cavities.Count == 0 || !(i.Cavities.Sum(c => c.Area) > 0))
+                throw new ArgumentException("The projected cavity area is unknown: run mold_part analyze (part.projectedArea_mm2) or pass it in design.part.");
 
             // (S2, A9) projected areas: the land is loaded with the cavity (SPI convention); grooves and wells that the
             // material fills add to the force area but not to the area that sets p_LC1 (the smaller area is worst for steel).
@@ -85,7 +91,7 @@ namespace SwAgent.Mold
             {
                 case PressMeaning.Gauge:
                     r.Force_N = i.Value * r.RamArea_mm2;
-                    if (i.Value > i.RatedGauge_MPa * (1 + 1e-9))
+                    if (i.RatedGauge_MPa > 0 && i.Value > i.RatedGauge_MPa * (1 + 1e-9))
                         r.Checks.Add(new JCheck { Id = "PRESS-GAUGE-RATING", Type = "press", Demand = i.Value, Capacity = i.RatedGauge_MPa, Unit = "MPa", Method = "S3: gauge reading must not exceed the gauge at rated force" });
                     break;
                 case PressMeaning.OnPart:

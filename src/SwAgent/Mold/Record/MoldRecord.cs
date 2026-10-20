@@ -125,8 +125,27 @@ namespace SwAgent.Mold
             var path = FilePath;
             var tmp = path + ".tmp";
             File.WriteAllText(tmp, Json.ToString(Formatting.Indented), new UTF8Encoding(false));
-            if (File.Exists(path)) File.Replace(tmp, path, null);
-            else File.Move(tmp, path);
+            // a virus scanner or the search indexer briefly holds a file that was just written ("Unable to remove the file
+            // to be replaced"): retry, then fall back to an overwrite copy (the temp file still holds the full record)
+            for (var attempt = 0; ; attempt++)
+            {
+                try
+                {
+                    if (File.Exists(path)) File.Replace(tmp, path, null);
+                    else File.Move(tmp, path);
+                    return;
+                }
+                catch (Exception ex) when ((ex is IOException || ex is UnauthorizedAccessException) && attempt < 8)
+                {
+                    System.Threading.Thread.Sleep(25 * (attempt + 1));
+                }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+                {
+                    File.Copy(tmp, path, true);
+                    try { File.Delete(tmp); } catch (IOException) { }
+                    return;
+                }
+            }
         }
 
         /// <summary>One top-level section (or a dotted path) as JSON; null when absent.</summary>
@@ -159,15 +178,58 @@ namespace SwAgent.Mold
             return sb.ToString();
         }
 
-        /// <summary>The record's merge: objects by key, id-carrying object arrays by id, everything else replaced.</summary>
+        /// <summary>Patch directive: dotted paths whose current value is dropped before the merge, so the patch replaces it.</summary>
+        public const string ReplaceKey = "$replace";
+        /// <summary>Patch directive: check groups (Check.Group, or "all") whose earlier mold_calc checks are dropped first.</summary>
+        public const string ReplaceChecksKey = "$replaceChecks";
+
+        /// <summary>
+        /// The record's merge: objects by key, id-carrying object arrays by id, everything else replaced; an empty array
+        /// replaces (clears) the list. Two top-level directives give calculator-owned data replace semantics, so items a
+        /// later run no longer produces (a removed cavity, an abandoned split's bolts, a check that now passes and is no
+        /// longer emitted) do not linger: "$replace": ["layout.cavities", ...] drops those paths first, and
+        /// "$replaceChecks": ["press", ...] drops the earlier mold_calc checks of those groups. Neither key is stored.
+        /// </summary>
         public static void DeepMerge(JObject target, JObject patch)
+        {
+            if (patch[ReplaceKey] != null || patch[ReplaceChecksKey] != null)
+            {
+                patch = (JObject)patch.DeepClone();
+                if (patch[ReplaceKey] is JArray rp)
+                    foreach (var p in rp.Select(x => (string)x).Where(x => !string.IsNullOrWhiteSpace(x)))
+                        RemovePath(target, p);
+                if (patch[ReplaceChecksKey] is JArray groups && target["checks"] is JArray checks)
+                {
+                    var gs = new HashSet<string>(groups.Select(x => (string)x), StringComparer.OrdinalIgnoreCase);
+                    foreach (var c in checks.OfType<JObject>().ToList())
+                    {
+                        var src = (string)c["source"] ?? "";
+                        if (src.StartsWith("mold_calc@", StringComparison.Ordinal) && (gs.Contains("all") || gs.Contains(Check.Group((string)c["id"]))))
+                            c.Remove();
+                    }
+                }
+                patch.Remove(ReplaceKey);
+                patch.Remove(ReplaceChecksKey);
+            }
+            MergeCore(target, patch);
+        }
+
+        private static void RemovePath(JObject target, string path)
+        {
+            var parts = path.Split('.');
+            JObject o = target;
+            for (var i = 0; i < parts.Length - 1 && o != null; i++) o = o[parts[i]] as JObject;
+            o?.Remove(parts[parts.Length - 1]);
+        }
+
+        private static void MergeCore(JObject target, JObject patch)
         {
             foreach (var prop in patch.Properties())
             {
                 var cur = target[prop.Name];
                 var val = prop.Value;
-                if (cur is JObject co && val is JObject vo) DeepMerge(co, vo);
-                else if (cur is JArray ca && val is JArray va && IsIdArray(va) && IsIdArray(ca)) MergeById(ca, va);
+                if (cur is JObject co && val is JObject vo) MergeCore(co, vo);
+                else if (cur is JArray ca && val is JArray va && va.Count > 0 && IsIdArray(va) && IsIdArray(ca)) MergeById(ca, va);
                 else target[prop.Name] = val.DeepClone();
             }
         }
@@ -180,7 +242,7 @@ namespace SwAgent.Mold
             {
                 var id = (string)item["id"];
                 var match = target.OfType<JObject>().FirstOrDefault(t => (string)t["id"] == id);
-                if (match != null) DeepMerge(match, item);
+                if (match != null) MergeCore(match, item);
                 else target.Add(item.DeepClone());
             }
         }

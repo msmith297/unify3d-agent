@@ -47,7 +47,8 @@ namespace SwAgent.Mold
 
     /// <summary>
     /// Cavity layout (design 3.16 rules, design-rules 20): a centred grid, numbered C1..Cn in reading order (rows from +V,
-    /// left to right), a short last row centred so the load centre stays on the press axis (S8). The pattern with the
+    /// left to right), a short last row centred in U and the whole grid shifted in V by the rows' centroid (the plate grows
+    /// by that shift on both sides) so the load centre stays on the plate centre and the press axis (S8). The pattern with the
     /// smallest footprint wins (then the smaller longest side, then more columns). The plate is rounded up to the shop's
     /// L x W step and the extra steel goes to the edges.
     /// </summary>
@@ -72,30 +73,38 @@ namespace SwAgent.Mold
                     options.Add((c, r));
                 }
             }
+            var pitchU = i.PartU + i.GapU;
+            var pitchV = i.PartV + i.GapV;
             LayoutResult best = null;
+            double bestShift = 0;
             foreach (var (c, r) in options)
             {
+                // a short last row moves the cavities' centroid off the middle row: shift the grid in V so the load
+                // centre stays on the plate centre (S8) and widen the plate by the shift on both sides to keep the edges
+                var shift = RowShift(i.Cavities, c, r, pitchV);
                 var L = c * i.PartU + (c - 1) * i.GapU + 2 * i.EdgeU;
-                var W = r * i.PartV + (r - 1) * i.GapV + 2 * i.EdgeV;
+                var W = r * i.PartV + (r - 1) * i.GapV + 2 * i.EdgeV + 2 * Math.Abs(shift);
                 var res = new LayoutResult { Cols = c, Rows = r, RawL = L, RawW = W, GapU = i.GapU, GapV = i.GapV, Moats = i.Moats };
                 res.FootprintL = StockRounding.Planform(L, data, i.Imperial);
                 res.FootprintW = StockRounding.Planform(W, data, i.Imperial);
-                if (best == null) { best = res; continue; }
+                if (best == null) { best = res; bestShift = shift; continue; }
                 var a = res.FootprintL * res.FootprintW;
                 var b = best.FootprintL * best.FootprintW;
                 if (a < b - 1e-6 || (Math.Abs(a - b) <= 1e-6 && (Math.Max(res.FootprintL, res.FootprintW) < Math.Max(best.FootprintL, best.FootprintW) - 1e-6 ||
                     (Math.Abs(Math.Max(res.FootprintL, res.FootprintW) - Math.Max(best.FootprintL, best.FootprintW)) <= 1e-6 && res.Cols > best.Cols))))
+                {
                     best = res;
+                    bestShift = shift;
+                }
             }
             best.EdgeU = (best.FootprintL - (best.Cols * i.PartU + (best.Cols - 1) * i.GapU)) / 2;
-            best.EdgeV = (best.FootprintW - (best.Rows * i.PartV + (best.Rows - 1) * i.GapV)) / 2;
+            // the narrower of the two V edges after the shift
+            best.EdgeV = (best.FootprintW - (best.Rows * i.PartV + (best.Rows - 1) * i.GapV)) / 2 - Math.Abs(bestShift);
             var n = 0;
-            var pitchU = i.PartU + i.GapU;
-            var pitchV = i.PartV + i.GapV;
             for (var row = 0; row < best.Rows && n < i.Cavities; row++)
             {
                 var inRow = Math.Min(best.Cols, i.Cavities - n);
-                var v = ((best.Rows - 1) / 2.0 - row) * pitchV;
+                var v = ((best.Rows - 1) / 2.0 - row) * pitchV - bestShift;
                 for (var col = 0; col < inRow; col++)
                 {
                     var u = (col - (inRow - 1) / 2.0) * pitchU;
@@ -107,6 +116,20 @@ namespace SwAgent.Mold
         }
 
         private static double Clean(double x) => Math.Abs(x) < 1e-9 ? 0 : x;
+
+        /// <summary>The V centroid of a grid filled row by row from +V (only a short last row makes it non-zero).</summary>
+        public static double RowShift(int n, int cols, int rows, double pitchV)
+        {
+            double sum = 0;
+            var left = n;
+            for (var row = 0; row < rows && left > 0; row++)
+            {
+                var inRow = Math.Min(cols, left);
+                sum += inRow * ((rows - 1) / 2.0 - row) * pitchV;
+                left -= inRow;
+            }
+            return n > 0 ? Clean(sum / n) : 0;
+        }
 
         /// <summary>
         /// The class A wall needed by the shop's flash standard (critique-free geometry, S25 w_geom): the moat band plus the

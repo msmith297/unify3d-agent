@@ -47,7 +47,12 @@ namespace SwAgent.Mold
             }
         }
 
-        public static GapResult Compute(string flowClass, Cfg cfg, double? closureTol_mm = null, double? widthTol_mm = null, double? deltaOverride = null)
+        /// <summary>
+        /// deltaOverride (the `delta_allow_mm` parameter) sets the land/plate gap allowable delta_gap directly - it is
+        /// applied before the budget is tested, so it can stand in for a budget that flatness has used up; wallOverride
+        /// (`delta_wall_mm`) sets the wall allowable delta_wall. Neither touches the other.
+        /// </summary>
+        public static GapResult Compute(string flowClass, Cfg cfg, double? closureTol_mm = null, double? widthTol_mm = null, double? deltaOverride = null, double? wallOverride = null)
         {
             var r = new GapResult { FlowClass = flowClass };
             r.DeltaFlash = cfg.D("deltaFlash_mm." + flowClass, 0.025);
@@ -64,15 +69,23 @@ namespace SwAgent.Mold
                     r.GapBasis = $"S14: 0.25 x closure tolerance {Si.F(closureTol_mm.Value)} mm";
                 }
             }
-            if (r.DeltaGap <= 0)
-                throw new InvalidOperationException("The gap budget is used up: land flatness " + Si.F(r.Flatness) + " mm leaves nothing of the " + Si.F(r.DeltaFlash) + " mm flash gap. Lap the lands flatter or change the flash class.");
-            var tol = widthTol_mm ?? cfg.D("defaultTolerance_mm", 0.125);
-            r.DeltaWall = cfg.D("wallWidthTolFraction", 0.25) * tol;
-            r.WallBasis = $"A11: 0.25 x width tolerance +-{Si.F(tol)} mm" + (widthTol_mm == null ? " (default, drawing silent)" : "");
             if (deltaOverride != null)
             {
                 r.DeltaGap = deltaOverride.Value;
-                r.GapBasis = "override delta_allow_mm";
+                r.GapBasis = "override delta_allow_mm (lands and plates)";
+            }
+            if (!(r.DeltaGap > 0))
+                throw new ArgumentException(deltaOverride != null
+                    ? "delta_allow_mm must be above 0 mm."
+                    : "The gap budget is used up: land flatness " + Si.F(r.Flatness) + " mm + platen parallelism " + Si.F(r.Parallelism) + " mm leave nothing of the " + Si.F(r.DeltaFlash) + " mm flash gap. Lap the lands flatter (override landFlatness_mm." + flowClass + "), or set the land allowable with the override delta_allow_mm.");
+            var tol = widthTol_mm ?? cfg.D("defaultTolerance_mm", 0.125);
+            r.DeltaWall = cfg.D("wallWidthTolFraction", 0.25) * tol;
+            r.WallBasis = $"A11: 0.25 x width tolerance +-{Si.F(tol)} mm" + (widthTol_mm == null ? " (default, drawing silent)" : "");
+            if (wallOverride != null)
+            {
+                if (!(wallOverride.Value > 0)) throw new ArgumentException("delta_wall_mm must be above 0 mm.");
+                r.DeltaWall = wallOverride.Value;
+                r.WallBasis = "override delta_wall_mm (cavity walls)";
             }
             return r;
         }

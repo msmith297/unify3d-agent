@@ -99,6 +99,18 @@ namespace SwAgent.Mold
             return result;
         }
 
+        /// <summary>
+        /// One shipped row with a shop override row on top, key by key (nested objects merged, other values replaced):
+        /// save_default writes partial rows such as {id, shrinkPct: {typ}}, so an override row never replaces the whole
+        /// shipped row. The page's data loader (Track B, ToolData) must merge rows the same way.
+        /// </summary>
+        public static JObject MergeRow(JObject shipped, JObject overrideRow)
+        {
+            var result = (JObject)shipped.DeepClone();
+            if (overrideRow != null) MergeInto(result, overrideRow);
+            return result;
+        }
+
         private static void MergeInto(JObject target, JObject over)
         {
             foreach (var p in over.Properties())
