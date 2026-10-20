@@ -119,6 +119,64 @@ namespace SwAgent.Mold
             }
         }
 
+        /// <summary>
+        /// mold_record save_default (design 2.3.5): writes the shop's own value into the override file of `table`
+        /// ("materials", "mold-materials", "shop-standards" or "sizing-defaults") after checking every key against the
+        /// shipped table, e.g. ("materials", "epdm-s-70a", {"shrinkPct.typ": 2.1}). Row tables need the row id (a new id adds
+        /// a row, which must then carry the shipped row keys it sets). Values are stored as given (the data tables' units).
+        /// Returns a short status; throws ArgumentException for unknown tables, ids or keys.
+        /// </summary>
+        public string SaveDefault(string overrideDir, string table, string id, JObject values)
+        {
+            if (string.IsNullOrWhiteSpace(overrideDir)) throw new ArgumentException("No override folder.");
+            if (values == null || !values.HasValues) throw new ArgumentException("Nothing to save: pass values like {\"shrinkPct.typ\": 2.1}.");
+            var file = (table ?? "").Trim().ToLowerInvariant();
+            if (file.EndsWith(".json")) file = file.Substring(0, file.Length - 5);
+            if (!Files.Contains(file + ".json")) throw new ArgumentException("Unknown table '" + table + "' (materials, mold-materials, shop-standards, sizing-defaults).");
+            var shipped = Raw(file + ".json") ?? throw new ArgumentException("The shipped " + file + ".json is missing.");
+            var rowKey = file == "materials" ? "rows" : file == "mold-materials" ? "mold_materials" : null;
+            JObject template = shipped;
+            if (rowKey != null)
+            {
+                if (string.IsNullOrWhiteSpace(id)) throw new ArgumentException(file + " needs the row id.");
+                template = (shipped[rowKey] as JArray)?.OfType<JObject>().FirstOrDefault(r => string.Equals((string)r["id"], id, StringComparison.OrdinalIgnoreCase))
+                    ?? (shipped[rowKey] as JArray)?.OfType<JObject>().FirstOrDefault()
+                    ?? throw new ArgumentException("The table has no rows.");
+            }
+            var patch = new JObject();
+            foreach (var p in values.Properties())
+            {
+                var parts = p.Name.Split('.');
+                JToken node = template;
+                foreach (var part in parts)
+                {
+                    if (!(node is JObject o) || !o.ContainsKey(part)) throw new ArgumentException("Unknown key '" + p.Name + "' for " + file + (id != null ? " row " + id : "") + ".");
+                    node = o[part];
+                }
+                JObject cur = patch;
+                for (var k = 0; k < parts.Length - 1; k++)
+                {
+                    if (!(cur[parts[k]] is JObject next)) { next = new JObject(); cur[parts[k]] = next; }
+                    cur = next;
+                }
+                cur[parts[parts.Length - 1]] = p.Value.DeepClone();
+            }
+            Directory.CreateDirectory(overrideDir);
+            var path = Path.Combine(overrideDir, file + ".json");
+            var existing = File.Exists(path) ? Si.ParseObject(File.ReadAllText(path)) : new JObject();
+            JObject merged;
+            if (rowKey != null)
+            {
+                patch["id"] = id;
+                merged = Merge(existing, new JObject { [rowKey] = new JArray(patch) });
+            }
+            else merged = Merge(existing, patch);
+            var tmp = path + ".tmp";
+            File.WriteAllText(tmp, merged.ToString());
+            if (File.Exists(path)) File.Replace(tmp, path, null); else File.Move(tmp, path);
+            return "saved " + string.Join(", ", values.Properties().Select(p => p.Name + " = " + p.Value.ToString(Newtonsoft.Json.Formatting.None))) + " to " + path;
+        }
+
         /// <summary>A whole data file (merged), e.g. Raw("mold-materials.json")["dowels"].</summary>
         public JObject Raw(string file)
         {

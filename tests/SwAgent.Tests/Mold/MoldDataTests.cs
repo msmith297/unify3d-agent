@@ -204,6 +204,40 @@ namespace SwAgent.Tests.Mold
         }
 
         [Fact]
+        public void Save_default_writes_checked_keys_into_the_override()
+        {
+            var dir = Path.Combine(Path.GetTempPath(), "mold-save-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                var status = Data.SaveDefault(dir, "materials", "epdm-s-70a", new JObject { ["shrinkPct.typ"] = 2.1 });
+                Assert.StartsWith("saved shrinkPct.typ = 2.1", status);
+                Data.SaveDefault(dir, "materials", "epdm-s-70a", new JObject { ["sg.typ"] = 1.21 });           // a second save keeps the first
+                Data.SaveDefault(dir, "sizing-defaults", null, new JObject { ["bolts.tighteningScatter"] = 0.10 });
+                var d = MoldData.Load(MoldData.DefaultToolDir, dir);
+                Assert.Equal(2.1, (double)d.PartMaterial("epdm-s-70a").SelectToken("shrinkPct.typ"));
+                Assert.Equal(1.21, (double)d.PartMaterial("epdm-s-70a").SelectToken("sg.typ"));
+                Assert.Equal(0.10, new Cfg(d.Defaults).D("bolts.tighteningScatter", 0));
+                Assert.Throws<ArgumentException>(() => Data.SaveDefault(dir, "materials", "epdm-s-70a", new JObject { ["shrinkPercent"] = 2 }));
+                Assert.Throws<ArgumentException>(() => Data.SaveDefault(dir, "materials", null, new JObject { ["sg.typ"] = 1 }));
+                Assert.Throws<ArgumentException>(() => Data.SaveDefault(dir, "presses", null, new JObject { ["x"] = 1 }));
+            }
+            finally { if (Directory.Exists(dir)) Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public void Payload_si_values_are_converted_by_quantity()
+        {
+            var d = MoldTestData.E2Design();
+            d["inputs"]["press_pressure"] = new JObject { ["si"] = 2000 * 6894.757293168 };          // Pa
+            d["inputs"]["press_rated_force"] = new JObject { ["si"] = 50 * 8896.443230521 };          // N
+            d["inputs"]["press_rated_gauge"] = new JObject { ["value"] = 3000, ["unit"] = "psi" };
+            var design = Design.Read(d, Data);
+            Assert.Equal(2000 * Si.PsiToMPa, design.PressValue, 9);
+            Assert.Equal(50 * Si.UsTonToKN, design.RatedForce_kN, 9);
+            Assert.Equal(3000 * Si.PsiToMPa, design.RatedGauge_MPa, 9);
+        }
+
+        [Fact]
         public void Missing_data_folder_still_gives_the_compiled_sizing_defaults()
         {
             var d = MoldData.Load(Path.Combine(Path.GetTempPath(), "no-such-mold-tool-" + Guid.NewGuid().ToString("N")));

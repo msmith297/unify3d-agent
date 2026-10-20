@@ -66,7 +66,8 @@ namespace SwAgent.Mold
                 var box = Si.Lengths(b["box_mm"]) ?? new double[3];
                 var stock = Si.Num(plan?["stock_mm"]) ?? (box.Length > 2 ? box[2] + 2 * allowT : 0);
                 var holes = new JArray();
-                foreach (var d in dowels)
+                var reg = Region(plan ?? b);
+                foreach (var d in dowels.Where(x => role == "base" || role == "lid" ? Inside(reg, x["at"] as JArray) : false))
                 {
                     var round = ((string)d["kind"] ?? "round") == "round";
                     var pressHere = role == "base";   // pressed in the plate that stays put, slip in the one that comes apart
@@ -78,9 +79,14 @@ namespace SwAgent.Mold
                         ["depth_mm"] = Si.R(1.5 * (Si.Num(d["d_mm"]) ?? 12.7), 4), ["note"] = d["at"]?.ToString(Newtonsoft.Json.Formatting.None),
                     });
                 }
-                foreach (var bt in bolts.Where(x => ((string)x["joint"] ?? "").Contains(id)))
+                foreach (var bt in bolts)
                 {
-                    var top = ((string)bt["joint"]).StartsWith(id);   // "SUB/BASE-1": the counterbore is in SUB
+                    // "SUB/BASE-1": tapped in BASE-1, counterbored in the subplate piece(s) under it
+                    var joint = ((string)bt["joint"] ?? "").Split('/');
+                    var tappedIn = joint.Last();
+                    var under = planned.FirstOrDefault(p => (string)p["id"] == tappedIn);
+                    var top = role == "subplate" && joint[0] == "SUB" && Overlaps(reg, Region(under));
+                    if (!top && id != tappedIn) continue;
                     holes.Add(new JObject
                     {
                         ["id"] = bt["id"], ["kind"] = top ? "counterbored clearance (hardened washer)" : (bt["insert"].Type == JTokenType.Null ? "tapped" : "tapped for insert (STI tap)"),
@@ -130,6 +136,20 @@ namespace SwAgent.Mold
                 ["bom"] = HardwareBom.Build(j, data),
             };
         }
+
+        /// <summary>A piece's footprint {u0, u1, v0, v1} in the mold frame (null = the whole mold).</summary>
+        private static double[] Region(JObject piece)
+        {
+            var u = Si.Lengths(piece?["u_mm"]);
+            var v = Si.Lengths(piece?["v_mm"]);
+            return u == null || v == null ? null : new[] { u[0], u[1], v[0], v[1] };
+        }
+
+        private static bool Inside(double[] reg, JArray at) =>
+            reg == null || at == null || at.Count < 2 || ((double)at[0] >= reg[0] - 1e-6 && (double)at[0] <= reg[1] + 1e-6 && (double)at[1] >= reg[2] - 1e-6 && (double)at[1] <= reg[3] + 1e-6);
+
+        private static bool Overlaps(double[] a, double[] b) =>
+            a == null || b == null || (a[0] < b[1] - 1e-6 && b[0] < a[1] - 1e-6 && a[2] < b[3] - 1e-6 && b[2] < a[3] - 1e-6);
 
         private static JObject DowelRow(MoldData data, double dMm, bool imperial)
         {

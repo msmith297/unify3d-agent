@@ -95,6 +95,18 @@ namespace SwAgent.Mold
         public static (double Alpha, double Beta) Strip(double tau, double nu) =>
             (12 * (1 - nu * nu) / 8 + (1 + nu) / (5.0 / 6.0) * tau * tau, 3.0);
 
+        /// <summary>
+        /// One-way strip of span b (the limit of a very long plate): simply supported (SS4, Rails) alpha = 5/384 x 12(1-nu²)
+        /// + (1+nu)/(4 kappa) tau², beta = 0.75; clamped (C4) alpha = 1/384 x 12(1-nu²) + (1+nu)/(4 kappa) tau², beta = 0.5.
+        /// </summary>
+        public static (double Alpha, double Beta) OneWay(string bc, double tau, double nu)
+        {
+            var shear = (1 + nu) / (4 * (5.0 / 6.0)) * tau * tau;
+            return string.Equals(bc, "C4", StringComparison.OrdinalIgnoreCase)
+                ? (12 * (1 - nu * nu) / 384 + shear, 0.5)
+                : (5 * 12 * (1 - nu * nu) / 384 + shear, 0.75);
+        }
+
         public static bool IsWall(string bc) => bc.StartsWith("Wall", StringComparison.OrdinalIgnoreCase);
 
         public static (double Alpha, double Beta) Get(string bc, double aspect, double tOverB, double nu, double loadFrac)
@@ -130,6 +142,13 @@ namespace SwAgent.Mold
             var strip = Strip(tau, nu);
             if (wall && aspect > aspects[aspects.Length - 1])
                 return strip; // critique A4: above the last row the strip with shear, never the last row
+            if (!wall && aspect > aspects[aspects.Length - 1])
+            {
+                // a long plate tends to the one-way strip across the short side; never less than the last row (same idea as A4)
+                var last = InTau(rows.Where(r => r.Aspect == aspects[aspects.Length - 1]).ToList(), tau);
+                var one = OneWay(rows[0].Bc, tau, nu);
+                return (Math.Max(last.Item1, one.Alpha), Math.Max(last.Item2, one.Beta));
+            }
             var a0 = aspects.Where(x => x <= aspect).DefaultIfEmpty(aspects[0]).Max();
             var a1 = aspects.Where(x => x >= aspect).DefaultIfEmpty(aspects[aspects.Length - 1]).Min();
             var r0 = InTau(rows.Where(r => r.Aspect == a0).ToList(), tau);

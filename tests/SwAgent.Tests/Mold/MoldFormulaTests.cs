@@ -38,6 +38,23 @@ namespace SwAgent.Tests.Mold
             Assert.Equal(1.365 + 1.56 * 0.25, Coefficients.Strip(0.5, 0.3).Alpha, 9);
         }
 
+        [Theory]
+        [InlineData("SS4")]
+        [InlineData("C4")]
+        [InlineData("Rails")]
+        public void Long_plates_tend_to_the_one_way_strip_and_never_fall_below_the_last_row(string bc)
+        {
+            foreach (var tau in new[] { 0.02, 0.2, 0.5 })
+            {
+                var last = Coefficients.Get(bc, 4.0, tau, 0.3, 1);
+                var far = Coefficients.Get(bc, 10.0, tau, 0.3, 1);
+                Assert.True(far.Alpha >= last.Alpha - 1e-12 && far.Beta >= last.Beta - 1e-12);
+                var one = Coefficients.OneWay(bc, tau, 0.3);
+                Assert.True(far.Alpha >= one.Alpha - 1e-12);
+            }
+            Assert.Equal(5 * 12 * 0.91 / 384, Coefficients.OneWay("SS4", 0, 0.3).Alpha, 12);   // 0.1422
+        }
+
         [Fact]
         public void A_long_wall_is_sized_thicker_than_the_old_L_over_h_4_row_would()
         {

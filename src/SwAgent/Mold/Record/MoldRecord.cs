@@ -294,7 +294,8 @@ namespace SwAgent.Mold
                 sb.AppendLine("Simulations: " + string.Join("; ", sims.OfType<JObject>().Select(s => $"{s["id"]} {s["hook"]} {s["status"]}" + (s["reason"] != null && s["reason"].Type != JTokenType.Null ? " (" + s["reason"] + ")" : ""))));
             if (j["setupSheet"] != null && j["setupSheet"].Type != JTokenType.Null) sb.AppendLine("Setup sheet: " + j["setupSheet"]);
             var text = sb.ToString();
-            if (text.Length > maxChars) text = text.Substring(0, Math.Max(0, maxChars - 40)) + "\n... (summary cut; read a section for more)";
+            const string cut = "\n... (summary cut; read a section for more)";
+            if (text.Length > maxChars) text = text.Substring(0, Math.Max(0, maxChars - cut.Length)) + cut;
             return text;
         }
 

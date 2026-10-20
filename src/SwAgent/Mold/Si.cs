@@ -61,6 +61,31 @@ namespace SwAgent.Mold
         /// Reads a number from a token that may be a number, a numeric string ("2000 psi"), or an object
         /// {value|si, unit}. Returns null for null/missing/"not set".
         /// </summary>
+        /// <summary>
+        /// As Num(t), and an {"si": x} object (the page payload's true SI value: Pa, m, N, Pa·s, s, rad) is converted to the
+        /// calculator unit of `quantity` (pressure, length, area, force, time, viscosity, angle; others pass through).
+        /// </summary>
+        public static double? Num(JToken t, string quantity)
+        {
+            if (quantity != null && t is JObject o && o["si"] != null && o["si"].Type != JTokenType.Null && o["value"] == null)
+            {
+                var si = Num(o["si"]);
+                if (si == null) return null;
+                switch (quantity)
+                {
+                    case "pressure": return si / 1e6;
+                    case "length": return si * 1000.0;
+                    case "area": return si * 1e6;
+                    case "force": return si / 1000.0;
+                    case "time": return si / 60.0;
+                    case "viscosity": return si * 1000.0;
+                    case "angle": return si * 180.0 / Math.PI;
+                    default: return si;
+                }
+            }
+            return Num(t);
+        }
+
         public static double? Num(JToken t)
         {
             if (t == null || t.Type == JTokenType.Null || t.Type == JTokenType.Undefined) return null;

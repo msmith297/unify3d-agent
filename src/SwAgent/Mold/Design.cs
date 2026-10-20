@@ -47,21 +47,38 @@ namespace SwAgent.Mold
         public double? ClosureTol, WidthTol;
         public JArray Fragile, Tolerances;
 
+        /// <summary>
+        /// What each page input measures, so a payload value given as {"si": x} (Track B: Pa, m, N, Pa·s, s, rad) is turned
+        /// into calculator units. Plain numbers are taken as calculator units; {"value", "unit"} objects are converted by unit.
+        /// </summary>
+        public static readonly Dictionary<string, string> Quantities = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["press_pressure"] = "pressure", ["press_rated_gauge"] = "pressure", ["molding_pressure"] = "pressure",
+            ["press_rated_force"] = "force", ["press_force"] = "force", ["press_force_reading"] = "force",
+            ["platen_size"] = "length", ["daylight"] = "length", ["stroke"] = "length", ["max_plate_size"] = "length",
+            ["lid_reach"] = "length", ["ram_bore"] = "length", ["ram_area_mm2"] = "area", ["ram_area"] = "area",
+            ["max_plate_mass"] = "mass", ["max_base_mass"] = "mass", ["max_lid_mass"] = "mass",
+            ["press_temp"] = "temperature", ["viscosity_cp"] = "viscosity", ["pot_life_min"] = "time", ["cure_min"] = "time",
+            ["draft_min_deg"] = "angle", ["shrink_pct"] = "percent", ["charge_excess_pct"] = "percent",
+        };
+
         public static Design Read(JObject design, MoldData data)
         {
             if (design == null) throw new ArgumentException("No design: pass `design` or open a mold whose record exists.");
             var d = new Design { Json = design, Data = data };
             var inp = design["inputs"] as JObject ?? new JObject();
+            // the first given input among the keys (an unchecked Optional box arrives as null and counts as not given)
+            string Key(string[] keys) => keys.FirstOrDefault(k => inp[k] != null && inp[k].Type != JTokenType.Null);
             JToken I(params string[] keys)
             {
-                foreach (var k in keys)
-                {
-                    var t = inp[k];
-                    if (t != null && t.Type != JTokenType.Null && !(t is JObject o && o["value"] == null && o["si"] == null && o.Count > 0 && o["notSet"] != null)) return t;
-                }
-                return null;
+                var k = Key(keys);
+                return k == null ? null : inp[k];
             }
-            double? N(params string[] keys) => Si.Num(I(keys));
+            double? N(params string[] keys)
+            {
+                var k = Key(keys);
+                return k == null ? null : Si.Num(inp[k], Quantities.TryGetValue(k, out var q) ? q : null);
+            }
             string S(params string[] keys)
             {
                 var t = I(keys);

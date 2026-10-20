@@ -327,6 +327,7 @@ namespace SwAgent.Mold
             var id = (string)c["id"];
             var type = (string)c["type"];
             if (id.StartsWith("WEIGHT-LID")) return "lightening pockets on the lid's platen face (keep >= 80% platen contact), a lift assist or hinge, or a two-person lift; never a split lid for class A";
+            if (id.StartsWith("BOX-LID") || id.StartsWith("WEIGHT-LID-")) return "fewer cavities or a smaller footprint, a larger machine; split the lid only for class B (a class A lid seam crosses the seal)";
             if (type == "weight" || type == "box") return "run mold_calc split and offer the options";
             if (id.StartsWith("TEMP-")) return "switch to steel (P20) or lower the press temperature";
             if (id == "PRESS-CAPACITY") return "a larger press, fewer cavities, or a lower molding pressure";
