@@ -10,7 +10,7 @@ namespace SwAgent.Mold
     {
         public string Size, Spec;
         public bool Imperial;
-        public double D, At, Sp, Fp, Su, Se, MinorDia, HeadDia, HeadBearingArea, CboreDia, CboreDepth, ClearanceHole, TapDrill;
+        public double D, At, Sp, Fp, Su, Se, MinorDia, HeadDia, HeadHeight, HeadBearingArea, CboreDia, CboreDepth, ClearanceHole, TapDrill;
         public double WasherOd, WasherId, WasherT;
         public double DisplayD => Imperial ? D / Si.InToMm : D;
 
@@ -29,6 +29,7 @@ namespace SwAgent.Mold
                 b.Se = cfg.D("bolts.enduranceInchA574_MPa", 160);
                 b.MinorDia = ((double?)f["minor_dia_in"] ?? ((double)f["d_in"] - 1.226869 / (double)f["tpi"])) * Si.InToMm;
                 b.HeadDia = (double)f["head_dia_in"] * Si.InToMm;
+                b.HeadHeight = ((double?)f["head_height_in"] ?? (double)f["d_in"]) * Si.InToMm;
                 b.ClearanceHole = (double)f["clearance_normal_in"] * Si.InToMm;
                 b.CboreDia = (double)f["cbore_dia_in"] * Si.InToMm;
                 b.CboreDepth = (double)f["cbore_depth_in"] * Si.InToMm;
@@ -50,6 +51,7 @@ namespace SwAgent.Mold
                 b.Se = cfg.D("bolts.enduranceMetric129_MPa", 190);
                 b.MinorDia = (double?)f["minor_dia_mm"] ?? ((double)f["d_mm"] - 1.226869 * (double)f["pitch_mm"]);
                 b.HeadDia = (double)f["head_dia_mm"];
+                b.HeadHeight = (double?)f["head_height_mm"] ?? b.D;
                 b.ClearanceHole = (double)f["clearance_medium_mm"];
                 b.CboreDia = (double)f["cbore_dia_mm"];
                 b.CboreDepth = (double)f["cbore_depth_mm"];

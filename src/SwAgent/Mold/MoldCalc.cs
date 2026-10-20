@@ -276,7 +276,8 @@ namespace SwAgent.Mold
             var opts = PlateSplit.Options(input, data);
             var sb = new StringBuilder();
             sb.AppendLine($"mold_calc split {Version} - {input.PlateId} {u.Len(input.L)} x {u.Len(input.W)} x {u.Len(input.T)}, limit {(input.MaxMass_kg == null ? "none" : u.Mass(input.MaxMass_kg.Value))}");
-            if (opts.Count == 0) sb.AppendLine("No straight split in dead steel meets the limits: propose a frame plus cavity inserts, a lighter grade, or a hoist.");
+            if (opts.Count == 0)
+                sb.AppendLine($"No straight split in dead steel meets the limits. A cut needs {u.Len(2 * Math.Max(input.CavityClearance, input.FlashBand + input.FeatureClearance))} of steel between cavity rows or columns: re-run size with overrides {{\"gap_mm\": {Si.F(2 * Math.Max(input.CavityClearance, input.FlashBand + input.FeatureClearance) + 6, 3)}}}, or propose a frame plus cavity inserts, a lighter grade, or a hoist.");
             var k = 0;
             foreach (var o in opts)
             {

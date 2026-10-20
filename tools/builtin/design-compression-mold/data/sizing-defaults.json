@@ -111,7 +111,8 @@
   "minPerPlate": 4,
   "minPerJointEnd": 2,
   "washerSpreadDeg": 45,
-  "note": "preload fractions are ceilings: the sizing picks the highest preload that passes the hot and separation checks with tightening scatter"
+  "minDiameter_mm": 6.0,
+  "note": "preload fractions are ceilings: the sizing picks the highest preload that passes the hot and separation checks with tightening scatter; minDiameter_mm: the smallest screw used on mold plates (1/4 in or M6) [K]"
  },
  "fatigue": {
   "kaAluminium": 0.9,

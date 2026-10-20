@@ -51,7 +51,8 @@ namespace SwAgent.Mold
 
         public static JObject Upper(string id, string type, double demand, double capacity, string unit, string method, string body = null, string loadCase = null, string note = null)
         {
-            var margin = demand <= 0 ? double.PositiveInfinity : capacity / demand - 1.0;
+            // a demand that is zero up to rounding (a centred load centre) has no finite margin
+            var margin = demand <= 1e-9 * Math.Max(1.0, Math.Abs(capacity)) ? double.PositiveInfinity : capacity / demand - 1.0;
             return Make(id, type, demand, capacity, unit, margin, method, body, loadCase, note);
         }
 

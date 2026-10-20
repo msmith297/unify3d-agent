@@ -68,6 +68,59 @@ namespace SwAgent.Mold
             return r;
         }
 
+        /// <summary>
+        /// S54 + S55 + S56 together for a known maximum bolt load: the engagement that S54 needs, lengthened until the
+        /// conservative stripping check S56 passes; above 2.5 d (or when S54/S55 already ask for one) a steel insert, its
+        /// length chosen so the parent material passes S56 at the insert's larger shear diameter (1.2 d helical, 1.75 d
+        /// key-locking).
+        /// </summary>
+        public static ThreadResult ForLoad(BoltSpec b, GradeAtT parent, double fBoltMax, Cfg cfg, bool removedRoutinely = false, bool cyclicLoad = false, double cycles = 0)
+        {
+            var r = Engagement(b, parent, cfg, removedRoutinely, cyclicLoad, cycles);
+            var fill = cfg.D("threads.stripThreadFill", 0.75);
+            var allow = 0.58 * parent.Sy / cfg.D("sfStatic", 2.0);
+            var leStrip = fBoltMax / (Math.PI * b.MinorDia * fill * allow);
+            r.StripAllow = allow;
+            if (!r.Insert)
+            {
+                if (leStrip <= cfg.D("bolts.insertAboveLeD", 2.5) * b.D)
+                {
+                    r.Le = Math.Max(r.Le, leStrip);
+                    r.TapDepth = r.Le + cfg.D("threads.tappedReliefD", 0.5) * b.D;
+                    r.StripStress = fBoltMax / (Math.PI * b.MinorDia * r.Le * fill);
+                    return r;
+                }
+                r.Insert = true;
+                r.Reason = "S56: stripping needs L_e " + Si.F(leStrip / b.D) + " d > 2.5 d";
+            }
+            if (!parent.IsAluminium) { r.InsertKind = r.InsertKind ?? "helical coil 1.5 d"; return r; }
+            // the parent shears at the insert's outer diameter
+            var fh = cfg.D("threads.insertShearFactorHelical", 1.2);
+            var lengths = cfg.Arr("threads.helicalLengthsD");
+            if (lengths.Length == 0) lengths = new[] { 1.5, 2.0, 2.5, 3.0 };
+            var need = Math.Max(r.LeOverD / fh, Math.Max(cfg.D("threads.minHelicalInAluminiumD", 2.0), fBoltMax / (Math.PI * fh * b.D * fill * allow) / b.D));
+            var pick = lengths.Where(x => x >= need - 1e-9).DefaultIfEmpty(double.NaN).Min();
+            if (!double.IsNaN(pick))
+            {
+                r.InsertKind = "helical coil " + Si.F(pick) + " d";
+                r.InsertLengthD = pick;
+                r.InsertNeedD = need;
+                r.StripStress = fBoltMax / (Math.PI * fh * b.D * pick * b.D * fill);
+            }
+            else
+            {
+                var fk = cfg.D("threads.insertShearFactorKeyLocking", 1.75);
+                var needK = Math.Max(1.5, fBoltMax / (Math.PI * fk * b.D * fill * allow) / b.D);
+                r.InsertLengthD = Math.Ceiling(Math.Max(needK, r.LeOverD / fk) * 4) / 4;
+                r.InsertNeedD = needK;
+                r.InsertKind = "heavy key-locking insert, " + Si.F(r.InsertLengthD) + " d";
+                r.StripStress = fBoltMax / (Math.PI * fk * b.D * r.InsertLengthD * b.D * fill);
+            }
+            r.Le = r.InsertLengthD * b.D;
+            r.TapDepth = r.Le + cfg.D("threads.tappedReliefD", 0.5) * b.D;
+            return r;
+        }
+
         /// <summary>(S56) stripping stress of a direct tapped hole at the bolt's maximum load (N), and its allowable.</summary>
         public static (double Tau, double Allow) Stripping(BoltSpec b, double le, double fBoltMax, GradeAtT parent, Cfg cfg)
         {

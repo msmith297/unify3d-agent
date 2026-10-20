@@ -249,14 +249,20 @@ namespace SwAgent.Mold
             var d = r.Design;
             d.RequireGeometry();
             var g = FlashGeometry(r, cfg, data);
+            // requests the agent made (override or kept in the record): a pattern, a wider gap
+            var gapReq = cfg.ParamNum("gap_mm") ?? Si.Num(d.Json.SelectToken("layout.gapRequest_mm"));
+            var patternReq = cfg.ParamStr("pattern") ?? (string)d.Json.SelectToken("layout.patternRequest");
             var li = new LayoutInput
             {
                 Cavities = d.Cavities, PartU = d.PartU * r.Shrink.Su, PartV = d.PartV * r.Shrink.Sv,
-                GapU = Math.Max(g.GapU, gapU ?? 0), GapV = Math.Max(g.GapV, gapV ?? 0),
+                // gap_mm (override) widens the steel between cavities, e.g. to leave dead steel for a split (S74)
+                GapU = Math.Max(Math.Max(g.GapU, gapU ?? 0), gapReq ?? 0), GapV = Math.Max(Math.Max(g.GapV, gapV ?? 0), gapReq ?? 0),
                 EdgeU = Math.Max(g.Edge, edgeU ?? 0), EdgeV = Math.Max(g.Edge, edgeV ?? 0),
-                Pattern = cfg.ParamStr("pattern") ?? (string)d.Json.SelectToken("layout.patternRequest"), Imperial = d.Imperial, Moats = g.Moats,
+                Pattern = patternReq, Imperial = d.Imperial, Moats = g.Moats,
             };
             r.Layout = CavityLayout.Compute(li, data);
+            r.Layout.PatternRequest = patternReq;
+            r.Layout.GapRequest = gapReq;
             return r.Layout;
         }
 
@@ -309,12 +315,12 @@ namespace SwAgent.Mold
 
             WallResult SizeWall(string id, double L, double bPerp, double h, double wGeom, double wMin)
             {
-                // two passes: K_t depends on r/w, w on the allowable
-                var w0 = 0.3 * h;
+                // K_t depends on r/w and w on the allowable: raise K_t until the wall sized with it has r/w that needs no
+                // more (K_t only grows as w grows, so this ends at the latest at K_t = 2.5)
+                var kt = Fatigue.Kt(d.CornerRadius / (0.3 * h), cfg);
                 WallResult wr = null;
-                for (var pass = 0; pass < 2; pass++)
+                for (var pass = 0; pass < 10; pass++)
                 {
-                    var kt = Fatigue.Kt(d.CornerRadius / Math.Max(w0, 1e-6), cfg);
                     var fa = kf != null ? Fatigue.AllowablesKf(g, d.Cycles, kf.Value, cfg) : Fatigue.Allowables(g, d.Cycles, kt, cfg);
                     wr = Walls.Size(new WallInput
                     {
@@ -322,7 +328,9 @@ namespace SwAgent.Mold
                         DeltaAllow = r.Gap.DeltaWall, SidesClamped = true, RootFactor = rootFactor, AllowStatic = fa.AllowStatic, AllowFatigue = fa.AllowFatigue,
                         WGeom = wGeom, WMin = wMin, PAbuse = pAbuse > 0 ? pAbuse : (double?)null, SyT = g.Sy,
                     }, tauMax);
-                    w0 = wr.WStruct;
+                    var ktAt = Fatigue.Kt(d.CornerRadius / wr.WStruct, cfg);
+                    if (kf != null || ktAt <= kt) break;
+                    kt = ktAt;
                 }
                 return wr;
             }
@@ -373,24 +381,50 @@ namespace SwAgent.Mold
             var lidBasis = d.MaxLidMass != null ? "page max_lid_mass" : lift.Basis;
             var plateLimit = d.MaxPlateMass;
             var pieces = new JArray();
-            void Piece(string id, string role, double t, double mass, StockChoice st)
+            var allowLW = data.ShopMm("plates.blankAllowancePerSide", 3);
+            var allowT = data.ShopMm("plates.blankAllowanceThicknessPerSide", 1.5);
+            void Piece(string id, string role, double l, double w, double t, double mass, StockChoice st, double[] u = null, double[] v = null)
             {
-                var box = new[] { lay.FootprintL, lay.FootprintW, t };
-                var allowLW = data.ShopMm("plates.blankAllowancePerSide", 3);
-                var allowT = data.ShopMm("plates.blankAllowanceThicknessPerSide", 1.5);
+                var box = new[] { l, w, t };
                 var boxOk = PlateSplit.BoxFits(box, d.MaxPlateSize, allowLW, allowT);
-                pieces.Add(new JObject
+                var pj = new JObject
                 {
                     ["id"] = id, ["role"] = role, ["material"] = g.Id, ["t_mm"] = Si.R(t, 6), ["stock_mm"] = Si.R(st.Stock, 6),
                     ["box_mm"] = new JArray(box.Select(x => Si.R(x, 6))), ["mass_kg"] = Si.R(mass, 5),
                     ["blank_mm"] = new JArray(Si.R(box[0] + 2 * allowLW, 6), Si.R(box[1] + 2 * allowLW, 6), Si.R(st.Stock + 2 * allowT, 6)),
-                });
-                if (plateLimit != null) r.Checks.Add(ToJson(new JCheck { Id = "WEIGHT-" + id, Type = "weight", Demand = mass, Capacity = plateLimit.Value, Unit = "kg", Method = "S73: each machined piece <= max_plate_mass" }, "size"));
+                };
+                if (u != null) { pj["u_mm"] = new JArray(Si.R(u[0], 6), Si.R(u[1], 6)); pj["v_mm"] = new JArray(Si.R(v[0], 6), Si.R(v[1], 6)); }
+                pieces.Add(pj);
+                if (plateLimit != null) r.Checks.Add(ToJson(new JCheck { Id = "WEIGHT-" + id, Type = "weight", Demand = mass, Capacity = plateLimit.Value, Unit = "kg", Method = "S73: each machined piece <= max_plate_mass" }, "size", id));
                 if (d.MaxPlateSize != null)
-                    r.Checks.Add(Check.Status("BOX-" + id, "box", boxOk ? "pass" : "fail", "S72: sorted box + blank allowance <= sorted max_plate_size", boxOk ? "" : "run mold_calc split", id));
+                    r.Checks.Add(Check.Status("BOX-" + id, "box", boxOk ? "pass" : "fail", "S72: sorted box + blank allowance <= sorted max_plate_size", boxOk ? "" : (role == "lid" && d.Class == ProcessClass.A_Pour ? "no split lid for class A" : "run mold_calc split"), id));
             }
-            Piece("BASE-1", "base", tBase, massBase, baseT);
-            Piece("LID-1", "lid", tLid, massLid, lidT);
+            var splitPlan = d.Json.SelectToken("structural.split") as JObject;
+            if (splitPlan != null)
+            {
+                // the chosen split (S74): the base pieces between the cut lines, keyed into a (possibly split) subplate
+                var si = new SplitInput { L = lay.FootprintL, W = lay.FootprintW, T = tBase, Density_kg_m3 = g.Density_kg_m3 };
+                foreach (var c in lay.Cavities) si.Pockets.Add(new Pocket { Id = c.Id, U = c.U, V = c.V, SizeU = pu, SizeV = pv, Depth = hBase });
+                var cutsU = (splitPlan["cutsU_mm"] as JArray)?.Select(x => (double)x).ToList() ?? new List<double>();
+                var cutsV = (splitPlan["cutsV_mm"] as JArray)?.Select(x => (double)x).ToList() ?? new List<double>();
+                var tSub = Si.Num(splitPlan.SelectToken("subplate.t_mm")) ?? 22.225;
+                var subStock = StockRounding.Thickness(tSub, d.PlateGrade, data, d.Imperial);
+                massBase = 0;
+                foreach (var pc in PlateSplit.Pieces(si, cutsU, cutsV, tBase, "BASE", true))
+                {
+                    massBase += pc.Mass;
+                    Piece(pc.Id, "base", pc.Box[0], pc.Box[1], tBase, pc.Mass, baseT, new[] { pc.U0, pc.U1 }, new[] { pc.V0, pc.V1 });
+                }
+                var subU = (splitPlan.SelectToken("subplate.cutsU_mm") as JArray)?.Select(x => (double)x).ToList() ?? new List<double>();
+                var subV = (splitPlan.SelectToken("subplate.cutsV_mm") as JArray)?.Select(x => (double)x).ToList() ?? new List<double>();
+                foreach (var pc in PlateSplit.Pieces(si, subU, subV, tSub, "SUB", false))
+                {
+                    massBase += pc.Mass;
+                    Piece(pc.Id, "subplate", pc.Box[0], pc.Box[1], tSub, pc.Mass, subStock, new[] { pc.U0, pc.U1 }, new[] { pc.V0, pc.V1 });
+                }
+            }
+            else Piece("BASE-1", "base", lay.FootprintL, lay.FootprintW, tBase, massBase, baseT);
+            Piece("LID-1", "lid", lay.FootprintL, lay.FootprintW, tLid, massLid, lidT);
             r.Checks.Add(ToJson(new JCheck { Id = "WEIGHT-LID", Type = "lifting", Demand = massLid, Capacity = lidLimit, Unit = "kg", Method = "S73 + A2: lid <= " + lidBasis }, "size"));
             if (d.MaxBaseMass != null) r.Checks.Add(ToJson(new JCheck { Id = "WEIGHT-BASE", Type = "weight", Demand = massBase, Capacity = d.MaxBaseMass.Value, Unit = "kg", Method = "S73: sum of base pieces <= max_base_mass" }, "size"));
             var liftIndex = Lifting.Index(massLid, lift.Rwl_kg);
@@ -778,115 +812,139 @@ namespace SwAgent.Mold
             return sp.T;
         }
 
-        /// <summary>Keys and bolts of a split base (S37-S41, S42-S56, A3) from structural.split {pieces[], cutsU_mm[], cutsV_mm[], subplate{t_mm}}.</summary>
+        /// <summary>
+        /// Keys and bolts of a split base (S37-S41 keys first, S42-S56 bolts, A3 abuse) from structural.split {cutsU_mm,
+        /// cutsV_mm, subplate {t_mm}}. Each piece side on a cut line is a joint: the cavity pressure on the piece's wall
+        /// toward it is the separating force F_sep = p L_c h (L_c = cavity extent x cavities lined up along the joint). The
+        /// key (a step of k >= 9.5 mm into the subplate) carries it; the screws from the subplate into the piece only take
+        /// the tipping moment F_sep h/2 over the piece width (S40). Screw heads sit in counterbores under the subplate so
+        /// nothing stands proud of its underside (E4).
+        /// </summary>
         private static void SplitJoints(SizingResult r, Cfg cfg, MoldData data, JObject split, double p, double pAbuse, double h, double tBase, JArray bolts, JArray keys, ref double abuseCap)
         {
             var d = r.Design;
             var g = r.Plate;
-            var pieces = (split["pieces"] as JArray)?.OfType<JObject>().ToList() ?? new List<JObject>();
+            var lay = r.Layout;
             var tSub = Si.Num(split.SelectToken("subplate.t_mm")) ?? 22.225;
             var pu = d.PartU * r.Shrink.Su;
             var pv = d.PartV * r.Shrink.Sv;
             var keyStep = cfg.D("keys.minStep_mm", 9.5);
-            var sizes = data.Fasteners(d.Imperial).Select(f => BoltSpec.From(f, cfg)).ToList();
-            var n = 0;
-            foreach (var pc in pieces)
+            var minD = cfg.D("bolts.minDiameter_mm", 6.0);
+            var sizes = data.Fasteners(d.Imperial).Select(f => BoltSpec.From(f, cfg)).Where(b => b.D >= minD - 1e-9).ToList();
+            var cutsU =(split["cutsU_mm"] as JArray)?.Select(x => (double)x).ToList() ?? new List<double>();
+            var cutsV = (split["cutsV_mm"] as JArray)?.Select(x => (double)x).ToList() ?? new List<double>();
+            var si = new SplitInput { L = lay.FootprintL, W = lay.FootprintW, T = tBase, Density_kg_m3 = g.Density_kg_m3 };
+            foreach (var c in lay.Cavities) si.Pockets.Add(new Pocket { Id = c.Id, U = c.U, V = c.V, SizeU = pu, SizeV = pv, Depth = h });
+            foreach (var pc in PlateSplit.Pieces(si, cutsU, cutsV, tBase, "BASE", true))
             {
-                n++;
-                var id = (string)pc["id"] ?? ("BASE-" + n);
-                var u = Si.Lengths(pc["u_mm"]);
-                var v = Si.Lengths(pc["v_mm"]);
-                if (u == null || v == null) continue;
-                var lenU = u[1] - u[0];
-                var lenV = v[1] - v[0];
-                var inside = r.Layout.Cavities.Where(c => c.U > u[0] && c.U < u[1] && c.V > v[0] && c.V < v[1]).ToList();
+                var inside = lay.Cavities.Where(c => c.U > pc.U0 && c.U < pc.U1 && c.V > pc.V0 && c.V < pc.V1).ToList();
                 if (inside.Count == 0) continue;
-                // the piece's side toward a joint carries the cavity pressure (S37): the loaded length along the joint is the
-                // cavity extent times the number of cavities lined up along it
-                var jointAlongV = lenU <= lenV;                 // a piece narrower in U has its joints along V
-                var Lc = jointAlongV ? pv * inside.Select(c => c.V).Distinct().Count() : pu * inside.Select(c => c.U).Distinct().Count();
-                var Lkey = jointAlongV ? lenV : lenU;
-                var bar = jointAlongV ? lenU : lenV;
-                var kr = Keys.Check(id, p, pAbuse, Lc, h, Lkey, keyStep, keyStep, bar, g, cfg);
-                foreach (var c in kr.Checks) r.Checks.Add(ToJson(c, "size", id));
+                var onU = cutsU.Any(x => Math.Abs(x - pc.U0) < 1e-6 || Math.Abs(x - pc.U1) < 1e-6);   // a side on a U cut: joint along V
+                var onV = cutsV.Any(x => Math.Abs(x - pc.V0) < 1e-6 || Math.Abs(x - pc.V1) < 1e-6);
+                if (!onU && !onV) continue;
+                // the worse joint direction of the piece
+                KeyResult kr = null;
+                double Lkey = 0;
+                foreach (var alongV in new[] { true, false })
+                {
+                    if (alongV ? !onU : !onV) continue;
+                    var Lc = alongV ? pv * inside.Select(c => c.V).Distinct().Count() : pu * inside.Select(c => c.U).Distinct().Count();
+                    var len = alongV ? pc.V1 - pc.V0 : pc.U1 - pc.U0;
+                    var bar = alongV ? pc.U1 - pc.U0 : pc.V1 - pc.V0;
+                    var k = Keys.Check(pc.Id, p, pAbuse, Lc, h, len, keyStep, keyStep, bar, g, cfg);
+                    if (kr == null || k.PTotTipping > kr.PTotTipping) { kr = k; Lkey = len; }
+                }
+                foreach (var c in kr.Checks) r.Checks.Add(ToJson(c, "size", pc.Id));
                 abuseCap = Math.Min(abuseCap, kr.PAbuseCap);
-                keys.Add(new JObject { ["piece"] = id, ["Fsep_kN"] = Si.R(kr.FSep / 1000, 5), ["keyLength_mm"] = Si.R(Lkey, 6), ["step_mm"] = keyStep, ["bearing_MPa"] = Si.R(kr.KeyBearing, 5), ["shear_MPa"] = Si.R(kr.KeyShear, 5), ["tipping_kN"] = Si.R(kr.PTotTipping / 1000, 5) });
+                keys.Add(new JObject { ["piece"] = pc.Id, ["Fsep_kN"] = Si.R(kr.FSep / 1000, 5), ["keyLength_mm"] = Si.R(Lkey, 6), ["step_mm"] = keyStep, ["bearing_MPa"] = Si.R(kr.KeyBearing, 5), ["shear_MPa"] = Si.R(kr.KeyShear, 5), ["tipping_kN"] = Si.R(kr.PTotTipping / 1000, 5) });
 
-                // bolts from the subplate into the piece (tapped, H5 effective grip), S53 search
-                JointResult best = null;
-                BoltSpec bestSize = null;
-                int bestN = 0;
-                JointResult fallback = null;
-                BoltSpec fbSize = null;
-                int fbN = 0;
+                // S53: sizes ascending, counts upward; the first that passes S47-S51, S54 (engagement fits the piece) and S56
+                // (stripping, unless an insert) wins; with LC1x (class A) it must pass the abuse case too, otherwise the first
+                // normal pass is kept and the maximum gauge is capped at what the joint carries (A3)
+                (JointResult J, BoltSpec B, int N, ThreadResult T, double Clamp)? best = null, fallback = null;
                 foreach (var b in sizes)
                 {
+                    var th = Threads.Engagement(b, g, cfg, false, true, d.Cycles);
+                    if (th.TapDepth > tBase - 6 + 1e-9) continue;               // keep 6 mm of steel under the parting face
+                    var clamp = Clamp(tSub, b);
                     var minN = Math.Max((int)cfg.D("bolts.minPerPlate", 4), (int)Math.Ceiling(Lkey / (cfg.D("bolts.maxSpacingD", 6) * b.D)) + 1);
                     var maxN = Math.Max(minN, (int)Math.Floor(2 * Lkey / (cfg.D("bolts.minSpacingD", 4) * b.D)) + 2);
                     for (var count = minN; count <= maxN; count++)
                     {
-                        var th = Threads.Engagement(b, g, cfg, false, true, d.Cycles);
                         var j = new JointInput
                         {
-                            Bolt = b, Tapped = true, TopThickness = tSub + b.WasherT, TappedThickness = th.Le,
-                            Layers = new List<Layer> { new Layer { T = tSub, E = g.E, Aluminium = g.IsAluminium } }, AlphaMember = g.Cte_perK,
+                            Bolt = b, Tapped = true, TopThickness = clamp + b.WasherT, TappedThickness = th.Le,
+                            Layers = new List<Layer> { new Layer { T = clamp, E = g.E, Aluminium = g.IsAluminium } }, AlphaMember = g.Cte_perK,
                             TempC = d.TempC, P = kr.PTotTipping / count, PAbuse = pAbuse > 0 ? kr.PTotTipping / count * pAbuse / p : 0, MemberSuT = g.Su,
                         };
                         var res = Bolts.Design(j, cfg, pAbuse > 0);
                         if (!res.Passes) continue;
-                        // S54: the tapped hole (engagement + 0.5 d relief) sits in dead steel and keeps 6 mm below the parting face
-                        if (th.TapDepth > tBase - 6 + 1e-9) continue;
-                        if (res.AbusePasses || pAbuse <= 0) { best = res; bestSize = b; bestN = count; break; }
-                        if (fallback == null) { fallback = res; fbSize = b; fbN = count; }
+                        // S54-S56 at this joint's maximum bolt load: direct tapped if it fits, else a steel insert
+                        var thr = Threads.ForLoad(b, g, res.HotMax, cfg, false, true, d.Cycles);
+                        if (thr.TapDepth > tBase - 6 + 1e-9) continue;
+                        if (res.AbusePasses || pAbuse <= 0) { best = (res, b, count, thr, clamp); break; }
+                        if (fallback == null) fallback = (res, b, count, thr, clamp);
                     }
                     if (best != null) break;
                 }
                 if (best == null && fallback != null)
                 {
-                    best = fallback; bestSize = fbSize; bestN = fbN;
+                    best = fallback;
+                    var f = fallback.Value;
                     var t = new JointInput
                     {
-                        Bolt = bestSize, Tapped = true, TopThickness = tSub + bestSize.WasherT, TappedThickness = Threads.Engagement(bestSize, g, cfg, false, true, d.Cycles).Le,
-                        Layers = new List<Layer> { new Layer { T = tSub, E = g.E, Aluminium = g.IsAluminium } }, AlphaMember = g.Cte_perK,
-                        TempC = d.TempC, P = kr.PTotTipping / bestN, PAbuse = kr.PTotTipping / bestN * pAbuse / p, MemberSuT = g.Su,
+                        Bolt = f.B, Tapped = true, TopThickness = f.Clamp + f.B.WasherT, TappedThickness = f.T.Le,
+                        Layers = new List<Layer> { new Layer { T = f.Clamp, E = g.E, Aluminium = g.IsAluminium } }, AlphaMember = g.Cte_perK,
+                        TempC = d.TempC, P = kr.PTotTipping / f.N, PAbuse = kr.PTotTipping / f.N * pAbuse / p, MemberSuT = g.Su,
                     };
-                    var capPerBolt = Bolts.AbuseCapacity(t, cfg);
-                    abuseCap = Math.Min(abuseCap, capPerBolt / (kr.PTotTipping / bestN / p));
+                    abuseCap = Math.Min(abuseCap, Bolts.AbuseCapacity(t, cfg) / (kr.PTotTipping / f.N / p));
                 }
                 if (best == null)
                 {
-                    r.Checks.Add(Check.Status("BOLTS-" + id, "boltLoad", "fail", "S53: no listed size and count passes S47-S51", "use a keyed frame (3.10) or a larger piece"));
+                    r.Checks.Add(Check.Status("BOLTS-" + pc.Id, "boltLoad", "fail", "S53: no listed size and count passes S47-S51 and S54-S56", "use a keyed frame (3.10) or a larger piece", pc.Id));
                     continue;
                 }
-                foreach (var c in best.Checks) { var cj = ToJson(c, "size", id); cj["id"] = c.Id + "-" + id; r.Checks.Add(cj); }
-                var thr = Threads.Engagement(bestSize, g, cfg, false, true, d.Cycles);
-                var strip = Threads.Stripping(bestSize, thr.Le, best.HotMax, g, cfg);
-                if (!thr.Insert)
-                    r.Checks.Add(ToJson(new JCheck { Id = "THREAD-STRIP-" + id, Type = "stripping", Demand = strip.Tau, Capacity = strip.Allow, Unit = "MPa", Method = "S56 (conservative, H4): F/(pi d_minor L_e 0.75) <= 0.58 Sy,T/2" }, "size", id));
-                bolts.Add(BoltJson("B-" + id, "SUB/" + id, bestSize, bestN, best, thr, tSub, data, d.Imperial));
+                var bb = best.Value;
+                foreach (var c in bb.J.Checks) { var cj = ToJson(c, "size", pc.Id); cj["id"] = c.Id + "-" + pc.Id; r.Checks.Add(cj); }
+                r.Checks.Add(ToJson(new JCheck
+                {
+                    Id = "THREAD-STRIP-" + pc.Id, Type = "stripping", Demand = bb.T.StripStress, Capacity = bb.T.StripAllow, Unit = "MPa",
+                    Method = bb.T.Insert ? "S55/S56: parent shear at the insert's outer diameter <= 0.58 Sy,T/2 (" + bb.T.InsertKind + ")" : "S56 (conservative, H4): F/(pi d_minor L_e 0.75) <= 0.58 Sy,T/2",
+                }, "size", pc.Id));
+                if (bb.Clamp < 0.5 * tSub + 1e-9)
+                    r.Notes.Add($"{pc.Id}: the subplate leaves only {Si.F(bb.Clamp)} mm under the {bb.B.Size} counterbores - a thicker subplate stiffens the joint");
+                bolts.Add(BoltJson("B-" + pc.Id, "SUB/" + pc.Id, bb.B, bb.N, bb.J, bb.T, bb.Clamp, data, d.Imperial));
             }
         }
 
+        /// <summary>Clamped length under a counterbored head: the subplate minus the counterbore (head + washer + 0.5 mm), at least half the plate.</summary>
+        private static double Clamp(double plate, BoltSpec b) => Math.Max(plate - (b.HeadHeight + b.WasherT + 0.5), 0.5 * plate);
+
+        /// <summary>
+        /// A bolt group for the record and the hardware list (critique A1.6, E2): preload with its scatter band, torques,
+        /// engagement, the stock screw length (shortest list length that reaches the engagement) and the tapped depth that
+        /// screw needs plus a 0.5 d relief, so it never bottoms out; counterbores sized for the hardened washer.
+        /// </summary>
         public static JObject BoltJson(string id, string joint, BoltSpec b, int count, JointResult j, ThreadResult thr, double clampT, MoldData data, bool imperial)
         {
             var lengths = imperial ? (data.Raw("mold-materials.json")?.SelectToken("fasteners_common.stock_lengths_in") as JArray)?.Select(x => (double)x * Si.InToMm).ToList()
                                    : (data.Raw("mold-materials.json")?.SelectToken("fasteners_common.stock_lengths_mm") as JArray)?.Select(x => (double)x).ToList();
-            // stock length: >= grip + engagement, and no longer than grip + tapped depth - 0.5 d relief (critique E2: never bottoms out)
             var minL = clampT + b.WasherT + thr.Le;
-            var maxL = clampT + b.WasherT + thr.TapDepth - 0.5 * b.D;
-            var stock = lengths?.Where(x => x >= minL - 1e-9 && x <= maxL + 1e-9).DefaultIfEmpty(double.NaN).Min() ?? double.NaN;
+            var stock = lengths?.Where(x => x >= minL - 1e-9).DefaultIfEmpty(double.NaN).Min() ?? double.NaN;
+            var tap = double.IsNaN(stock) ? thr.TapDepth : Math.Max(thr.TapDepth, stock - clampT - b.WasherT + 0.5 * b.D);
             return new JObject
             {
                 ["id"] = id, ["joint"] = joint, ["size"] = b.Size, ["spec"] = b.Spec, ["count"] = count,
-                ["grip_mm"] = Si.R(j.Grip, 5), ["C"] = Si.R(j.C, 4), ["preloadFraction"] = Si.R(j.Fraction, 4),
+                ["grip_mm"] = Si.R(j.Grip, 5), ["clamp_mm"] = Si.R(clampT, 5), ["C"] = Si.R(j.C, 4), ["preloadFraction"] = Si.R(j.Fraction, 4),
                 ["preload_kN"] = Si.R(j.Fi / 1000, 5), ["preloadBand_kN"] = new JArray(Si.R(j.FiMin / 1000, 5), Si.R(j.FiMax / 1000, 5)),
                 ["preloadWindow"] = new JArray(Si.R(j.FractionLo, 4), Si.R(j.FractionHi, 4)),
                 ["thermal_kN"] = Si.R(j.DFth / 1000, 5), ["hot_kN"] = Si.R(j.HotMax / 1000, 5), ["hotProofFactor"] = Si.R(j.KT, 4),
                 ["n0"] = Si.R(j.N0, 4), ["nL"] = Si.R(j.NL, 4),
                 ["torqueDry_Nm"] = Si.R(j.TorqueDry_Nm, 4), ["torqueLubed_Nm"] = Si.R(j.TorqueLubed_Nm, 4),
-                ["engagement_mm"] = Si.R(thr.Le, 5), ["tapDepth_mm"] = Si.R(thr.TapDepth, 5),
+                ["engagement_mm"] = Si.R(thr.Le, 5), ["tapDepth_mm"] = Si.R(tap, 5),
                 ["insert"] = thr.Insert ? thr.InsertKind : null, ["insertReason"] = thr.Reason,
                 ["washer"] = b.Imperial ? "ASTM F436" : "ISO 7089 300HV", ["cboreForWasher_mm"] = Si.R(b.WasherOd + 0.5, 5),
+                ["cboreDepth_mm"] = Si.R(b.HeadHeight + b.WasherT + 0.5, 5),
                 ["stockLength_mm"] = double.IsNaN(stock) ? null : (JToken)Si.R(stock, 6),
                 ["retorque"] = "re-torque hot after the first 2-3 heat cycles",
             };

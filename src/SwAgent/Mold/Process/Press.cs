@@ -148,6 +148,8 @@ namespace SwAgent.Mold
             {
                 r.LoadCentreU = i.Cavities.Sum(c => (c.Area + c.Perimeter * i.LandWidth + c.GrooveArea + c.WellArea) * c.U) / wsum + i.MoldOffsetU;
                 r.LoadCentreV = i.Cavities.Sum(c => (c.Area + c.Perimeter * i.LandWidth + c.GrooveArea + c.WellArea) * c.V) / wsum + i.MoldOffsetV;
+                if (Math.Abs(r.LoadCentreU) < 1e-9) r.LoadCentreU = 0;   // symmetric layouts: no rounding noise in the report
+                if (Math.Abs(r.LoadCentreV) < 1e-9) r.LoadCentreV = 0;
                 var off = cfg.D("offCentre", 0.05);
                 if (i.PlatenL != null && i.PlatenW != null)
                 {

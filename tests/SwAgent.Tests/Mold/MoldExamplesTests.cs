@@ -102,7 +102,7 @@ namespace SwAgent.Tests.Mold
             Near(262.2, (double)s.SelectToken("materials.plates.Sy_MPa"), 0.1, "Sy");
             Near(1.75 * 25.4, (double)s.SelectToken("results.plates.base.t_mm"), 0.01, "base 1.75 in");
             Near(0.875 * 25.4, (double)s.SelectToken("results.plates.lid.t_mm"), 0.01, "lid 0.875 in");
-            Assert.Empty(size.Checks.Where(Check.Fails));
+            Assert.DoesNotContain(size.Checks, Check.Fails);
             Assert.Equal("TC well", (string)s.SelectToken("results.floors[0].governs"));
             // the drawn wall is set by the flash system and dowels, not by structure (the user's practice)
             Assert.All(s.SelectToken("results.walls").OfType<JObject>(), w => Assert.Equal("flash system and dowels", (string)w["governs"]));

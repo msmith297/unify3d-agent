@@ -26,6 +26,9 @@ namespace SwAgent.Mold
         /// <summary>Edge steel after rounding the plate up to the shop step (mm).</summary>
         public double EdgeU, EdgeV, GapU, GapV;
         public string Moats;
+        /// <summary>What the agent asked for (kept in the record so the next size run lays out the same way).</summary>
+        public string PatternRequest;
+        public double? GapRequest;
         public List<(string Id, double U, double V)> Cavities = new List<(string, double, double)>();
         public string Pattern => Cols.ToString(CultureInfo.InvariantCulture) + "x" + Rows.ToString(CultureInfo.InvariantCulture);
 
@@ -37,6 +40,8 @@ namespace SwAgent.Mold
             ["moats"] = Moats,
             ["gap_mm"] = new JArray(Si.R(GapU, 5), Si.R(GapV, 5)),
             ["edge_mm"] = new JArray(Si.R(EdgeU, 5), Si.R(EdgeV, 5)),
+            ["patternRequest"] = PatternRequest,
+            ["gapRequest_mm"] = GapRequest,
         };
     }
 
