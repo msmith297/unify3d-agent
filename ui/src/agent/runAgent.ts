@@ -12,7 +12,9 @@ import type {
   ToolRunResult,
   Usage,
   FormSpec,
+  SelectionAsk,
 } from "../lib/types";
+import { clampSteps } from "../lib/toolRun";
 
 /** Tools that change the model; gated by the approval setting. */
 export const WRITE_TOOLS = new Set(["execute_csharp", "undo", "rebuild"]);
@@ -85,6 +87,35 @@ export const ASK_USER_TOOL: ToolDef = {
   },
 };
 
+/**
+ * Handled in the UI: a card asks the user to pick entities in SolidWorks and press Done; the answer lists them as [S#]
+ * references (numbered on from the chat's), so mid-run picks are as addressable as a selection sent with a message.
+ */
+export const ASK_SELECTION_TOOL: ToolDef = {
+  name: "ask_selection",
+  description:
+    "Ask the user to select entities in SolidWorks (e.g. the part's critical faces, or where a parting line must not run) and wait " +
+    "until they press Done. Pre-select your suggestions in code first; the user adds or removes. Returns one line per entity with " +
+    "an [S#] reference usable with Ref(\"S#\") and select_refs, plus anything the user said or typed.",
+  input_schema: {
+    type: "object",
+    properties: {
+      prompt: { type: "string", description: "What to select and why, one or two sentences, e.g. \"Select the faces that must stay free of flash and parting lines.\"" },
+      types: {
+        type: "array",
+        items: { type: "string", enum: ["face", "edge", "vertex", "body", "feature", "component"] },
+        description: "Entity kinds that count (default: any). Others the user selects are reported but not numbered.",
+      },
+      min: { type: "integer", description: "Fewest entities needed before Done (default 0)." },
+      max: { type: "integer", description: "Most entities wanted (more are still reported; at most 500 are read)." },
+    },
+    required: ["prompt"],
+  },
+};
+
+/** The UI-handled tools, offered on every request after the add-in's. */
+export const LOCAL_TOOLS: ToolDef[] = [ASK_USER_TOOL, ASK_FORM_TOOL, ASK_SELECTION_TOOL, OFFER_RESTART_TOOL];
+
 /** A content block while it streams. */
 export interface LiveBlock {
   type: "text" | "thinking" | "tool_use" | "other";
@@ -113,6 +144,8 @@ export interface AgentCallbacks {
   addUsage(usage: Usage): void;
   approve(req: ApprovalRequest): Promise<ApprovalDecision>;
   ask(toolUseId: string, question: string, options: string[], form?: FormSpec): Promise<string>;
+  /** ask_selection: resolves with the [S#] lines once the user presses Done (or Skip). */
+  askSelection(toolUseId: string, ask: SelectionAsk): Promise<string>;
   /** A request to the model started (for the "Thinking... 1m 20s" timer). */
   onRequest?(startedAt: number): void;
   /** A status line for the user (e.g. a stalled connection being retried), or null to clear it. */
@@ -130,7 +163,11 @@ export interface AgentRunOptions {
   approval: ApprovalMode;
   realisticAppearance: boolean;
   verbosity: Verbosity;
-  userTools: { name: string; title: string; description: string; kind?: string; builtIn?: boolean }[];
+  userTools: { name: string; title: string; description: string; kind?: string; builtIn?: boolean; category?: string | null }[];
+  /** API round trips before the turn stops (a tool's max_steps; default 200, cap 1000). */
+  maxSteps?: number;
+  /** A long tool run: the prompt cache lives 1 hour (answers to its gate questions often take 5-60 min). */
+  longRun?: boolean;
   signal: AbortSignal;
   cb: AgentCallbacks;
 }
@@ -144,7 +181,8 @@ export interface AgentRunResult {
  * Server-side context editing: once a request passes TRIGGER tokens, the oldest tool calls and their results
  * (inputs included - execute_csharp cells are the bulk) are replaced by a placeholder, keeping the last KEEP.
  * clear_at_least makes each clearing large enough to be worth the prompt-cache rewrite it causes.
- * ask_user (the user's answers) and read_user_tool (instructions being followed) are never cleared.
+ * The user's answers (ask_user, ask_form, ask_selection with its [S#] refs) and read_user_tool (instructions being
+ * followed) are never cleared.
  */
 const CLEAR_OLD_TOOL_USES = {
   type: "clear_tool_uses_20250919" as const,
@@ -152,7 +190,7 @@ const CLEAR_OLD_TOOL_USES = {
   keep: { type: "tool_uses" as const, value: 6 },
   clear_at_least: { type: "input_tokens" as const, value: 12000 },
   clear_tool_inputs: true,
-  exclude_tools: ["ask_user", "ask_form", "offer_restart", "read_user_tool"],
+  exclude_tools: ["ask_user", "ask_form", "ask_selection", "offer_restart", "read_user_tool"],
 };
 
 /** No bytes at all (not even keep-alive pings) for this long means the connection is dead, not thinking. */
@@ -193,7 +231,7 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
   if (m.progressUpdates) betas.push("thinking-display-updates-2026-08-18");
   if (m.fallbacks) betas.push("server-side-fallback-2026-07-01");
 
-  const tools: Anthropic.Beta.Messages.BetaToolUnion[] = [...opts.tools, ASK_USER_TOOL, ASK_FORM_TOOL, OFFER_RESTART_TOOL].map((t) => ({
+  const tools: Anthropic.Beta.Messages.BetaToolUnion[] = [...opts.tools, ...LOCAL_TOOLS].map((t) => ({
     name: t.name,
     description: t.description,
     input_schema: t.input_schema,
@@ -203,8 +241,9 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
   const system = buildSystemPrompt({ realisticAppearance: opts.realisticAppearance, verbosity: opts.verbosity, userTools: opts.userTools });
   let malformedRetries = 0;
   let stallRetries = 0;
+  const maxSteps = clampSteps(opts.maxSteps);
   try {
-    for (let iteration = 0; iteration < 200; iteration++) {
+    for (let iteration = 0; iteration < maxSteps; iteration++) {
       if (signal.aborted) return { stop: "aborted" };
 
       // One controller per request, so a stalled request can be dropped and re-sent without stopping the run.
@@ -236,7 +275,9 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
             block_binding: { prefix_mismatch_behavior: "drop_block" },
           },
           output_config: { effort: opts.effort },
-          cache_control: { type: "ephemeral" },
+          // Long tool runs wait 5-60 min on gate questions: a 1-hour cache (writes cost 2x instead of 1.25x) keeps the
+          // whole prompt cached across them instead of rewriting it after every answer.
+          cache_control: opts.longRun ? { type: "ephemeral", ttl: "1h" } : { type: "ephemeral" },
           // Old tool calls (C# cells, screenshots, model dumps) are cleared server-side once the prompt grows, keeping
           // only the most recent ones. The stored history stays complete and append-only, so thinking stays valid.
           context_management: { edits: [CLEAR_OLD_TOOL_USES] },
@@ -342,7 +383,7 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
       await cb.append({ role: "user", content: steer?.length ? [...results, ...steer] : results });
       if (signal.aborted) return { stop: "aborted" };
     }
-    return { stop: "iteration_limit", error: "Stopped after 200 steps." };
+    return { stop: "iteration_limit", error: `Stopped after ${maxSteps} steps. Send "continue" to carry on.` };
   } finally {
     cb.setLive(null);
     cb.setRunningTool(null);
@@ -353,7 +394,7 @@ async function executeTool(tu: Anthropic.Beta.Messages.BetaToolUseBlock, opts: A
   const { cb } = opts;
   const err = (text: string): ToolResultBlockParam => ({ type: "tool_result", tool_use_id: tu.id, is_error: true, content: text });
 
-  const local = [ASK_USER_TOOL, ASK_FORM_TOOL, OFFER_RESTART_TOOL].find((t) => t.name === tu.name);
+  const local = LOCAL_TOOLS.find((t) => t.name === tu.name);
   const def = local ?? opts.tools.find((t) => t.name === tu.name);
   if (!def) return err(`Unknown tool '${tu.name}'.`);
   const problem = validateInput(def, tu.input);
@@ -368,6 +409,11 @@ async function executeTool(tu: Anthropic.Beta.Messages.BetaToolUseBlock, opts: A
   if (tu.name === OFFER_RESTART_TOOL.name) {
     // The chat shows the button under the reply (ChatView); nothing else to do here.
     return { type: "tool_result", tool_use_id: tu.id, content: "The Save and restart button is shown below your reply. Don't also tell the user to restart." };
+  }
+
+  if (tu.name === ASK_SELECTION_TOOL.name) {
+    const answer = await cb.askSelection(tu.id, tu.input as SelectionAsk);
+    return { type: "tool_result", tool_use_id: tu.id, content: answer };
   }
 
   if (tu.name === ASK_USER_TOOL.name) {

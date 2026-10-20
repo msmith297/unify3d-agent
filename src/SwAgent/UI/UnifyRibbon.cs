@@ -60,7 +60,8 @@ namespace SwAgent.UI
         private static string Signature() => string.Join("|", UserTools.ListTools().Where(t => (string)t["kind"] == "tool").Select(t =>
         {
             var png = Path.Combine(UserTools.DirOf((string)t["name"]) ?? "", "icon.png");
-            return $"{t["name"]}:{t["title"]}:{(File.Exists(png) ? File.GetLastWriteTimeUtc(png).Ticks : 0)}";
+            // Category and ribbon title too: re-categorising moves a button to another box, which also needs a restart.
+            return $"{t["name"]}:{t["title"]}:{(File.Exists(png) ? File.GetLastWriteTimeUtc(png).Ticks : 0)}:{t["category"]}:{t["ribbonTitle"]}";
         }));
 
         public UnifyRibbon(ICommandManager cmdMgr)
@@ -97,7 +98,7 @@ namespace SwAgent.UI
                 foreach (var t in tools)
                 {
                     var name = (string)t["name"];
-                    commands.Add(($"t{ids[name]}", ids[name], (string)t["title"], (string)t["description"], LoadIcon(name) ?? Icons.ToolDefault));
+                    commands.Add(($"t{ids[name]}", ids[name], RibbonLayout.Title(t), RibbonLayout.Hint(t), LoadIcon(name) ?? Icons.ToolDefault));
                 }
                 commands.AddRange(Trailing.Select(f => (f.Arg, f.Id, f.Title, f.Hint, f.Icon())));
 
@@ -130,15 +131,18 @@ namespace SwAgent.UI
                 _toolById = tools.ToDictionary(t => ids[(string)t["name"]], t => (string)t["name"]);
                 _created = true;
 
-                // One tab: Unify3D Agent commands + Options | built-in Unify3D tools | the user's tools + New Tool.
+                // One tab: Unify3D Agent commands + Options | a box per category and the uncategorised tools (RibbonLayout)
+                // | the user's uncategorised tools + New Tool. Command ids stay keyed by tool name, so moving a tool to
+                // another box keeps its hotkey.
                 int Cmd(int id) => group.get_CommandID(indexes[id]);
-                var builtIn = tools.Where(t => (bool?)t["builtIn"] == true).ToList();
-                var boxes = new List<int[]>
+                var toolBoxes = RibbonLayout.Boxes(tools);
+                var boxes = new List<int[]> { Fixed.Select(f => Cmd(f.Id)).Concat(new[] { Cmd(6) }).ToArray() };
+                for (var b = 0; b < toolBoxes.Count; b++)
                 {
-                    Fixed.Select(f => Cmd(f.Id)).Concat(new[] { Cmd(6) }).ToArray(),
-                    builtIn.Select(t => Cmd(ids[(string)t["name"]])).ToArray(),
-                    tools.Where(t => (bool?)t["builtIn"] != true).Select(t => Cmd(ids[(string)t["name"]])).Concat(new[] { Cmd(5) }).ToArray(),
-                }.Where(b => b.Length > 0).ToList();
+                    var box = toolBoxes[b].Select(n => Cmd(ids[n]));
+                    boxes.Add((b == toolBoxes.Count - 1 ? box.Concat(new[] { Cmd(5) }) : box).ToArray());
+                }
+                boxes = boxes.Where(b => b.Length > 0).ToList();
                 foreach (var type in DocTypes)
                 {
                     var tab = _cmdMgr.AddCommandTab(type, TabName);
@@ -274,6 +278,62 @@ namespace SwAgent.UI
         {
             _debounce.Dispose();
             Remove();
+        }
+    }
+
+    /// <summary>
+    /// How tools are laid out on the Unify3D tab (no SolidWorks types, so it is tested headless). Tab boxes have no
+    /// captions, so a category shows as its own box and in each button's hint.
+    /// </summary>
+    internal static class RibbonLayout
+    {
+        /// <summary>The button title: the tool's short ribbon_title when it has one.</summary>
+        public static string Title(JObject t) => (string)t["ribbonTitle"] is string r && !string.IsNullOrWhiteSpace(r) ? r : (string)t["title"];
+
+        /// <summary>The tooltip: "[Category] description".</summary>
+        public static string Hint(JObject t) => (string)t["category"] is string c && !string.IsNullOrWhiteSpace(c) ? $"[{c}] {t["description"]}" : (string)t["description"];
+
+        /// <summary>
+        /// Tool names per tab box, in order: one box per built-in category (first-seen order), the uncategorised built-ins,
+        /// one box per user category (a user tool in a built-in category's name joins that box), then the user's
+        /// uncategorised tools - always the last entry, possibly empty, as New Tool goes there. Categories match trimmed and
+        /// case-insensitively; empty boxes are dropped except the last.
+        /// </summary>
+        public static List<List<string>> Boxes(IEnumerable<JObject> tools)
+        {
+            var categories = new List<(string Key, List<string> Names)>();
+            List<string> CategoryBox(string category)
+            {
+                var key = category.Trim().ToLowerInvariant();
+                var box = categories.FirstOrDefault(c => c.Key == key).Names;
+                if (box == null) categories.Add((key, box = new List<string>()));
+                return box;
+            }
+
+            var list = tools.ToList();
+            bool IsBuiltIn(JObject t) => (bool?)t["builtIn"] == true;
+            string CategoryOf(JObject t) => (string)t["category"] is string c && !string.IsNullOrWhiteSpace(c) ? c : null;
+
+            var builtInPlain = new List<string>();
+            foreach (var t in list.Where(IsBuiltIn))
+            {
+                if (CategoryOf(t) is string c) CategoryBox(c).Add((string)t["name"]);
+                else builtInPlain.Add((string)t["name"]);
+            }
+            var builtInBoxes = categories.Count;
+            var userPlain = new List<string>();
+            foreach (var t in list.Where(t => !IsBuiltIn(t)))
+            {
+                if (CategoryOf(t) is string c) CategoryBox(c).Add((string)t["name"]);
+                else userPlain.Add((string)t["name"]);
+            }
+
+            var boxes = categories.Take(builtInBoxes).Select(c => c.Names).ToList();
+            boxes.Add(builtInPlain);
+            boxes.AddRange(categories.Skip(builtInBoxes).Select(c => c.Names));
+            boxes = boxes.Where(b => b.Count > 0).ToList();
+            boxes.Add(userPlain);
+            return boxes;
         }
     }
 }

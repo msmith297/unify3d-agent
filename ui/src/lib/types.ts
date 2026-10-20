@@ -62,6 +62,42 @@ export interface Thread {
   restartDismissed?: string[];
   /** The files this chat worked in (the chat follows the work from file to file). key: the add-in's runtime key. */
   files?: { title: string; path?: string | null; key?: string }[];
+  /** A long tool's run in this chat: its settings carry over to follow-ups while it is open (lib/toolRun.ts). */
+  toolRun?: ToolRunSticky | null;
+}
+
+/** A document as a long tool run remembers it (the add-in key, plus title and path: a reopened file gets a new key). */
+export interface ToolRunDoc {
+  key: string;
+  title: string;
+  path?: string | null;
+}
+
+/**
+ * The settings of a long tool run (front matter long_run) kept for typed follow-ups: the tool's model, effort, step
+ * limit and (for ribbon tools) auto-approval - only while one of its documents is active, until the tool reports it is
+ * done, the user closes the banner chip or changes the chat's model, another tool or workflow runs in the chat, or
+ * after 2 h without activity.
+ */
+export interface ToolRunSticky {
+  tool: string;
+  label: string;
+  model: string;
+  effort: Effort;
+  maxSteps: number;
+  /** Follow-ups skip the approval prompt (a ribbon tool run; workflows keep the chat's approval). Missing: true. */
+  autoApprove?: boolean;
+  /** Agent tools whose results can report the run done (the tool's `requires`). */
+  requires?: string[];
+  /** The document the tool ran on. */
+  doc?: ToolRunDoc | null;
+  /** Other documents the run has worked in since (e.g. a part it built from a drawing and activated). */
+  docs?: ToolRunDoc[];
+  /** Index of the message that started the run: a resend from before it ends the run. */
+  msgIndex?: number;
+  startedAt: number;
+  /** Last time a run in this chat started or ended (the idle clock). */
+  lastActive: number;
 }
 
 /** What the add-in stores inside the SolidWorks file. */
@@ -248,6 +284,19 @@ export interface FormSpec {
   fields: FormField[];
 }
 
+/** Entity kinds ask_selection can ask for. */
+export type SelectionKind = "face" | "edge" | "vertex" | "body" | "feature" | "component";
+
+/** An ask_selection request: pick entities in SolidWorks, then Done. */
+export interface SelectionAsk {
+  prompt: string;
+  types?: SelectionKind[];
+  min?: number;
+  max?: number;
+  /** Set by the panel: requested types it doesn't know (any entity then counts, and the answer says so). */
+  unknownTypes?: string[];
+}
+
 /** What the add-in hands the panel when a ribbon tool needs the agent (Tools/ToolRunner.cs). */
 export interface ToolRunPayload {
   tool: string;
@@ -264,6 +313,10 @@ export interface ToolRunPayload {
   context?: { model?: string; history?: string; view?: string; failure?: string; handoff?: string; macroOutput?: string };
   /** Older add-ins: the macro's failure report. */
   failure?: string;
+  /** API steps per turn for this tool (front matter max_steps; default 200, cap 1000). */
+  maxSteps?: number;
+  /** A long, phased tool (front matter long_run): 1-hour prompt cache, settings kept for follow-ups. */
+  longRun?: boolean;
 }
 
 export interface UserToolInfo {
@@ -294,6 +347,18 @@ export interface UserToolInfo {
   hasPreview?: boolean;
   /** "preview" / "macro" paused after SolidWorks crashed while running it. */
   paused?: string;
+  /** Front matter category: its own section in the Workflows menu and box on the ribbon tab. */
+  category?: string | null;
+  /** Built-ins: the category the tool ships with (the user may have changed it). */
+  categoryDefault?: string | null;
+  /** Shorter title for the ribbon button. */
+  ribbonTitle?: string | null;
+  /** Front matter long_run: a long, phased tool. */
+  longRun?: boolean;
+  /** Front matter max_steps (600 for a long tool without one); null: the default 200. */
+  maxSteps?: number | null;
+  /** Agent tools the tool needs from the add-in. */
+  requires?: string[];
 }
 
 export interface SelectionItem {

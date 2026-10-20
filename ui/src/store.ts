@@ -30,8 +30,13 @@ import type {
   Usage,
   WatchEntry,
   WatchResult,
+  SelectionAsk,
+  SelectionKind,
+  ToolRunSticky,
 } from "./lib/types";
 import { recordSession } from "./lib/sessions";
+import { refBase, selectionAnswer, type SnapshotItem } from "./lib/selection";
+import { DEFAULT_STEPS, LONG_RUN_STEPS, clampSteps, runReportsDone, stickyState, withRunDoc } from "./lib/toolRun";
 import { WRITE_TOOLS, runAgent, type ApprovalDecision, type ApprovalRequest, type LiveBlock } from "./agent/runAgent";
 
 export interface ChatSlot {
@@ -49,6 +54,8 @@ export interface QueuedMessage {
   now?: boolean;
   /** A tool run waiting for the agent: its staged prompt and run settings (text is then just its label). */
   staged?: { blocks: ContentBlockParam[]; refs: Record<string, string>; run: RunOverride };
+  /** A workflow run or a new tool waiting for the agent: its own settings (it isn't a follow-up of the current run). */
+  run?: RunOverride;
 }
 
 /** Settings for one run that differ from the chat's own (a tool's intelligence level, auto-approval). */
@@ -57,7 +64,20 @@ export interface RunOverride {
   effort?: Effort;
   autoApprove?: boolean;
   label?: string;
+  /** API steps before the turn stops (a tool's max_steps); default 200. */
+  maxSteps?: number;
+  /** A long tool run: 1-hour prompt cache. */
+  longRun?: boolean;
+  /** Set for a tool or workflow run (its name): a long one keeps its settings for follow-ups, any other ends that. */
+  tool?: string;
+  /** Not a follow-up (e.g. making a new tool): ends a long tool run's follow-up settings and uses the chat's own. */
+  fresh?: boolean;
+  /** Set by runSettings: this run continues a long tool run (the documents it activates become the run's too). */
+  inToolRun?: boolean;
 }
+
+/** Valid ask_selection kinds (the agent's input is checked loosely). */
+const SELECTION_KINDS: SelectionKind[] = ["face", "edge", "vertex", "body", "feature", "component"];
 
 export interface RunState {
   docKey: string;
@@ -65,10 +85,20 @@ export interface RunState {
   live: LiveBlock[] | null;
   runningToolId: string | null;
   approval: (ApprovalRequest & { resolve: (d: ApprovalDecision) => void }) | null;
-  question: { toolUseId: string; question: string; options: string[]; form?: FormSpec; resolve: (answer: string) => void } | null;
+  question: {
+    toolUseId: string;
+    question: string;
+    options: string[];
+    form?: FormSpec;
+    /** ask_selection: the user picks in SolidWorks and presses Done (answerSelection). */
+    selection?: Omit<SelectionAsk, "prompt">;
+    resolve: (answer: string) => void;
+  } | null;
   controller: AbortController;
   /** Ribbon tool runs: the tool's title (shown in the "executing" banner) and when it started. */
   label?: string;
+  /** The run starts or continues a long tool run (RunOverride.inToolRun). */
+  inToolRun?: boolean;
   startedAt?: number;
   /** When the current request to the model started (the thinking timer). */
   requestStartedAt?: number;
@@ -103,6 +133,8 @@ interface State {
   viewKey: string;
   chats: Record<string, ChatSlot>;
   selection: Record<string, SelectionItem[]>;
+  /** How many entities are selected per document: the chips stop at 30 (the ask_selection card shows the real count). */
+  selectionTotal: Record<string, number>;
   includeSelection: boolean;
   /** Indexes (in SolidWorks selection order) the user removed from the selection chips. Reset when the selection changes. */
   excludedSel: number[];
@@ -160,8 +192,11 @@ interface State {
   addAttachment(a: Attachment): void;
   removeAttachment(id: string): void;
   attachView(): Promise<void>;
-  /** model / effort apply when this starts a new chat. */
-  send(text: string, opts?: { model?: string; effort?: Effort }): Promise<void>;
+  /**
+   * model / effort apply when this starts a new chat. A workflow run (tool) or a new request (fresh) isn't a follow-up:
+   * it runs with its own settings and ends a long tool run's follow-up settings (runSettings).
+   */
+  send(text: string, opts?: RunOverride): Promise<void>;
   retry(): Promise<void>;
   /** Drop everything after the prompt at msgIndex and run again, optionally with edited text. */
   resendFrom(msgIndex: number, editedText?: string): Promise<void>;
@@ -169,6 +204,13 @@ interface State {
   stop(threadId?: string): void;
   answerApproval(threadId: string, d: ApprovalDecision): void;
   answerQuestion(threadId: string, answer: string): void;
+  /**
+   * ask_selection: Done (done=true) snapshots the selection and answers with [S#] refs merged into the chat; Skip
+   * answers with nothing. A typed or spoken answer while the card is open counts as Done with that note.
+   */
+  answerSelection(threadId: string, done: boolean, note?: string): Promise<void>;
+  /** Close a long tool run's follow-up settings (the banner chip's X). */
+  endToolRun(threadId: string): void;
   /** What's typed (or dictated) into a pending question's answer box, per thread. */
   answerDrafts: Record<string, string>;
   setAnswerDraft(threadId: string, text: string): void;
@@ -251,7 +293,12 @@ export const MARKUP_NAME = "Markup";
 interface SelectionSnapshot {
   items: { type: string; label: string; detail: string; ref: string | null }[];
   view: { text: string } | null;
+  /** How many entities are selected (items stop at the snapshot's max). */
+  total?: number;
 }
+
+/** ask_selection reads up to this many entities (the add-in's cap); a larger selection is reported as cut. */
+const SELECTION_MAX = 500;
 
 /** Identity of a selection as the panel sees it (type + owner of each entity, in order). */
 export function selSig(items: SelectionItem[]): string {
@@ -448,6 +495,9 @@ function attachmentBlocks(a: Attachment): ContentBlockParam[] {
 const speakAfter = new Set<string>();
 let lastVoice: VoicePayload | null = null;
 
+/** ask_selection cards whose Done is being processed (a double click must not answer twice). */
+const answeringSelection = new Set<string>();
+
 /** 3D models being read by the add-in, by attachment id (send waits for them). */
 const describing = new Map<string, Promise<void>>();
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
@@ -552,7 +602,7 @@ export const useStore = create<State>((set, get) => {
 
     const items = isAgentSelection(s, s.activeDocKey ?? "") ? [] : snap?.items ?? [];
     const thread = s.chats[docKey]?.data.threads.find((t) => t.id === threadId);
-    let n = Object.keys(thread?.selRefs ?? {}).length + (opts.reserved ?? 0);
+    let n = refBase(thread?.selRefs) + (opts.reserved ?? 0);
     if (items.length > 0 && !s.includeSelection) {
       lines.push("Selection: (the user chose not to share it)");
     } else {
@@ -598,7 +648,7 @@ export const useStore = create<State>((set, get) => {
 
     const controller = new AbortController();
     set((s) => ({
-      runs: { ...s.runs, [threadId]: { docKey, threadId, live: null, runningToolId: null, approval: null, question: null, controller, ...extra } },
+      runs: { ...s.runs, [threadId]: { docKey, threadId, live: null, runningToolId: null, approval: null, question: null, controller, inToolRun: !!run.inToolRun, ...extra } },
     }));
     const started = performance.now();
     let outcome = "end_turn";
@@ -622,6 +672,8 @@ export const useStore = create<State>((set, get) => {
         realisticAppearance: get().settings.realisticAppearance,
         verbosity: get().settings.verbosity ?? "medium",
         userTools: get().userTools,
+        maxSteps: run.maxSteps,
+        longRun: run.longRun,
         signal: controller.signal,
         cb: {
           getMessages: () => get().chats[docKey]?.data.threads.find((t) => t.id === threadId)?.messages ?? [],
@@ -659,6 +711,23 @@ export const useStore = create<State>((set, get) => {
           ask: (toolUseId, question, options, form) =>
             new Promise<string>((resolve) => {
               updateRun(threadId, { question: { toolUseId, question, options, form, resolve } });
+              void revealRun(docKey, threadId);
+            }),
+          askSelection: (toolUseId, ask) =>
+            new Promise<string>((resolve) => {
+              const asked = (Array.isArray(ask.types) ? ask.types : []).map((k) => String(k).trim().toLowerCase());
+              const types = asked.filter((k): k is SelectionKind => SELECTION_KINDS.includes(k as SelectionKind));
+              const unknownTypes = asked.filter((k) => !SELECTION_KINDS.includes(k as SelectionKind));
+              const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.min(SELECTION_MAX, Math.round(v)) : undefined);
+              const max = num(ask.max);
+              const min = num(ask.min);
+              const selection = {
+                types: types.length ? types : undefined,
+                min: min !== undefined && max !== undefined ? Math.min(min, max) : min,
+                max,
+                unknownTypes: unknownTypes.length ? unknownTypes : undefined,
+              };
+              updateRun(threadId, { question: { toolUseId, question: String(ask.prompt ?? ""), options: [], selection, resolve } });
               void revealRun(docKey, threadId);
             }),
           runTool: (name, input, toolUseId) =>
@@ -709,10 +778,83 @@ export const useStore = create<State>((set, get) => {
           agentSel: afterDoc !== selDoc || (sig !== selectionAtStart && after.items.length > 0) ? { ...s.agentSel, [afterDoc]: sig } : s.agentSel,
         }));
       }
+      noteToolRunActivity(docKey, threadId, turnIndex);
       await persist(docKey);
       speakReply(docKey, threadId, outcome);
       flushQueue(docKey, threadId, outcome);
     }
+  };
+
+  /**
+   * After a run in a chat with an open long tool run: the idle clock restarts, unless the tool reported in this turn
+   * that it is done (its record's status), which ends the follow-up settings.
+   */
+  const noteToolRunActivity = (docKey: string, threadId: string, turnIndex: number) => {
+    const t = get().chats[docKey]?.data.threads.find((x) => x.id === threadId);
+    const tr = t?.toolRun;
+    if (!t || !tr) return;
+    const from = t.turns[turnIndex]?.msgIndex ?? 0;
+    if (runReportsDone(t.messages, from, tr.requires)) {
+      updateThread(docKey, threadId, (x) => ({ ...x, toolRun: null }));
+      set({ notice: `${tr.label} is done - follow-ups in this chat use the chat's own model and approval again.` });
+      return;
+    }
+    updateThread(docKey, threadId, (x) => (x.toolRun ? { ...x, toolRun: { ...x.toolRun, lastActive: Date.now() } } : x));
+  };
+
+  /** End a long tool run's follow-up settings because the user changed the chat's own model or effort. */
+  const endToolRunWith = (docKey: string, threadId: string, label: string) => {
+    updateThread(docKey, threadId, (t) => ({ ...t, toolRun: null }));
+    set({ notice: `${label}: its run settings ended - follow-ups in this chat use the model and effort you chose, and your approval setting.` });
+  };
+
+  /**
+   * The settings a run in this chat gets (lib/toolRun.ts). A tool or workflow run brings its own, and a long one opens
+   * the chat's follow-up settings; any other tool or workflow run, or a fresh request such as making a new tool, closes
+   * them. Anything else - a typed or spoken follow-up, Retry, a resend - inherits a long tool run's model, effort, step
+   * limit and auto-approval while that run is open: one of its documents is active, it hasn't reported done, and the
+   * chat was active within 2 hours. The user's read-only approval mode always wins over the tool's auto-approval.
+   */
+  const runSettings = (docKey: string, threadId: string, run: RunOverride): RunOverride => {
+    const s = get();
+    const thread = s.chats[docKey]?.data.threads.find((t) => t.id === threadId);
+    if (!thread) return run;
+    const doc = s.docs[s.activeDocKey ?? ""];
+    if (run.tool || run.fresh) {
+      const info = run.tool ? s.userTools.find((t) => t.name === run.tool) : undefined;
+      const last = thread.messages[thread.messages.length - 1];
+      // A long run is tied to its documents; without one there is nothing to scope it to, so it doesn't stay open.
+      const toolRun: ToolRunSticky | null =
+        run.tool && run.longRun && doc
+          ? {
+              tool: run.tool,
+              label: info?.ribbonTitle || run.label || info?.title || run.tool, // short: it heads the banner chip
+              model: run.model ?? thread.model,
+              effort: run.effort ?? thread.effort,
+              maxSteps: clampSteps(run.maxSteps, LONG_RUN_STEPS),
+              autoApprove: !!run.autoApprove,
+              requires: info?.requires ?? [],
+              doc: { key: doc.key, title: doc.title, path: doc.path || null },
+              docs: [],
+              // The message this run's prompt lands in (submitBlocks extends a trailing user message).
+              msgIndex: last && last.role === "user" ? thread.messages.length - 1 : thread.messages.length,
+              startedAt: Date.now(),
+              lastActive: Date.now(),
+            }
+          : null;
+      if (toolRun || thread.toolRun) updateThread(docKey, threadId, (t) => ({ ...t, toolRun }));
+      return toolRun ? { ...run, inToolRun: true } : run;
+    }
+    const tr = thread.toolRun;
+    if (!tr || run.model) return run;
+    const state = stickyState(tr, Date.now(), doc);
+    if (state === "expired") {
+      updateThread(docKey, threadId, (t) => ({ ...t, toolRun: null }));
+      return run;
+    }
+    if (state === "other_doc") return run; // paused while another document is active
+    const autoApprove = tr.autoApprove !== false && s.settings.approval !== "read_only";
+    return { model: tr.model, effort: tr.effort, autoApprove, label: tr.label, maxSteps: tr.maxSteps, longRun: true, ...run, inToolRun: true };
   };
 
   /**
@@ -804,6 +946,16 @@ export const useStore = create<State>((set, get) => {
     // The agent is waiting on a question in this chat: the voice message is the answer, not a new message.
     const thread = currentThread(s);
     const asked = thread ? s.runs[thread.id]?.question : null;
+    if (thread && asked?.selection) {
+      // Waiting for a selection: speaking counts as Done, with the words as the note (Done takes a fresh snapshot, so
+      // whatever was selected while talking is included).
+      const note = p.text.trim();
+      const selected = p.events.some((e) => e.kind === "select");
+      if (!note && !selected) return;
+      if ((s.settings.voiceSend ?? "release") === "release") void get().answerSelection(thread.id, true, note);
+      else get().setAnswerDraft(thread.id, [s.answerDrafts[thread.id]?.trim(), note].filter(Boolean).join(" "));
+      return;
+    }
     if (thread && asked && !asked.form) {
       const picked = p.events.filter((e) => e.kind === "select" && e.t > 0).flatMap((e) => (e.items ?? []).map((i) => `${i.type}${i.label ? ` of ${i.label}` : ""}`));
       const answer = [p.text.trim(), picked.length ? `(while answering I selected: ${picked.join("; ")})` : ""].filter(Boolean).join(" ");
@@ -843,15 +995,15 @@ export const useStore = create<State>((set, get) => {
       }));
       return;
     }
-    if (q[0].staged) {
-      // One tool run; the rest wait for the next turn to end.
+    if (q[0].staged || q[0].run) {
+      // One tool or workflow run, with its own settings; the rest wait for the next turn to end.
       const [first, ...rest] = q;
       set((s) => ({ queue: { ...s.queue, [threadId]: rest } }));
-      const st = first.staged!;
-      void submitBlocks(docKey, threadId, st.blocks, st.refs, st.run);
+      if (first.staged) void submitBlocks(docKey, threadId, first.staged.blocks, first.staged.refs, first.staged.run);
+      else void submitPrompt(docKey, threadId, first.text, first.attachments, first.run);
       return;
     }
-    const n = q.findIndex((m) => m.staged);
+    const n = q.findIndex((m) => m.staged || m.run);
     const batch = n < 0 ? q : q.slice(0, n);
     set((s) => ({ queue: { ...s.queue, [threadId]: n < 0 ? [] : q.slice(n) } }));
     void submitPrompt(docKey, threadId, batch.map((m) => m.text).filter(Boolean).join("\n\n"), batch.flatMap((m) => m.attachments));
@@ -876,7 +1028,7 @@ export const useStore = create<State>((set, get) => {
     if (trimmed) blocks.push({ type: "text", text: trimmed });
     // A voice message's selections are numbered first, so the context block's ids continue after them.
     const thread = get().chats[docKey]?.data.threads.find((t) => t.id === threadId);
-    const taken = Object.keys(thread?.selRefs ?? {}).length;
+    const taken = refBase(thread?.selRefs);
     let reserved = 0;
     const voiceRefs: Record<string, string> = {};
     for (const a of attachments) {
@@ -899,7 +1051,8 @@ export const useStore = create<State>((set, get) => {
   };
 
   /** Add a user message (already built) to a thread and run the agent on it, with optional settings for this run. */
-  const submitBlocks = async (docKey: string, threadId: string, blocks: ContentBlockParam[], refs: Record<string, string>, run: RunOverride = {}) => {
+  const submitBlocks = async (docKey: string, threadId: string, blocks: ContentBlockParam[], refs: Record<string, string>, given: RunOverride = {}) => {
+    const run = runSettings(docKey, threadId, given);
     updateThread(docKey, threadId, (t) => {
       const last = t.messages[t.messages.length - 1];
       // After a stopped or failed turn the history can end on a user message; extend it rather than
@@ -947,6 +1100,7 @@ export const useStore = create<State>((set, get) => {
     viewKey: WORKSPACE,
     chats: {},
     selection: {},
+    selectionTotal: {},
     includeSelection: true,
     excludedSel: [],
     agentSel: {},
@@ -1046,8 +1200,8 @@ export const useStore = create<State>((set, get) => {
         if (!host.resume) updateSlot(viewKey, (d) => ({ ...d, activeThreadId: null }));
         for (const k of Object.keys(docs)) void importDocChats(k);
         if (host.activeDoc) {
-          rpc<{ docKey: string; items: SelectionItem[] } | null>("selection.get", { docKey: host.activeDoc.key }).then((r) => {
-            if (r) set((s) => ({ selection: { ...s.selection, [r.docKey]: r.items } }));
+          rpc<{ docKey: string; items: SelectionItem[]; total?: number } | null>("selection.get", { docKey: host.activeDoc.key }).then((r) => {
+            if (r) set((s) => ({ selection: { ...s.selection, [r.docKey]: r.items }, selectionTotal: { ...s.selectionTotal, [r.docKey]: r.total ?? r.items.length } }));
           });
         }
         // First run: the tour (it ends in Options when there's no key yet).
@@ -1064,12 +1218,16 @@ export const useStore = create<State>((set, get) => {
         get().showDoc(doc.key);
       });
       on("doc.updated", (doc: DocInfo) =>
-        // Saved under a name (Save As): chats that worked in it show the new name.
+        // Saved under a name (Save As): chats that worked in it show the new name, and a long tool run on it keeps
+        // following it (a restored checkpoint reopens the file under a new key; the path still matches).
         updateSlot(WORKSPACE, (d) => ({
           ...d,
-          threads: d.threads.map((t) =>
-            t.files?.some((f) => f.key === doc.key) ? { ...t, files: t.files.map((f) => (f.key === doc.key ? { ...f, title: doc.title, path: doc.path || null } : f)) } : t,
-          ),
+          threads: d.threads.map((t) => {
+            let x = t;
+            if (x.files?.some((f) => f.key === doc.key)) x = { ...x, files: x.files.map((f) => (f.key === doc.key ? { ...f, title: doc.title, path: doc.path || null } : f)) };
+            if (x.toolRun?.doc?.key === doc.key) x = { ...x, toolRun: { ...x.toolRun, doc: { key: doc.key, title: doc.title, path: doc.path || null } } };
+            return x;
+          }),
         })),
       );
       on("theme.changed", (t: SwThemeInfo) => set({ swTheme: t }));
@@ -1096,11 +1254,12 @@ export const useStore = create<State>((set, get) => {
           return { docs, activeDocKey: s.activeDocKey === key ? null : s.activeDocKey };
         });
       });
-      on("selection.changed", ({ docKey, items }: { docKey: string; items: SelectionItem[] }) =>
+      on("selection.changed", ({ docKey, items, total }: { docKey: string; items: SelectionItem[]; total?: number }) =>
         set((s) => {
           const agentWorking = Object.keys(s.runs).length > 0;
           return {
             selection: { ...s.selection, [docKey]: items },
+            selectionTotal: { ...s.selectionTotal, [docKey]: total ?? items.length },
             excludedSel: [],
             agentSel: agentWorking ? { ...s.agentSel, [docKey]: selSig(items) } : s.agentSel,
           };
@@ -1216,10 +1375,15 @@ export const useStore = create<State>((set, get) => {
       // The chat stays where it is; the running chats note that they now work in this file too.
       await loadChat(WORKSPACE);
       for (const id of Object.keys(get().runs)) noteFile(id);
+      // A long tool run that activates another document (e.g. a part it built from a drawing) keeps its settings there.
+      const doc = key === get().activeDocKey ? get().docs[key] : undefined;
+      for (const r of Object.values(get().runs)) {
+        if (r.inToolRun && doc) updateThread(r.docKey, r.threadId, (t) => (t.toolRun ? { ...t, toolRun: withRunDoc(t.toolRun, doc) } : t));
+      }
       if (Object.keys(get().runs).length) void persist(WORKSPACE);
       void importDocChats(key);
-      const r = await rpc<{ docKey: string; items: SelectionItem[] } | null>("selection.get", { docKey: key }).catch(() => null);
-      if (r) set((s) => ({ selection: { ...s.selection, [r.docKey]: r.items } }));
+      const r = await rpc<{ docKey: string; items: SelectionItem[]; total?: number } | null>("selection.get", { docKey: key }).catch(() => null);
+      if (r) set((s) => ({ selection: { ...s.selection, [r.docKey]: r.items }, selectionTotal: { ...s.selectionTotal, [r.docKey]: r.total ?? r.items.length } }));
     },
 
     async newChat() {
@@ -1239,8 +1403,9 @@ export const useStore = create<State>((set, get) => {
       const s = get();
       set({ panel: "chat" });
       const prompt = newToolPrompt(spec);
+      // Making a new tool is a new request, not a follow-up of a long tool run in this chat.
       if (spec.from === "chat" && currentThread(s)) {
-        await get().send(prompt);
+        await get().send(prompt, { fresh: true });
         return;
       }
       // In the chat the user is in - no separate chat.
@@ -1250,7 +1415,7 @@ export const useStore = create<State>((set, get) => {
         await get().startWatch();
         return;
       }
-      await get().send(prompt);
+      await get().send(prompt, { fresh: true });
     },
 
     async selectThread(threadId) {
@@ -1275,6 +1440,8 @@ export const useStore = create<State>((set, get) => {
       const s = get();
       const t = currentThread(s);
       if (t) {
+        // Choosing the chat's model is choosing it for the follow-ups too: a long tool run's own settings end.
+        if (t.toolRun) endToolRunWith(s.viewKey, t.id, t.toolRun.label);
         updateThread(s.viewKey, t.id, (th) => ({ ...th, model }));
         persist(s.viewKey);
       }
@@ -1285,6 +1452,7 @@ export const useStore = create<State>((set, get) => {
       const s = get();
       const t = currentThread(s);
       if (t) {
+        if (t.toolRun) endToolRunWith(s.viewKey, t.id, t.toolRun.label);
         updateThread(s.viewKey, t.id, (th) => ({ ...th, effort }));
         persist(s.viewKey);
       }
@@ -1342,15 +1510,19 @@ export const useStore = create<State>((set, get) => {
 
       let thread = currentThread(get());
       const asked = thread ? get().runs[thread.id]?.question : null;
-      if (thread && asked && !asked.form && trimmed && !attachments.some((a) => a.kind !== "voice")) {
+      const ownRun = !!(opts?.tool || opts?.fresh); // a workflow run or a new request: never an answer or a follow-up
+      if (thread && asked && !asked.form && trimmed && !ownRun && !attachments.some((a) => a.kind !== "voice")) {
         // The agent is waiting on a question: this is the answer (a queued message would wait behind it forever).
-        get().answerQuestion(thread.id, trimmed);
+        // While it waits for a selection, the message is the user's note and counts as Done.
+        if (asked.selection) void get().answerSelection(thread.id, true, trimmed);
+        else get().answerQuestion(thread.id, trimmed);
         set((s) => ({ drafts: { ...s.drafts, [dKey]: "" }, attachments: { ...s.attachments, [dKey]: [] } }));
         return;
       }
       if (thread && get().runs[thread.id]) {
-        // The agent is working: queue it (sent when the turn ends, or at the next step with "Send now").
-        const queued: QueuedMessage = { id: uid(), text: trimmed, attachments };
+        // The agent is working: queue it (sent when the turn ends, or at the next step with "Send now"; a workflow run
+        // keeps its own settings and waits for the turn to end).
+        const queued: QueuedMessage = { id: uid(), text: trimmed, attachments, ...(ownRun ? { run: opts } : {}) };
         const id = thread.id;
         set((s) => ({
           queue: { ...s.queue, [id]: [...(s.queue[id] ?? []), queued] },
@@ -1388,17 +1560,22 @@ export const useStore = create<State>((set, get) => {
       const q = get().queue[threadId] ?? [];
       const asked = get().runs[threadId]?.question;
       const item = q.find((m) => m.id === id);
-      if (asked && !asked.form && item?.text && !item.staged) {
+      // A queued tool or workflow run brings its own settings (model, steps, approval, a long run's follow-ups), which a
+      // run already under way can't take on: it waits for the turn to end (the list offers no "Send now" for it).
+      if (item?.staged || item?.run) {
+        if (!get().runs[threadId]) flushQueue(get().viewKey, threadId, "end_turn");
+        return;
+      }
+      if (asked && !asked.form && item?.text) {
         // The agent is waiting on a question, so it won't take a next step: answer it with this message.
         set((s) => ({ queue: { ...s.queue, [threadId]: (s.queue[threadId] ?? []).filter((m) => m.id !== id) } }));
-        get().answerQuestion(threadId, item.text);
+        if (asked.selection) void get().answerSelection(threadId, true, item.text);
+        else get().answerQuestion(threadId, item.text);
         return;
       }
       if (!get().runs[threadId]) {
-        // Nothing running (e.g. the turn failed): send the queue now.
-        const docKey = get().viewKey;
-        set((s) => ({ queue: { ...s.queue, [threadId]: [] } }));
-        void submitPrompt(docKey, threadId, q.map((m) => m.text).filter(Boolean).join("\n\n"), q.flatMap((m) => m.attachments));
+        // Nothing running (e.g. the turn failed): send the queue now (tool runs one at a time, as at a turn's end).
+        flushQueue(get().viewKey, threadId, "end_turn");
         return;
       }
       set((s) => ({ queue: { ...s.queue, [threadId]: q.map((m) => (m.id === id ? { ...m, now: true } : m)) } }));
@@ -1454,6 +1631,16 @@ export const useStore = create<State>((set, get) => {
 
       // Truncating the tail and replacing the last message keeps every earlier thinking block valid.
       const isFirstPrompt = !t.messages.slice(0, msgIndex).some(isPrompt);
+      // A resend from before a long tool run started drops that run's messages, so its settings end with them; resending
+      // its own prompt runs it again.
+      const startedAt = t.toolRun?.msgIndex;
+      if (typeof startedAt === "number" && msgIndex <= startedAt) {
+        updateThread(docKey, t.id, (th) => ({
+          ...th,
+          toolRun: msgIndex < startedAt || !th.toolRun ? null : { ...th.toolRun, startedAt: Date.now(), lastActive: Date.now() },
+        }));
+      }
+      const run = runSettings(docKey, t.id, {});
       updateThread(docKey, t.id, (th) => ({
         ...th,
         title: editedText !== undefined && isFirstPrompt && editedText.trim() ? editedText.trim().replace(/\s+/g, " ").slice(0, 70) : th.title,
@@ -1461,11 +1648,11 @@ export const useStore = create<State>((set, get) => {
         selRefs: { ...(th.selRefs ?? {}), ...newRefs },
         turns: [
           ...th.turns.filter((m) => m.msgIndex < msgIndex),
-          { at: now(), msgIndex, model: th.model, effort: th.effort, usage: { ...ZERO_USAGE } },
+          { at: now(), msgIndex, model: run.model ?? th.model, effort: run.effort ?? th.effort, usage: { ...ZERO_USAGE } },
         ],
       }));
       await persist(docKey);
-      await startRun(docKey, t.id);
+      await startRun(docKey, t.id, run.label ? { label: run.label, startedAt: Date.now() } : {}, run);
     },
 
     async retry() {
@@ -1474,11 +1661,13 @@ export const useStore = create<State>((set, get) => {
       if (!t || s.runs[t.id]) return;
       const last = t.messages[t.messages.length - 1];
       if (!last || last.role !== "user") return;
+      // Retrying a long tool run (e.g. after its step limit) keeps the tool's settings while its run is open.
+      const run = runSettings(s.viewKey, t.id, {});
       updateThread(s.viewKey, t.id, (th) => ({
         ...th,
-        turns: [...th.turns, { at: now(), msgIndex: lastPromptIndex(th.messages), model: th.model, effort: th.effort, usage: { ...ZERO_USAGE } }],
+        turns: [...th.turns, { at: now(), msgIndex: lastPromptIndex(th.messages), model: run.model ?? th.model, effort: run.effort ?? th.effort, usage: { ...ZERO_USAGE } }],
       }));
-      await startRun(s.viewKey, t.id);
+      await startRun(s.viewKey, t.id, run.label ? { label: run.label, startedAt: Date.now() } : {}, run);
     },
 
     stop(threadId) {
@@ -1505,6 +1694,40 @@ export const useStore = create<State>((set, get) => {
       run?.question?.resolve(answer);
       updateRun(threadId, { question: null });
       set((s) => ({ answerDrafts: { ...s.answerDrafts, [threadId]: "" } }));
+    },
+
+    async answerSelection(threadId, done, note) {
+      const run = get().runs[threadId];
+      const q = run?.question;
+      if (!run || !q?.selection || answeringSelection.has(q.toolUseId)) return;
+      answeringSelection.add(q.toolUseId);
+      try {
+        const snap = done ? await rpc<SelectionSnapshot | null>("selection.snapshot", { docKey: run.docKey, max: SELECTION_MAX }).catch(() => null) : null;
+        // Stopped (or answered) while the snapshot was taken: nothing to do.
+        if (get().runs[threadId]?.question?.toolUseId !== q.toolUseId) return;
+        const thread = get().chats[run.docKey]?.data.threads.find((t) => t.id === threadId);
+        const items: SnapshotItem[] | null = done ? snap?.items ?? null : [];
+        const answer = selectionAnswer(items, { prompt: q.question, ...q.selection }, refBase(thread?.selRefs), { skipped: !done, note, total: snap?.total });
+        if (Object.keys(answer.refs).length) {
+          // Like a message's selection: the refs join the chat, so Ref("S7") works in the agent's next code.
+          updateThread(run.docKey, threadId, (t) => ({ ...t, selRefs: { ...(t.selRefs ?? {}), ...answer.refs } }));
+          void persist(run.docKey);
+        }
+        q.resolve(answer.text);
+        updateRun(threadId, { question: null });
+        set((s) => ({ answerDrafts: { ...s.answerDrafts, [threadId]: "" } }));
+      } finally {
+        answeringSelection.delete(q.toolUseId);
+      }
+    },
+
+    endToolRun(threadId) {
+      const s = get();
+      for (const [docKey, slot] of Object.entries(s.chats)) {
+        if (!slot.data.threads.some((t) => t.id === threadId && t.toolRun)) continue;
+        updateThread(docKey, threadId, (t) => ({ ...t, toolRun: null }));
+        void persist(docKey);
+      }
     },
 
     answerDrafts: {},
@@ -1534,7 +1757,13 @@ export const useStore = create<State>((set, get) => {
     async runUserTool(name) {
       // Whatever is typed in the composer becomes the workflow's notes/inputs.
       const notes = (get().drafts[draftKey(get())] ?? "").trim();
-      await get().send(`[Run workflow: ${name}]${notes ? `\n${notes}` : ""}`);
+      // A workflow run is not a follow-up: it ends a long tool run's settings in this chat. A long workflow (front
+      // matter long_run) gets its step limit and 1-hour cache and opens its own follow-up settings - with the chat's
+      // model and approval (only ribbon tool runs are auto-approved).
+      const tool = get().userTools.find((t) => t.name === name);
+      const longRun = !!tool?.longRun;
+      const run: RunOverride = { tool: name, longRun, maxSteps: clampSteps(tool?.maxSteps ?? (longRun ? LONG_RUN_STEPS : DEFAULT_STEPS)) };
+      await get().send(`[Run workflow: ${name}]${notes ? `\n${notes}` : ""}`, run);
     },
 
     async runQuickTool(payload) {
@@ -1562,10 +1791,13 @@ export const useStore = create<State>((set, get) => {
       }
       const threadId = thread.id;
       const { model, effort } = tierModel(payload.intelligence ?? tool?.intelligence);
-      const staged = stageToolPrompt(payload, label, Object.keys(thread.selRefs ?? {}).length);
-      // The tool's intelligence level and auto-approval (the user ran it: that is the approval) apply to this run
-      // only; the chat keeps its own model and settings.
-      const run: RunOverride = { model, effort, autoApprove: true, label };
+      const staged = stageToolPrompt(payload, label, refBase(thread.selRefs));
+      // The tool's intelligence level, step limit and auto-approval (the user ran it: that is the approval) apply to
+      // this run; the chat keeps its own model and settings. A long tool's also carry over to follow-ups while its run
+      // is open (runSettings).
+      const longRun = payload.longRun ?? tool?.longRun ?? false;
+      const maxSteps = clampSteps(payload.maxSteps ?? tool?.maxSteps ?? (longRun ? LONG_RUN_STEPS : DEFAULT_STEPS));
+      const run: RunOverride = { model, effort, autoApprove: true, label, maxSteps, longRun, tool: name };
       if (get().runs[threadId]) {
         // The agent is busy in this chat: the tool run waits in the queue like a follow-up.
         const queued: QueuedMessage = { id: uid(), text: `Run ${label}`, attachments: [], staged: { blocks: staged.blocks, refs: staged.refs, run } };

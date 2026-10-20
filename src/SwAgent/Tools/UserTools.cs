@@ -22,6 +22,47 @@ namespace SwAgent.Tools
 
         private static readonly Regex NamePattern = new Regex("^[a-z0-9][a-z0-9-]{1,47}$");
 
+        private const string CategoryHelp =
+            "Optional category: tools that share one get their own box on the Unify3D ribbon tab and their own section in the Workflows menu, " +
+            "e.g. \"Molding & Toolmaking\". Reuse an existing category name (see list_user_tools) rather than inventing a near-duplicate.";
+
+        /// <summary>
+        /// API steps per turn: the default, a long tool's default (front matter long_run without max_steps), and the range
+        /// a tool's max_steps is clamped to (design 2.1.1; the panel's lib/toolRun.ts has the same numbers).
+        /// </summary>
+        public const int DefaultMaxSteps = 200, LongRunMaxSteps = 600, MaxStepsMin = 50, MaxStepsCap = 1000;
+
+        /// <summary>A category as stored: one line, at most 48 characters; "" for none.</summary>
+        public static string CleanCategory(string category)
+        {
+            var c = OneLine(category);
+            return c.Length > 48 ? c.Substring(0, 48).TrimEnd() : c;
+        }
+
+        /// <summary>The tool's category from its (effective) front matter, or null when it has none.</summary>
+        internal static string CategoryOf(IDictionary<string, string> fm) =>
+            fm.TryGetValue("category", out var c) && !string.IsNullOrWhiteSpace(CleanCategory(c)) ? CleanCategory(c) : null;
+
+        /// <summary>Front matter <c>long_run: true</c>: a long, phased tool (more steps per turn, a longer prompt cache, sticky run settings).</summary>
+        internal static bool LongRunOf(IDictionary<string, string> fm) =>
+            fm.TryGetValue("long_run", out var v) && new[] { "true", "yes", "1" }.Contains((v ?? "").Trim().ToLowerInvariant());
+
+        /// <summary>
+        /// API steps per turn for a tool run: <c>max_steps</c> (clamped to 50..1000), else 600 for a long tool, else null
+        /// (the panel's default, 200). The one parser for this: ToolSpec should call it too.
+        /// </summary>
+        internal static int? MaxStepsOf(IDictionary<string, string> fm)
+        {
+            if (fm.TryGetValue("max_steps", out var v) && int.TryParse((v ?? "").Trim(), out var n)) return Math.Max(MaxStepsMin, Math.Min(MaxStepsCap, n));
+            return LongRunOf(fm) ? LongRunMaxSteps : (int?)null;
+        }
+
+        /// <summary>Front matter <c>requires: a, b</c>: agent tools the tool needs from the add-in.</summary>
+        internal static string[] RequiresOf(IDictionary<string, string> fm) =>
+            fm.TryGetValue("requires", out var v) && v != null
+                ? v.Split(new[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim()).Where(s => s.Length > 0).Distinct().ToArray()
+                : new string[0];
+
         /// <summary>
         /// Front matter "agent:" value for a run style: hardcoded -> false (macro only), agent -> true (the agent writes the
         /// code each run), hybrid -> hybrid (macro first; the agent takes over what it hands on, then improves it).
@@ -188,6 +229,9 @@ namespace SwAgent.Tools
             [ToolParam("Icon: macro, part, assembly, drawing, tree, select, camera, rebuild, gear, book, markup or shield (default macro).")]
             public string Icon { get; set; }
 
+            [ToolParam(CategoryHelp)]
+            public string Category { get; set; }
+
             [ToolParam("The full instructions in Markdown: inputs and how to get them (selection [S1], questions to ask), defaults, " +
                        "the procedure step by step with the exact API calls / C# snippets you verified, design rules and checks, " +
                        "and what to report. Write it so a future run can follow it without this conversation.", Required = true)]
@@ -230,6 +274,9 @@ namespace SwAgent.Tools
 
             [ToolParam("New button title.")]
             public string Title { get; set; }
+
+            [ToolParam(CategoryHelp + " An empty string removes the category.")]
+            public string Category { get; set; }
 
             [ToolParam("Tools only: the verified C# that does the whole job (same globals as execute_csharp: swApp, Model, Print, mm(), deg(), ...). " +
                        "It runs directly when the button is clicked - no AI round trip, one undo step - so it must read its inputs from the live " +
@@ -282,7 +329,8 @@ namespace SwAgent.Tools
             var tools = ListTools();
             return ToolResult.Ok(tools.Count == 0
                 ? "The user has no saved tools yet."
-                : string.Join("\n", tools.Select(t => $"- {t["name"]} ({t["kind"]}): {t["title"]} - {t["description"]}")));
+                : string.Join("\n", tools.Select(t =>
+                    $"- {t["name"]} ({((bool?)t["builtIn"] == true ? "built-in " : "")}{t["kind"]}{((string)t["category"] is string c ? ", " + c : "")}): {t["title"]} - {t["description"]}")));
         }
 
         [AgentTool("read_user_tool",
@@ -324,6 +372,8 @@ namespace SwAgent.Tools
             sb.AppendLine($"description: {OneLine(input.Description)}");
             sb.AppendLine($"kind: {kind}");
             sb.AppendLine($"icon: {icon}");
+            var category = CleanCategory(input.Category);
+            if (category.Length > 0) sb.AppendLine($"category: {category}");
             if (!string.IsNullOrWhiteSpace(input.Model)) sb.AppendLine($"model: {OneLine(input.Model)}");
             if (kind == "tool")
             {
@@ -374,8 +424,8 @@ namespace SwAgent.Tools
             if (string.IsNullOrWhiteSpace(input.Append) && (input.Replacements?.Length ?? 0) == 0 && string.IsNullOrWhiteSpace(input.Description) &&
                 string.IsNullOrWhiteSpace(input.Title) && string.IsNullOrWhiteSpace(input.IconSvg) && string.IsNullOrWhiteSpace(input.Macro) &&
                 string.IsNullOrWhiteSpace(input.Preview) && input.Inputs == null && input.Agent == null && input.RunStyle == null && input.Intelligence == null &&
-                input.Confirm == null && input.Context == null)
-                throw new ToolException("Nothing to change: pass append, replacements, description, title, icon_svg, macro, preview, inputs or a tool setting.");
+                input.Confirm == null && input.Context == null && input.Category == null)
+                throw new ToolException("Nothing to change: pass append, replacements, description, title, category, icon_svg, macro, preview, inputs or a tool setting.");
             if (!string.IsNullOrWhiteSpace(input.IconSvg)) WriteIcon(dir, input.IconSvg, iconChanged: true);
             WriteMacro(dir, input.Macro);
             WritePreview(dir, input.Preview);
@@ -403,6 +453,7 @@ namespace SwAgent.Tools
                 SetHeader(header, "updated", Now());
                 if (!string.IsNullOrWhiteSpace(input.Description)) SetHeader(header, "description", OneLine(input.Description));
                 if (!string.IsNullOrWhiteSpace(input.Title)) SetHeader(header, "title", OneLine(input.Title));
+                if (input.Category != null) SetHeader(header, "category", CleanCategory(input.Category));
                 if (input.RunStyle != null || input.Agent != null) SetHeader(header, "agent", AgentValue(input.RunStyle, input.Agent, true));
                 if (ToolSpec.Tiers.Contains(input.Intelligence)) SetHeader(header, "intelligence", input.Intelligence);
                 if (input.Confirm == "always" || input.Confirm == "missing") SetHeader(header, "confirm", input.Confirm);
@@ -464,19 +515,32 @@ namespace SwAgent.Tools
         /// <summary>Front matter of a TOOL.md (public for ToolSpec).</summary>
         public static Dictionary<string, string> FrontMatter(string text) => ReadFrontMatter(text);
 
-        /// <summary>Change one front-matter value of a saved tool (e.g. its intelligence, from the tool's page).</summary>
+        /// <summary>
+        /// Change one front-matter value of a saved tool (e.g. its intelligence, from the tool's page). For a built-in tool
+        /// the value is the user's override in builtin-settings.json: null (reset), or the value the tool ships with,
+        /// removes the override, so the shipped value - and any later change to it - applies again.
+        /// </summary>
         public static void SetValue(string name, string key, string value)
         {
+            var isCategory = string.Equals(key, "category", StringComparison.OrdinalIgnoreCase);
             if (IsBuiltIn(name))
             {
+                var shipped = ReadFrontMatter(File.ReadAllText(Path.Combine(BuiltInRoot, name, "TOOL.md")));
+                shipped.TryGetValue(key, out var original);
+                var clean = value == null ? null : isCategory ? CleanCategory(value) : OneLine(value);
+                var same = clean != null && (isCategory ? CleanCategory(original) == clean : original != null && OneLine(original) == clean);
                 var all = File.Exists(BuiltInSettingsPath) ? JObject.Parse(File.ReadAllText(BuiltInSettingsPath)) : new JObject();
                 var mine = all[name] as JObject ?? new JObject();
-                mine[key] = value;
-                all[name] = mine;
+                if (clean == null || same) mine.Remove(key);
+                else mine[key] = clean; // "" for a category: the user chose none
+                if (mine.HasValues) all[name] = mine;
+                else all.Remove(name);
                 File.WriteAllText(BuiltInSettingsPath, all.ToString(Newtonsoft.Json.Formatting.Indented));
                 Changed?.Invoke();
                 return;
             }
+            // Front matter is one "key: value" line each; a category from the panel is free text.
+            value = isCategory ? CleanCategory(value) : OneLine(value);
             var md = Path.Combine(ToolDir(name, mustExist: true), "TOOL.md");
             var lines = File.ReadAllText(md).Replace("\r\n", "\n").Split('\n').ToList();
             var end = lines.Count > 0 && lines[0].Trim() == "---" ? lines.FindIndex(1, l => l.Trim() == "---") : -1;
@@ -512,6 +576,11 @@ namespace SwAgent.Tools
         private static void SetHeader(List<string> header, string key, string value)
         {
             var i = header.FindIndex(1, l => l.StartsWith(key + ":", StringComparison.OrdinalIgnoreCase));
+            if (string.IsNullOrEmpty(value) && string.Equals(key, "category", StringComparison.OrdinalIgnoreCase))
+            {
+                if (i > 0) header.RemoveAt(i); // no category: no empty line left behind
+                return;
+            }
             if (i > 0) header[i] = $"{key}: {value}";
             else header.Insert(header.Count - 1, $"{key}: {value}");
         }
@@ -553,6 +622,16 @@ namespace SwAgent.Tools
                         ["updated"] = fm.TryGetValue("updated", out var u) ? u : File.GetLastWriteTimeUtc(md).ToString("o"),
                         ["iconSvg"] = ReadIconSvg(dir),
                         ["hasPng"] = File.Exists(Path.Combine(dir, "icon.png")),
+                        // Grouping on the ribbon and in the Workflows menu, the ribbon's shorter button title, and long runs.
+                        ["category"] = CategoryOf(fm),
+                        // A built-in's shipped category, so the panel can offer "Reset to default" after the user changed it.
+                        ["categoryDefault"] = dir.StartsWith(BuiltInRoot, StringComparison.OrdinalIgnoreCase)
+                            ? CategoryOf(ReadFrontMatter(File.ReadAllText(md)))
+                            : null,
+                        ["ribbonTitle"] = fm.TryGetValue("ribbon_title", out var rt) && !string.IsNullOrWhiteSpace(rt) ? OneLine(rt) : null,
+                        ["longRun"] = LongRunOf(fm),
+                        ["maxSteps"] = MaxStepsOf(fm),
+                        ["requires"] = new JArray(RequiresOf(fm)),
                     });
                 }
                 catch (Exception ex)

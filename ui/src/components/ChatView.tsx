@@ -4,6 +4,7 @@ import { IconCancel, IconCopy, IconDocs, IconEdit, IconError, IconEye, IconMic, 
 import { Markdown } from "./Markdown";
 import { BrandLogo } from "./Brand";
 import { FormCard } from "./FormCard";
+import { SelectionCard } from "./SelectionCard";
 import { Answered } from "./Answered";
 import { RestartCard } from "./Recovery";
 import { svgDataUrl } from "../lib/toolIcons";
@@ -133,7 +134,9 @@ function renderItem(item: Item, thread: Thread, run: RunState | undefined, onIma
         </>
       );
     case "question":
-      return item.call.name === "ask_form" ? <FormCard call={item.call} threadId={thread.id} run={run} /> : <QuestionCard call={item.call} threadId={thread.id} run={run} />;
+      return item.call.name === "ask_form" ? <FormCard call={item.call} threadId={thread.id} run={run} />
+        : item.call.name === "ask_selection" ? <SelectionCard call={item.call} threadId={thread.id} run={run} />
+        : <QuestionCard call={item.call} threadId={thread.id} run={run} />;
     case "footer":
       return <TurnFooter turn={item.turn} isLast={item.isLast} running={!!run} />;
     case "divider":
@@ -369,7 +372,7 @@ function buildItems(thread: Thread, run: RunState | undefined, showProgress: boo
       else if (b.type === "tool_use") {
         const call: ToolCall = { id: b.id, name: b.name, input: b.input, result: results.get(b.id) };
         if (call.name === "offer_restart") return; // shown as the button under the reply
-        segment.push(call.name === "ask_user" || call.name === "ask_form" ? { kind: "question", key, call } : { kind: "tool", key, call });
+        segment.push(call.name === "ask_user" || call.name === "ask_form" || call.name === "ask_selection" ? { kind: "question", key, call } : { kind: "tool", key, call });
       }
     });
   });
@@ -391,7 +394,7 @@ function liveItems(live: LiveBlock[] | null, showProgress: boolean): Item[] {
     const key = `live${i}`;
     if (b.type === "thinking" && b.text.trim() && showProgress) out.push({ kind: "progress", key, text: b.text.trim() });
     else if (b.type === "text" && b.text) out.push({ kind: "text", key, text: b.text, streaming: i === live.length - 1 });
-    else if (b.type === "tool_use" && b.name !== "ask_user" && b.name !== "offer_restart") {
+    else if (b.type === "tool_use" && b.name !== "ask_user" && b.name !== "ask_selection" && b.name !== "offer_restart") {
       out.push({ kind: "tool", key, call: { id: b.id ?? key, name: b.name ?? "tool", input: undefined, partial: b.json ?? "" } });
     }
   });

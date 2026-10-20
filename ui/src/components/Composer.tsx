@@ -42,6 +42,8 @@ export function Composer() {
     const q = thread ? s.runs[thread.id]?.question : null;
     return !!q && !q.form;
   });
+  // ...a selection (ask_selection): a message here is a note and counts as Done.
+  const selecting = useStore((s) => !!(thread && s.runs[thread.id]?.question?.selection));
   const settings = useStore((s) => s.settings);
   const hasDoc = useStore((s) => !!s.docs[s.activeDocKey ?? ""]);
   const markupActive = useStore((s) => s.markup.active);
@@ -170,7 +172,9 @@ export function Composer() {
             }
           }}
           placeholder={
-            asking
+            selecting
+              ? "Select in SolidWorks and press Done above - or type a note (sends as Done)…"
+              : asking
               ? talkKey
                 ? `Answer the agent's question above… or hold ${talkKey} and say it`
                 : "Answer the agent's question above…"
@@ -264,11 +268,12 @@ function QueuedList({ threadId, running }: { threadId: string; running: boolean 
           <div className="min-w-0 flex-1">
             <div className="line-clamp-2 whitespace-pre-wrap break-words text-text">{m.text || `${m.attachments.length} attachment${m.attachments.length === 1 ? "" : "s"}`}</div>
             <div className="text-[10.5px] text-text-3">
-              {m.now ? "Sending at the agent's next step…" : running ? "Queued - sent when the agent finishes" : "Waiting to be sent"}
+              {m.now ? "Sending at the agent's next step…" : running ? (m.staged || m.run ? "Runs when the agent finishes" : "Queued - sent when the agent finishes") : "Waiting to be sent"}
               {m.text && m.attachments.length > 0 && ` · ${m.attachments.length} attachment${m.attachments.length === 1 ? "" : "s"}`}
             </div>
           </div>
-          {!m.now && (
+          {/* A queued tool or workflow run has its own settings: it can't join the run under way (store.queueSendNow). */}
+          {!m.now && !(running && (m.staged || m.run)) && (
             <button className="sw-btn !h-5 shrink-0 !px-1.5 text-[11px]" onClick={() => queueSendNow(threadId, m.id)} title="Give this to the agent at its next step, without stopping it">
               Send now
             </button>

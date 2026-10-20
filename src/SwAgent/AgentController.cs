@@ -260,7 +260,13 @@ namespace SwAgent
             bridge.Register("selection.snapshot", p =>
             {
                 var doc = DocumentFor((string)p["docKey"]);
-                return doc?.Model == null ? null : SelectionTools.Snapshot(_app.Sw, doc.Model);
+                if (doc?.Model == null) return null;
+                // ask_selection reads up to 500 entities (a message's context block, the default 40); "total" lets the
+                // panel say when the list was cut.
+                var max = Math.Max(1, Math.Min(500, (int?)p["max"] ?? 40));
+                var snap = SelectionTools.Snapshot(_app.Sw, doc.Model, max);
+                snap["total"] = SelectedCount(doc.Model);
+                return snap;
             });
             _voice.AttachBridge(bridge);
             bridge.Register("agent.activity", p =>
@@ -331,9 +337,11 @@ namespace SwAgent
             });
             bridge.Register("userTools.setValue", p =>
             {
-                // Only the settings the user may change from the panel.
+                // Only the settings the user may change from the panel. A built-in tool's go to builtin-settings.json
+                // (its folder is replaced on every install), and a null value resets it to what the tool ships with; a new
+                // category marks the ribbon stale until a restart.
                 var key = (string)p["key"];
-                if (key != "intelligence" && key != "confirm") throw new InvalidOperationException("Not a tool setting: " + key);
+                if (key != "intelligence" && key != "confirm" && key != "category") throw new InvalidOperationException("Not a tool setting: " + key);
                 UserTools.SetValue((string)p["name"], key, (string)p["value"]);
                 return null;
             });
@@ -731,7 +739,21 @@ namespace SwAgent
             {
                 Log.Warn("Selection summary failed: " + ex.Message);
             }
-            return new JObject { ["docKey"] = h.Chat.Key, ["items"] = items };
+            // The chips stop at 30; the total tells an ask_selection card how many are really selected.
+            return new JObject { ["docKey"] = h.Chat.Key, ["items"] = items, ["total"] = SelectedCount(h.Chat.Doc.Model) };
+        }
+
+        /// <summary>How many entities are selected in a document (0 when it can't be read).</summary>
+        private static int SelectedCount(IModelDoc2 model)
+        {
+            try
+            {
+                return model?.SelectionManager is ISelectionMgr sm ? Math.Max(0, sm.GetSelectedObjectCount2(-1)) : 0;
+            }
+            catch
+            {
+                return 0; // a closing document
+            }
         }
 
         /// <summary>Raised when the SolidWorks interface theme or panel colour changes.</summary>
