@@ -1,7 +1,7 @@
 # What the agent can do in SolidWorks today, and what's missing for a compression-mold tool
 
 Scope: one multi-body SolidWorks part holding every piece of a heat-press compression mold. The pieces are the cavity plate(s), the force/plunger, the base, the lid, steel inserts, and bolts or bolt holes.
-Repo root (R): `C:/Users/msmit/Documents/Claude Code/SolidWorks Agent Plugin/.claude/worktrees/awesome-blackburn-350fc3`.
+Repo root (R): `C:/Users/msmit/Desktop/Software Projects/Unify3D Agent`.
 API signatures below were checked by reflecting over `R/src/SwAgent/bin/Debug/net48/SolidWorks.Interop.sldworks.dll` / `swconst.dll` (the SW2026 interop the add-in loads). Raw dumps are in this folder (`api-dump.txt`, `api-dump2.txt`).
 
 ## 0. Verdict in one paragraph

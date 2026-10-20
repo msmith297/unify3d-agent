@@ -4,7 +4,7 @@ Category: Molding & Toolmaking. Status: ready to build, 2026-10-19. Author: lead
 
 This document turns the eight research streams into one build plan. It picks one approach per question. No repository file was changed while writing it.
 
-- Repository root, written `R/` below: `C:/Users/msmit/Documents/Claude Code/SolidWorks Agent Plugin/.claude/worktrees/awesome-blackburn-350fc3`.
+- Repository root, written `R/` below: `C:/Users/msmit/Desktop/Software Projects/Unify3D Agent`.
 - Research notes, written `N/` below: `C:/Users/msmit/AppData/Local/Temp/claude/C--Users-msmit-Documents-Claude-Code-SolidWorks-Agent-Plugin/2b455cdd-1c60-4ed3-9eb5-8eb641a4b994/scratchpad/mold/`. Appendix A lists each file.
 - File:line references were checked against the worktree at commit f299941.
 

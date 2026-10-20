@@ -1,6 +1,6 @@
 # Build contract: "Design compression mold for plastics and resins" (v1)
 
-Read with: `design.md` (the design) and `critique.md` (corrections - they WIN over design.md wherever they conflict), both in this folder (N/). Repository: R/ = `C:/Users/msmit/Documents/Claude Code/SolidWorks Agent Plugin/.claude/worktrees/awesome-blackburn-350fc3` (branch `claude/awesome-blackburn-350fc3`, commit f299941 or later). You work in your OWN git worktree (isolated); it must start from that commit - check `git log -1`, and if your worktree is older, `git merge claude/awesome-blackburn-350fc3` first.
+Read with: `design.md` (the design) and `critique.md` (corrections - they WIN over design.md wherever they conflict), both in this folder (N/). Repository: R/ = `C:/Users/msmit/Desktop/Software Projects/Unify3D Agent` (branch `claude/awesome-blackburn-350fc3`, commit f299941 or later). You work in your OWN git worktree (isolated); it must start from that commit - check `git log -1`, and if your worktree is older, `git merge claude/awesome-blackburn-350fc3` first.
 
 ## Ground rules (every track)
 - Only create/modify the files your track owns (listed below). If you need a change in a file another track owns, do NOT make it: write it as a request in `INTEGRATION-NOTES-<track>.md` at the repo root (commit that file too).

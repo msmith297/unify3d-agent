@@ -15,20 +15,20 @@ Written 2026-10-20 at the end of a long session. Its last step, a multi-angle re
 - **User tools:** the agent can build "tools" and "workflows" for the user: folders with a `TOOL.md`, an `inputs.json` (a native PropertyManager page) and an optional `macro.cs`.
 - **Built-in tools:** the add-in ships these in the same folder format.
 
-The owner (GitHub `msmith297`) runs a PU / resin compression-molding shop. He tests everything himself in SolidWorks on his PC, and he is building this as a product.
+The owner (GitHub `msmith297`) runs a PU / resin compression-molding shop. They test everything themselves in SolidWorks on their PC, and they are building this as a product.
 - Repo: `msmith297/unify3d-agent`. Releases and nightlies are published on GitHub (section 6).
 
 ## 2. Where things are: read this first
 
 | What | Where |
 |---|---|
-| **Your working folder** (a git worktree) | `C:\Users\msmit\Documents\Claude Code\SolidWorks Agent Plugin\.claude\worktrees\awesome-blackburn-350fc3` |
-| Its branch | `claude/awesome-blackburn-350fc3`. **45 commits ahead of `origin`, not pushed.** origin is at `d6fc975`. |
-| Main checkout | `C:\Users\msmit\Documents\Claude Code\SolidWorks Agent Plugin`, branch `main` at `d51979b`. Main has everything up to `d6fc975` (PR #1, merged). It has **neither** the built-in-tools refactor (`f299941`) nor the mold tool. |
+| **Your working folder** (a normal git checkout) | `C:\Users\msmit\Desktop\Software Projects\Unify3D Agent` |
+| Its branch | `claude/awesome-blackburn-350fc3`. **46 commits ahead of `origin`, not pushed.** origin is at `d6fc975`. |
+| `main` | A local branch in the same repo, at `d51979b` (switch with `git switch main`). Main has everything up to `d6fc975` (PR #1, merged). It has **neither** the built-in-tools refactor (`f299941`) nor the mold tool. |
 | **What SolidWorks actually loads** | `<working folder>\src\SwAgent\bin\Release\net48\SwAgent.dll`. The COM code base is registered there. The installed build dates from 2026-10-17, commit `f299941`: built-in tools plus Smart Rebuild on a PropertyManager page. **None of the mold-tool work is installed.** |
-| Leftover parallel-build worktrees | `.claude\worktrees\wf_71b3d5bb-873-1` … `-6` (branches `worktree-wf_71b3d5bb-873-N`). All are merged into the working branch, so they are safe to remove: `git worktree remove <path>` then `git branch -d <branch>`. Run this from the working folder. |
+| Old location (stale) | Until 2026-10-20 the project lived in `C:\Users\msmit\Documents\Claude Code\SolidWorks Agent Plugin`, with the work in the worktree `.claude\worktrees\awesome-blackburn-350fc3`. It was copied here whole (git history, build outputs, `ui\node_modules`, the gitignored `MECAGENT_TEARDOWN.md`). The old folder is a stale copy: don't work there. The user may delete it. The six merged parallel-build branches (`worktree-wf_71b3d5bb-873-N`) were deleted here. |
 | User data, per PC; never commit it | `%APPDATA%\SwAgent\` holds: <ul><li>settings.json</li><li>apikey.bin (the encrypted API key)</li><li>tools\ (the user's own tools: flash-grooves, parametric-block, pu-compression-mold)</li><li>builtin-settings.json</li><li>last-inputs\</li><li>builtin-data\</li></ul> `%LOCALAPPDATA%\SwAgent\` holds: <ul><li>chats\ (workspace chats)</li><li>logs\</li><li>crash-guard.json</li><li>snapshots\ (Smart Rebuild journals and checkpoints)</li><li>speech\ (Whisper models)</li></ul> |
-| Persistent memory of earlier sessions | `C:\Users\msmit\.claude\projects\C--Users-msmit-Documents-Claude-Code-SolidWorks-Agent-Plugin\memory\` (MEMORY.md + files) |
+| Persistent memory of earlier sessions | `C:\Users\msmit\.claude\projects\C--Users-msmit-Desktop-Software-Projects-Unify3D-Agent\memory\` (MEMORY.md + files, copied from the old project's memory folder) |
 | Mold-tool design docs, now in the repo | `docs\compression-mold\`: `design.md` (the design), `critique.md` (corrections; **these win** over design.md), `contract.md` (how the build was split, the scope decisions, the interfaces), `research\*.md` (the research notes). In those docs `N/` meant a temporary scratch folder that may already be gone. Files of the same name are in `docs\compression-mold\research\`. The JSON data now lives in `tools\builtin\design-compression-mold\data\`, and the reference scripts were ported to `tools\dev\mold-data\` and `tools\dev\MoldSweep\`. |
 
 ## 3. Build, test, install
@@ -64,7 +64,7 @@ All commands run from the working folder.
 3. **Don't push, tag or release unless the user asks.**
    - Commits end with the trailer `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
    - Never `--no-verify`.
-   - Don't use bare `git stash`: the stash stack is shared with other worktrees.
+   - Don't use bare `git stash`: the stash stack is shared with any other worktrees or sessions.
 4. **Tests must not touch the user's real data** (`SWAGENT_DATA_DIR`).
 5. **Built-in tools are read-only.** They ship in `tools/builtin/<name>/` and the installer copies them to `builtin-tools\`, replacing the folder each time. Per-PC settings for them go in the user's folder (`builtin-settings.json`, `builtin-data\`).
 6. **User preferences for replies:** short, plain and concrete. Say what changed and what to check, and say plainly what was not tested in SolidWorks.
@@ -114,7 +114,7 @@ All commands run from the working folder.
 ### 5.3 What is NOT done: do these next, in order
 
 1. **The multi-angle review and fix pass** was stopped by the usage limit, so the integrated tool has had no independent review.
-   - Run it again. The script is at `C:\Users\msmit\.claude\projects\C--Users-msmit-Documents-Claude-Code-SolidWorks-Agent-Plugin--claude-worktrees-awesome-blackburn-350fc3\2b455cdd-1c60-4ed3-9eb5-8eb641a4b994\workflows\scripts\compression-mold-integrate-review-wf_25217b2c-da9.js`. Its integrate phase is already done: skip it, or start at Review.
+   - Run it again as the saved workflow `compression-mold-review` (`.claude\workflows\compression-mold-review.js`). It runs review, verify and fix, and points at this folder. The original script also had an integrate phase, already done, and pointed at the old folder and a scratch folder that no longer exists.
    - Or do the same by hand. There are four lenses, each with its findings verified (try to refute each one) before you fix it:
      - **engineering:** units, the press force chain, every sizing check, worked examples in `data/validation/examples.json`;
      - **SolidWorks safety:** every new API path under `Mold/Geometry`, `MoldTools.cs`, `ToolPage.cs`, `RebuildTools`, `HiddenDocuments`, `FileAttachments`. Verify API names against the interop dlls in `bin/Debug/net48` by reflection;
@@ -160,7 +160,7 @@ All commands run from the working folder.
   - Add a section on top of `NIGHTLY_NOTES.md`, then tag `v0.2.0-nightly.YYYYMMDD` (add `.2` etc. for a second one that day) and push the tag.
   - `.github/workflows/release.yml` builds the installer as a pre-release. The auto-updater ignores pre-releases.
   - The workflow builds `SwAgent.csproj`, which builds the speech helper and copies `tools/builtin/**` (data included) as `builtin-tools`. Check that the new data files land in the installer (Inno copies `bin\Release\net48\*` recursively).
-- **Worktrees:** remove the six merged track worktrees and branches (section 2).
+- **Old folder:** once no session is open in it, the user can delete `C:\Users\msmit\Documents\Claude Code\SolidWorks Agent Plugin` (section 2). Nothing in it is needed any more.
 
 ## 6. Where to look for things
 

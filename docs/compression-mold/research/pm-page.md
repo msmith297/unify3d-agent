@@ -1,6 +1,6 @@
 # Tool PropertyManager page: how it works today, and what the mold tool needs
 
-Repo root (worktree): `C:/Users/msmit/Documents/Claude Code/SolidWorks Agent Plugin/.claude/worktrees/awesome-blackburn-350fc3`
+Repo root (repository): `C:/Users/msmit/Desktop/Software Projects/Unify3D Agent`
 Files read: `src/SwAgent/UI/ToolPage.cs` (831 lines), `src/SwAgent/Tools/ToolSpec.cs` (162), `src/SwAgent/Tools/ToolRunner.cs` (271),
 `src/SwAgent/Scripting/ToolInputs.cs`, `ui/src/store.ts` (stageToolPrompt, 272-322), `ui/src/lib/types.ts` (ToolRunPayload, 252-267),
 `tools/builtin/smart-rebuild/inputs.json`.

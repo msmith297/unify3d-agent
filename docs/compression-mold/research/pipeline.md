@@ -1,7 +1,7 @@
 # Tool-run pipeline, registry and listing - notes for the "Design compression mold" built-in tool
 
 Paths are relative to the worktree root
-`C:/Users/msmit/Documents/Claude Code/SolidWorks Agent Plugin/.claude/worktrees/awesome-blackburn-350fc3`.
+`C:/Users/msmit/Desktop/Software Projects/Unify3D Agent`.
 Nothing in the repository was changed.
 
 ---------------------------------------------------------------------------------------------------
