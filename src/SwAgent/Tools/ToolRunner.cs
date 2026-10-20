@@ -60,6 +60,13 @@ namespace SwAgent.Tools
             if (_busy) return; // one tool at a time, like native commands
             var spec = ToolSpec.Load(name);
             if (spec == null) return;
+            // A tool written for newer agent tools (requires: in TOOL.md) can't do its job with an older add-in.
+            var missing = MissingRequirements(spec, _tools.Names);
+            if (missing.Count > 0)
+            {
+                _status($"Unify3D ▸ {spec.Title}: needs a newer add-in (missing {string.Join(", ", missing)})");
+                return;
+            }
             if (!(_app.Documents.Active is ISwDocument doc) || doc.Model == null)
             {
                 _status($"Unify3D ▸ {spec.Title}: open a document first");
@@ -210,6 +217,13 @@ namespace SwAgent.Tools
             }
         }
 
+        /// <summary>The agent tools a spec requires that this add-in doesn't have.</summary>
+        internal static List<string> MissingRequirements(ToolSpec spec, IEnumerable<string> available)
+        {
+            var have = new HashSet<string>(available ?? Enumerable.Empty<string>(), StringComparer.Ordinal);
+            return (spec?.Requires ?? new string[0]).Where(r => !have.Contains(r)).ToList();
+        }
+
         /// <summary>
         /// Everything the panel needs to stage the agent's prompt (it numbers the selections as [S1]...). 3D models among
         /// the files are read here (in the background, see ModelFileContext) and arrive as views + measurements.
@@ -219,39 +233,18 @@ namespace SwAgent.Tools
             var list = new JArray();
             foreach (var s in spec.Inputs)
             {
-                var type = ToolSpec.Type(s);
-                var entry = new JObject { ["id"] = s.Id, ["label"] = s.Label, ["type"] = type };
-                switch (type)
+                if (s == null || string.IsNullOrWhiteSpace(s.Id)) continue;
+                var entry = InputEntry(s, inputs);
+                if (entry == null) continue; // hidden by ShowWhen, or an info line
+                if (ToolSpec.Type(s) == "files")
                 {
-                    case "selection":
-                        entry["items"] = new JArray(inputs.SelectedItems(s.Id).Select(i => new JObject
-                        {
-                            ["type"] = i.Type, ["label"] = i.Label, ["detail"] = i.Detail, ["ref"] = i.Ref,
-                        }));
-                        break;
-                    case "number":
+                    var files = new JArray();
+                    foreach (var path in inputs.Files(s.Id))
                     {
-                        var v = inputs.Number(s.Id);
-                        var unit = (s.Unit ?? "length").ToLowerInvariant();
-                        entry["value"] = unit == "length" ? $"{(v * 1000).ToString("0.###", CultureInfo.InvariantCulture)} mm ({v.ToString("0.######", CultureInfo.InvariantCulture)} m)"
-                            : unit == "angle" ? $"{(v * 180 / Math.PI).ToString("0.###", CultureInfo.InvariantCulture)} deg"
-                            : v.ToString("0.######", CultureInfo.InvariantCulture);
-                        break;
+                        if (ModelFileContext.IsModelFile(path)) _status($"Unify3D ▸ {spec.Title}: reading {Path.GetFileName(path)}...");
+                        files.Add(await FileAttachments.EntryAsync(_app.Sw, path));
                     }
-                    case "files":
-                    {
-                        var files = new JArray();
-                        foreach (var path in inputs.Files(s.Id))
-                        {
-                            if (ModelFileContext.IsModelFile(path)) _status($"Unify3D ▸ {spec.Title}: reading {Path.GetFileName(path)}...");
-                            files.Add(await FileAttachments.EntryAsync(_app.Sw, path));
-                        }
-                        entry["files"] = files;
-                        break;
-                    }
-                    default:
-                        entry["value"] = JToken.FromObject(inputs[s.Id] ?? "");
-                        break;
+                    entry["files"] = files;
                 }
                 list.Add(entry);
             }
@@ -260,9 +253,56 @@ namespace SwAgent.Tools
                 ["tool"] = spec.Name,
                 ["title"] = spec.Title,
                 ["intelligence"] = spec.Intelligence,
+                ["maxSteps"] = spec.MaxSteps,
+                ["longRun"] = spec.LongRun,
                 ["inputs"] = list,
                 ["context"] = context,
             };
+        }
+
+        /// <summary>
+        /// One input for the panel: id, label, type and the value text the agent reads ("2000 psi (13.79 MPa)") - the C# side
+        /// formats it, so the panel prints it as it comes - plus structured si / table / row / display for later use. Null for
+        /// inputs hidden by ShowWhen and for info lines. Files are added by the caller (they are read asynchronously).
+        /// </summary>
+        internal static JObject InputEntry(ToolInputSpec s, ToolInputs inputs)
+        {
+            var type = ToolSpec.Type(s);
+            var meta = inputs.Meta(s.Id);
+            if (type == "info" || (meta != null && meta.Hidden && !meta.NotApplicable)) return null;
+            var entry = new JObject { ["id"] = s.Id, ["label"] = s.Label, ["type"] = type };
+            switch (type)
+            {
+                case "selection":
+                    entry["items"] = new JArray(inputs.SelectedItems(s.Id).Select(i => new JObject
+                    {
+                        ["type"] = i.Type, ["label"] = i.Label, ["detail"] = i.Detail, ["ref"] = i.Ref,
+                    }));
+                    return entry;
+                case "files":
+                    return entry;
+                case "number":
+                    entry["value"] = meta?.Display ?? Units.Legacy(s.Unit, inputs.Number(s.Id));
+                    break;
+                case "integer":
+                case "size":
+                    entry["value"] = meta?.Display ?? JToken.FromObject(inputs[s.Id] ?? "");
+                    break;
+                default:
+                    entry["value"] = meta?.Display != null ? (JToken)meta.Display : JToken.FromObject(inputs[s.Id] ?? "");
+                    break;
+            }
+            if (meta != null)
+            {
+                if (meta.Display != null) entry["display"] = meta.Display;
+                if (meta.Si != null) entry["si"] = meta.Si;
+                if (meta.Table != null) entry["table"] = meta.Table.Value;
+                if (meta.Edited) entry["edited"] = true;
+                if (meta.Unit != null) entry["unit"] = meta.Unit;
+                if (meta.NotApplicable) entry["notApplicable"] = true;
+                if (meta.Row != null) entry["row"] = meta.Row.DeepClone();
+            }
+            return entry;
         }
 
         private static string TextOf(ToolResult r) =>
