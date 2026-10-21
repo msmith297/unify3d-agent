@@ -49,7 +49,7 @@ namespace SwAgent.Plugins
         {
             var fm = new FrontMatter();
             text = (text ?? "").Replace("\r\n", "\n");
-            if (text.StartsWith("﻿")) text = text.Substring(1);
+            if (text.Length > 0 && text[0] == '\uFEFF') text = text.Substring(1); // not StartsWith: culture rules ignore a BOM
             var lines = text.Split('\n');
             if (lines.Length == 0 || lines[0].Trim() != "---")
             {

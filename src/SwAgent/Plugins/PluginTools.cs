@@ -130,7 +130,7 @@ namespace SwAgent.Plugins
             if (info.Length > MaxRead) return ToolResult.Error($"'{input.Path}' is {info.Length / 1024} KB; files over {MaxRead / 1000} KB aren't read.");
             var bytes = File.ReadAllBytes(path);
             if (bytes.Take(8000).Contains((byte)0)) return ToolResult.Error($"'{input.Path}' is a binary file.");
-            return ToolResult.Ok(new UTF8Encoding(false).GetString(bytes).TrimStart('﻿'));
+            return ToolResult.Ok(new UTF8Encoding(false).GetString(bytes).TrimStart('\uFEFF'));
         }
 
         [AgentTool("list_plugins", "List the installed plugins (enabled or not, with what they contain) and how many more the marketplaces offer.")]
@@ -394,6 +394,9 @@ namespace SwAgent.Plugins
                 if (!a.Front.Present || a.Front.Get("description") == null) f.Add($"error: agent {a.Name} needs front matter with a description.");
                 if (string.IsNullOrWhiteSpace(a.Front.Body)) f.Add($"error: agent {a.Name} has no system prompt (the text after the front matter).");
             }
+            var agentFiles = m.AgentPaths.Where(Directory.Exists).SelectMany(d => Directory.GetFiles(d, "*.md"));
+            foreach (var file in agentFiles.Where(x => AgentIndex.For(m).All(a => !string.Equals(a.File, x, StringComparison.OrdinalIgnoreCase))))
+                f.Add($"error: agents/{Path.GetFileName(file)}: its name must be 2-48 lowercase letters, digits and dashes (front matter name, or the file name).");
             if (Directory.Exists(m.ToolsPath))
             {
                 foreach (var dir in Directory.GetDirectories(m.ToolsPath))
