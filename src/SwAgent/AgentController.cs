@@ -229,16 +229,31 @@ namespace SwAgent
                 // PropertyManager page, a rebuild): a geometry call then can crash SolidWorks (SwBusy, SceneOverlay). Wait for
                 // the command to end; the add-in's own tool page doesn't count.
                 var name = (string)p["name"];
+                // A drawing the model has moved on from (the overlay saw a change) goes now, at a safe moment.
+                Safe.Run("Clear a stale overlay", UI.SceneOverlay.ClearIfStale);
                 // After a fault inside SolidWorks (NativeFault) its memory may be damaged: no more model work until a restart.
                 if (NativeFault.Tripped != null && !SwBusyGate.ModelFree(name))
                     return (object)ToolResult.Error(NativeFault.RestartAdvice).ToJson();
-                if (!SwBusyGate.ModelFree(name) && _app.Sw != null)
+                var touchesModel = !SwBusyGate.ModelFree(name) && _app.Sw != null;
+                if (touchesModel)
                 {
-                    var waited = await SwBusyGate.WaitAsync(() => SwBusy.InCommand(_app.Sw) && !ToolPage.AnyOpen, SwBusyGate.Timeout);
+                    // Only a command the user started since the agent's last call blocks (SwBusyGate): what the agent left
+                    // behind itself - a sketch it opened, a failed feature's leftovers - is the agent's to use or clean up.
+                    SwCommandState state = null;
+                    var waited = await SwBusyGate.WaitAsync(() =>
+                    {
+                        state = SwBusy.State(_app.Sw);
+                        return SwBusyGate.MustWait(state, SwBusyGate.AgentLeft) && !ToolPage.AnyOpen;
+                    }, SwBusyGate.Timeout);
                     if (!waited)
-                        return (object)ToolResult.Error("SolidWorks is in a command (a sketch, a PropertyManager page or another edit) - ask the user to finish or close it, then try again. Nothing was run.").ToJson();
+                    {
+                        Log.Info($"Tool {name} not run: SolidWorks busy for {SwBusyGate.Timeout.TotalSeconds:0} s ({state?.Describe()}; the agent's last call left: {SwBusyGate.AgentLeft ?? "nothing"})");
+                        return (object)ToolResult.Error($"SolidWorks is in a command the user started: {state?.Describe()}. Nothing was run. " +
+                            "Tell the user exactly that (what is open) and ask them to finish or close it, then try again.").ToJson();
+                    }
                 }
                 var result = await _tools.InvokeAsync(name, p["input"] as JObject, ctx);
+                if (touchesModel) Safe.Run("Record the command state", () => SwBusyGate.AgentLeft = SwBusy.State(_app.Sw).Key);
                 return (object)result.ToJson();
             });
             // "Undo everything the agent did since this message" (offered when a message is edited or resent).

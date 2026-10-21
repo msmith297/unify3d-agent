@@ -61,6 +61,9 @@ namespace SwAgent.Tools
 
             [ToolParam("Add to what's already shown instead of replacing it. Default false.")]
             public bool? Append { get; set; }
+
+            [ToolParam("Keep the drawing when the model changes (a before/after comparison). Default false: a rebuild, a new or deleted feature, undo or redo clears it.")]
+            public bool? Keep { get; set; }
         }
 
         public sealed class ClearInput
@@ -70,7 +73,8 @@ namespace SwAgent.Tools
         [AgentTool("show_overlay",
             "Draw on the user's 3D view to show what you mean: outlines of proposed geometry, translucent face highlights and boxes, arrows to features, circles around holes, " +
             "dimensions and labels, all anchored to model coordinates - they stay on the geometry while the user rotates, pans and zooms. " +
-            "Nothing is added to the model. Shown until you call clear_overlay or the user sends their next message.")]
+            "Nothing is added to the model. Shown until you call clear_overlay, the user sends their next message, or the model changes " +
+            "(a rebuild, a new or deleted feature, undo or redo: the drawing would no longer match) - so draw after your changes, not before them.")]
         public ToolResult Show(ToolContext ctx, ShowInput input)
         {
             var model = ctx.RequireModel();
@@ -148,12 +152,14 @@ namespace SwAgent.Tools
                 });
             }
             if (items.Count == 0) return ToolResult.Error("Nothing could be drawn: " + string.Join("; ", problems));
-            SceneOverlay.ShowItems(ctx.Sw, model, items, input.Append == true);
+            SceneOverlay.ShowItems(ctx.Sw, model, items, input.Append == true, input.Keep == true);
             var outlined = items.Count(x => x.OutlineOnly);
             return ToolResult.Ok($"Showing {items.Count} item(s) on the user's view (anchored to the model; they follow the camera)." +
                                  (outlined > 0 ? $" {outlined} face item(s) over the {SceneOverlay.MaxFilledTriangles}-triangle fill budget are drawn as outlines." : "") +
                                  (problems.Count > 0 ? " Skipped: " + string.Join("; ", problems) : "") +
-                                 " They stay until clear_overlay or the user's next message.");
+                                 (input.Keep == true
+                                     ? " They stay until clear_overlay or the user's next message, also through model changes."
+                                     : " They stay until clear_overlay, the user's next message, or the next change to the model."));
         }
 
         internal static IFace2 FaceByPersistRef(IModelDoc2 model, string b64)

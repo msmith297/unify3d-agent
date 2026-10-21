@@ -234,7 +234,7 @@ namespace SwAgent.Mold.Geometry
         /// <summary>Errors (not warnings) after a forced rebuild: feature name and error code.</summary>
         public static List<string> RebuildErrors(IModelDoc2 model, bool rebuild = true)
         {
-            if (rebuild) model.ForceRebuild3(false);
+            if (rebuild) UI.SceneOverlay.QuietRebuild(() => model.ForceRebuild3(false)); // a check: what's drawn stays
             var r = new List<string>();
             for (var f = model.FirstFeature() as IFeature; f != null; f = f.GetNextFeature() as IFeature)
             {

@@ -81,7 +81,7 @@ namespace SwAgent.Tools
             var path = FileFor(model, name);
             if (!File.Exists(path)) return ToolResult.Error($"No snapshot '{name}' for this document - take one with snapshot_design first.");
             var before = JObject.Parse(File.ReadAllText(path));
-            if (input.Rebuild != false) model.ForceRebuild3(false);
+            if (input.Rebuild != false) UI.SceneOverlay.QuietRebuild(() => model.ForceRebuild3(false)); // a check: what's drawn stays
             var after = Take(ctx.Sw, model);
             return ToolResult.Ok(Diff(before, after));
         }

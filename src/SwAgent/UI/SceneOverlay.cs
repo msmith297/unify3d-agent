@@ -110,9 +110,148 @@ namespace SwAgent.UI
 
         public static int Count => (_current?._items.Count ?? 0) + Bodies.Count;
 
-        /// <summary>Show annotations on this document's view (replacing the current ones unless append).</summary>
-        public static void ShowItems(ISldWorks sw, IModelDoc2 model, IEnumerable<Item> items, bool append)
+        // ---------- clearing when the drawing goes stale ----------
+        //
+        // What the agent draws describes the model as it was. When that model changes - a rebuild, a feature added or
+        // deleted, undo or redo, by the agent or the user - the drawing no longer matches (a parting plane left floating
+        // after the part was turned), so it goes: the annotation layer on its next timer tick (no SolidWorks call needed),
+        // temporary bodies at the next safe moment (ClearIfStale, before the agent's next tool call). Rebuilds that change
+        // nothing (compare_design, rebuild checks) run inside QuietRebuild. show_overlay keep: true opts out.
+
+        private static IModelDoc2 _watched;
+        private static bool _keep;
+        private static bool _stale;
+        private static int _quiet;
+
+        /// <summary>The drawing is out of date (the model changed since it was drawn) and will be cleared.</summary>
+        public static bool Stale => _stale;
+
+        /// <summary>Run a rebuild that changes nothing (a check) without clearing what's drawn.</summary>
+        public static T QuietRebuild<T>(Func<T> rebuild)
         {
+            _quiet++;
+            try
+            {
+                return rebuild();
+            }
+            finally
+            {
+                _quiet--;
+            }
+        }
+
+        /// <summary>At a safe moment (not inside a SolidWorks event or command): clear everything if the model changed since it was drawn.</summary>
+        public static void ClearIfStale()
+        {
+            if (_stale) ClearAll();
+        }
+
+        private static void Watch(IModelDoc2 model)
+        {
+            if (ReferenceEquals(_watched, model)) return;
+            Unwatch();
+            try
+            {
+                switch (model)
+                {
+                    case PartDoc part:
+                        part.RegenPostNotify2 += OnRegen;
+                        part.AddItemNotify += OnItem;
+                        part.DeleteItemNotify += OnItem;
+                        part.UndoPostNotify += OnModelChanged;
+                        part.RedoPostNotify += OnModelChanged;
+                        part.DestroyNotify2 += OnDestroy;
+                        break;
+                    case AssemblyDoc asm:
+                        asm.RegenPostNotify2 += OnRegen;
+                        asm.AddItemNotify += OnItem;
+                        asm.DeleteItemNotify += OnItem;
+                        asm.UndoPostNotify += OnModelChanged;
+                        asm.RedoPostNotify += OnModelChanged;
+                        asm.DestroyNotify2 += OnDestroy;
+                        break;
+                    default:
+                        return;
+                }
+                _watched = model;
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("Overlay: watching the model for changes failed: " + ex.Message);
+            }
+        }
+
+        private static void Unwatch()
+        {
+            var model = _watched;
+            _watched = null;
+            if (model == null) return;
+            try
+            {
+                switch (model)
+                {
+                    case PartDoc part:
+                        part.RegenPostNotify2 -= OnRegen;
+                        part.AddItemNotify -= OnItem;
+                        part.DeleteItemNotify -= OnItem;
+                        part.UndoPostNotify -= OnModelChanged;
+                        part.RedoPostNotify -= OnModelChanged;
+                        part.DestroyNotify2 -= OnDestroy;
+                        break;
+                    case AssemblyDoc asm:
+                        asm.RegenPostNotify2 -= OnRegen;
+                        asm.AddItemNotify -= OnItem;
+                        asm.DeleteItemNotify -= OnItem;
+                        asm.UndoPostNotify -= OnModelChanged;
+                        asm.RedoPostNotify -= OnModelChanged;
+                        asm.DestroyNotify2 -= OnDestroy;
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("Overlay: detaching from the model failed: " + ex.Message);
+            }
+        }
+
+        // SolidWorks event handlers: only set a flag (no SolidWorks calls, nothing that can throw).
+        private static int OnRegen(object stopFeature) => OnModelChanged();
+
+        private static int OnItem(int entityType, string itemName) => OnModelChanged();
+
+        private static int OnDestroy(int destroyType)
+        {
+            _stale = true;
+            return 0;
+        }
+
+        internal static int OnModelChanged()
+        {
+            if (_quiet == 0) MarkChanged();
+            return 0;
+        }
+
+        /// <summary>The drawn model changed (the events above; tests call it directly).</summary>
+        internal static void MarkChanged()
+        {
+            if (!_keep) _stale = true;
+        }
+
+        /// <summary>For tests: the stale state as a fresh drawing leaves it.</summary>
+        internal static void ResetStale(bool keep)
+        {
+            _stale = false;
+            _keep = keep;
+        }
+
+        /// <summary>Show annotations on this document's view (replacing the current ones unless append). keep: stays when the model changes.</summary>
+        public static void ShowItems(ISldWorks sw, IModelDoc2 model, IEnumerable<Item> items, bool append, bool keep = false)
+        {
+            ClearIfStale();
+            // Appended items keep the set only if they all asked to be kept.
+            _keep = append && _current != null ? _keep && keep : keep;
+            _stale = false;
+            Watch(model);
             if (_current != null && (!ReferenceEquals(_current._model, model) || !append))
             {
                 if (!ReferenceEquals(_current._model, model)) ClearAll();
@@ -152,6 +291,8 @@ namespace SwAgent.UI
         public static void ShowBody(IModelDoc2 model, IBody2 body, int rgb)
         {
             if (!(model is IPartDoc)) throw new InvalidOperationException("Temporary bodies can only be shown in a part document.");
+            ClearIfStale();
+            Watch(model);
             if (_bodiesModel != null && !ReferenceEquals(_bodiesModel, model)) HideBodies();
             _bodiesModel = model;
             Bodies.AddRange(PreviewDisplay.Show(model, new[] { (body, rgb, 0.5) }));
@@ -160,16 +301,23 @@ namespace SwAgent.UI
 
         public static void ClearAll()
         {
-            if (_current != null)
-            {
-                var c = _current;
-                _current = null;
-                c._timer.Stop();
-                c.Close();
-                c.Dispose();
-            }
+            CloseLayer();
             HideBodies();
+            Unwatch();
+            _stale = false;
+            _keep = false;
             Changed?.Invoke(0);
+        }
+
+        /// <summary>Remove the annotation layer only (no SolidWorks calls, so the layer's own timer may do it).</summary>
+        private static void CloseLayer()
+        {
+            if (_current == null) return;
+            var c = _current;
+            _current = null;
+            c._timer.Stop();
+            c.Close();
+            c.Dispose();
         }
 
         private static void HideBodies()
@@ -254,6 +402,14 @@ namespace SwAgent.UI
         /// </summary>
         private void Tick()
         {
+            if (_stale && ReferenceEquals(_current, this))
+            {
+                // The model changed under the drawing: take the annotations down now; bodies and the event hookup go at the
+                // next safe moment (ClearIfStale).
+                CloseLayer();
+                Changed?.Invoke(Count);
+                return;
+            }
             if (_items.Count == 0) return;
             string reason = null;
             IModelView view = null;

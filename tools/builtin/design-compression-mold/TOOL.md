@@ -111,7 +111,7 @@ Values arrive in `<tool_inputs>` in the units shown on the page (the document's,
 | `rebuild_journal` | `read` at the start, `append` plans, decisions, stage results and lessons. |
 | `rebuild` | Rebuild and report feature errors after each stage; `force: true` is `ForceRebuild3` (A1). |
 | `execute_csharp` | All model changes, using the `Mold` helper (below), `Overlay`, `swApp`, `Model`. |
-| `show_overlay`, `clear_overlay`, `capture_views` | Draw options and results on the model; look at it. `show_overlay` has a `face` item (`ref` or `faces`, `color`, `alpha`) and a `box` item. Tool calls wait while SolidWorks is in a command (a sketch, a PropertyManager page); after 30 s they return "SolidWorks is in a command": ask the user to finish it. |
+| `show_overlay`, `clear_overlay`, `capture_views` | Draw options and results on the model; look at it. `show_overlay` has a `face` item (`ref` or `faces`, `color`, `alpha`) and a `box` item. Tool calls wait while the user has a command open (a PropertyManager page, a dialog, a sketch they are editing); after 30 s they return "SolidWorks is in a command the user started: <what is open>": tell the user exactly what is open and ask them to finish it. A sketch or other state your own cells left behind never blocks you: close and clean it up yourself. |
 | `ask_form`, `ask_selection`, `ask_user` | Questions (see "How to work"). `ask_selection` takes `prompt`, `types` (["face"]), `min`, `max` and returns `[S#]` refs. |
 | `select_refs`, `get_sw_api_type`, `search_sw_api` | Selection by ref; API signatures and enum values before you use an unfamiliar call. |
 | `sim_process`, `sim_machinability` | Only when they are in your tool list (Phase 7). |

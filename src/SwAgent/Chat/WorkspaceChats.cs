@@ -205,10 +205,23 @@ namespace SwAgent.Chat
 
         private static void WriteAtomic(string path, byte[] bytes)
         {
-            var tmp = path + ".tmp";
-            File.WriteAllBytes(tmp, bytes);
-            if (File.Exists(path)) File.Replace(tmp, path, null);
-            else File.Move(tmp, path);
+            // A virus scanner, the search indexer or a sync client can hold the file for a moment ("Unable to remove the
+            // file to be replaced", seen 2026-10-20): try again briefly instead of losing the save.
+            for (var attempt = 1; ; attempt++)
+            {
+                try
+                {
+                    var tmp = path + ".tmp";
+                    File.WriteAllBytes(tmp, bytes);
+                    if (File.Exists(path)) File.Replace(tmp, path, null);
+                    else File.Move(tmp, path);
+                    return;
+                }
+                catch (Exception ex) when ((ex is IOException || ex is UnauthorizedAccessException) && attempt < 6)
+                {
+                    System.Threading.Thread.Sleep(100 * attempt);
+                }
+            }
         }
 
         private static string Hash(string s)
