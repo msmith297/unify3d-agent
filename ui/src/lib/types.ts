@@ -158,6 +158,182 @@ export interface Settings {
   speakVoice?: string;
   /** -10 (slow) to 10 (fast); 0 is normal. */
   speakRate?: number;
+  /** Update enabled plugins in the background at startup (third-party marketplaces only when they opt in). Default on. */
+  pluginAutoUpdate?: boolean;
+  /** Run plugin hooks (trusted plugins only). Default on. */
+  pluginHooks?: boolean;
+  /** Start plugin and mcp.json MCP servers. Default on. */
+  pluginMcp?: boolean;
+  /** Automatic turns per hour (plugin wakes and Stop-hook continuations together) before they pause. Default 20. */
+  pluginWakesPerHour?: number;
+  /** Show what plugins add (hook context, notices) in the chat. Default on. */
+  pluginEventsInChat?: boolean;
+  /** Where a tool's inputs appear: a card in the chat panel (default) or the native PropertyManager page. */
+  toolInputs?: "panel" | "page";
+}
+
+// ---- plugins (docs/plugins/design.md; RPCs implemented by the add-in's PluginsBridge, hooks and MCP runtime) ----
+
+/** Counts of what a plugin contains (the store's cards show them). */
+export interface PluginComponents {
+  tools: number;
+  commands: number;
+  skills: number;
+  agents: number;
+  hooks: number;
+  mcpServers: number;
+}
+
+/** One `userConfig` key of a plugin.json. A sensitive value is never sent to the panel: `set` says whether one is stored. */
+export interface PluginConfigField {
+  type: "string" | "number" | "boolean" | "directory" | "file";
+  title?: string;
+  description?: string;
+  default?: string | number | boolean | null;
+  sensitive?: boolean;
+  required?: boolean;
+}
+
+/** A plugin as plugins.list returns it: every plugin of every marketplace, installed or not. */
+export interface PluginInfo {
+  /** "name@marketplace" */
+  id: string;
+  name: string;
+  marketplace: string;
+  displayName?: string | null;
+  description?: string | null;
+  version?: string | null;
+  author?: { name?: string; email?: string; url?: string } | null;
+  homepage?: string | null;
+  repository?: string | null;
+  license?: string | null;
+  /** The marketplace entry's category and keywords: the store's tags. */
+  category?: string | null;
+  keywords?: string[];
+  installed: boolean;
+  enabled: boolean;
+  /** The plugin's current hooks and MCP servers are the ones the user approved (or it has none). */
+  trusted: boolean;
+  /** A plugin in the "local" marketplace (made in Unify3D): editable, can be packaged. */
+  local?: boolean;
+  /** A newer version (or source commit) is listed by its marketplace. */
+  updateAvailable?: string | null;
+  components: PluginComponents;
+  userConfig?: Record<string, PluginConfigField>;
+  /** Current userConfig values; sensitive keys come as { set: boolean }. */
+  config?: Record<string, string | number | boolean | { set: boolean } | null>;
+  /** Plugins installed together with this one (marketplace entry `unify3d.installWith`). */
+  installWith?: string[];
+  /** Install requirements and caveats to show (e.g. "Needs Node.js 18 or newer"). */
+  notes?: string[];
+  installedAt?: string | null;
+  updatedAt?: string | null;
+  /** Why it can't be installed or loaded, if so. */
+  error?: string | null;
+}
+
+export interface MarketplaceInfo {
+  name: string;
+  /** What the user added: "owner/repo", a git or https URL, a folder. */
+  source: string;
+  /** "unify3d" (ships with the add-in) and "local" (the user's own plugins) can't be removed. */
+  builtIn?: boolean;
+  pluginCount: number;
+  updatedAt?: string | null;
+  /** Plugins from it update by themselves (on for the built-in marketplace, off by default for others). */
+  autoUpdate?: boolean;
+  error?: string | null;
+}
+
+/** What installing or enabling needs the user to approve: the programs a plugin's hooks and MCP servers run. */
+export interface TrustRequest {
+  hooks: string[];
+  mcp: string[];
+}
+
+/** plugins.install / plugins.enable / plugins.update: needsTrust is set when the user must approve first (call again with trustHash: hash). */
+export interface PluginActionResult {
+  needsTrust?: TrustRequest | null;
+  hash?: string | null;
+  /** Ids of plugins installed along with it (installWith). */
+  installed?: string[];
+  note?: string | null;
+}
+
+/** A plugin command (commands/*.md). `id` is "plugin:command"; `/name` works when the name is unique. */
+export interface CommandInfo {
+  id: string;
+  name: string;
+  plugin: string;
+  description?: string | null;
+  argumentHint?: string | null;
+  model?: string | null;
+}
+
+/** A plugin skill (skills/<skill>/SKILL.md). `id` is "plugin:skill". */
+export interface SkillInfo {
+  id: string;
+  name: string;
+  plugin: string;
+  description?: string | null;
+}
+
+/** A plugin sub-agent (agents/*.md). `tools` null: every tool; `prompt` is the agent's system prompt. */
+export interface AgentInfo {
+  id: string;
+  description?: string | null;
+  tools: string[] | null;
+  model?: string | null;
+  prompt: string;
+}
+
+/** plugins.expandCommand: the command's body with $ARGUMENTS, $1..$9 and @file includes filled in. */
+export interface ExpandedCommand {
+  text: string;
+  model?: string | null;
+  /** E.g. "!`cmd` lines were left as text (shell commands are not run)". */
+  note?: string | null;
+}
+
+export interface McpServerStatus {
+  /** The plugin name, or null for a server from the user's mcp.json. */
+  plugin: string | null;
+  server: string;
+  state: "starting" | "running" | "error" | "stopped";
+  error?: string | null;
+  toolCount: number;
+}
+
+export type HookEvent = "SessionStart" | "UserPromptSubmit" | "PreToolUse" | "PostToolUse" | "Stop" | "SessionEnd";
+
+/** session.info: the session id hooks and MCP servers see, which hook events have handlers, and MCP server instructions. */
+export interface SessionInfo {
+  sessionId: string;
+  /** Event -> the matchers of its handlers ("" or "*" match everything). */
+  hookEvents: Partial<Record<HookEvent, string[]>>;
+  mcpInstructions: { server: string; text: string }[];
+}
+
+/** What hooks.fire returns: every handler of the event ran (in parallel) and their outputs are combined. */
+export interface HookResult {
+  block: boolean;
+  reason?: string | null;
+  additionalContext: string[];
+  systemMessages: string[];
+  continue: boolean;
+  stopReason?: string | null;
+  permissionDecision?: "allow" | "deny" | "ask" | null;
+  permissionDecisionReason?: string | null;
+}
+
+/** An async hook that woke the agent (session.takeWakes); acked with session.ackWake once it is in a chat. */
+export interface Wake {
+  id: string;
+  text: string;
+  /** What woke it, e.g. "Stop hook" / "SessionStart hook". */
+  source: string;
+  /** The plugin, e.g. "agent-bridge". */
+  plugin: string;
 }
 
 /** One stretch of recognised speech; times in ms from the first key press. */

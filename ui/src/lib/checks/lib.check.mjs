@@ -15,6 +15,9 @@ import {
   STICKY_IDLE_MS,
 } from "../toolRun.ts";
 import { paletteSections, categoryNames } from "../toolGroups.ts";
+import { slashQuery, slashRows, parseSlash, resolveSlash, splitArgs, substituteArgs, fileRefs, atQuery, tagRows, tagLines, commandHead } from "../commands.ts";
+import { matcherMatches, hasHook, hookToolResponse, HOOK_RESPONSE_CAP, hookContextText, systemEventText, parseTagged, autoTurnAllowed, AUTO_WINDOW_MS } from "../hooks.ts";
+import { modelFromAlias } from "../models.ts";
 
 let n = 0;
 const t = (name, fn) => {
@@ -271,6 +274,183 @@ t("palette sections: categories first (built-ins first), then today's three grou
   assert.deepEqual(categoryNames(all), ["Molding & Toolmaking", "Fixtures"]);
   const none = paletteSections([{ name: "a", kind: "workflow" }, { name: "b", builtIn: true, kind: "tool" }]);
   assert.equal(none.categories.length, 0);
+});
+
+// ---- slash commands and @ tags (lib/commands.ts) ----
+
+const src = {
+  commands: [
+    { id: "agent-bridge-unify3d:bridge", name: "bridge", plugin: "agent-bridge-unify3d", description: "Peers and inbox", argumentHint: "[peers | inbox]" },
+    { id: "shop:groove-check", name: "groove-check", plugin: "shop", description: "Check flash grooves" },
+    { id: "a:deploy", name: "deploy", plugin: "a", description: "Deploy A" },
+    { id: "b:deploy", name: "deploy", plugin: "b", description: "Deploy B" },
+    { id: "x:help", name: "help", plugin: "x", description: "A plugin's own help" },
+  ],
+  skills: [
+    { id: "agent-bridge:connect", name: "connect", plugin: "agent-bridge", description: "Connect this computer to the hub" },
+    { id: "shop:flash-grooves", name: "flash-grooves", plugin: "shop", description: "The shop's groove rules" },
+    { id: "shop:groove-check", name: "groove-check", plugin: "shop", description: "Same name as a command" },
+  ],
+  tools: [
+    { name: "smart-rebuild", title: "Smart Rebuild", description: "Rebuild around a change", kind: "tool" },
+    { name: "export-drawings", title: "Export drawings", description: "PDF and DXF", kind: "workflow" },
+    { name: "connect", title: "Connect", description: "A tool with a skill's name", kind: "tool" },
+  ],
+  plugins: [
+    { name: "agent-bridge", displayName: "Agent Bridge", description: "Talk to other agents", installed: true, enabled: true },
+    { name: "mold-sim", description: "Simulators", installed: true, enabled: false },
+  ],
+  agents: [{ id: "shop:mold-reviewer", description: "Reviews a mold" }],
+};
+
+t("slashQuery: only while the caret is in the first word of a message starting with /", () => {
+  assert.equal(slashQuery("/", 1), "");
+  assert.equal(slashQuery("/gro", 4), "gro");
+  assert.equal(slashQuery("/gro", 2), "gro");
+  assert.equal(slashQuery("/groove-check 2", 15), null); // typing the arguments
+  assert.equal(slashQuery("hello /x", 8), null);
+  assert.equal(slashQuery("/path/to/file", 5), null);
+  assert.equal(slashQuery("/x", 0), null);
+});
+
+t("slash rows: built-ins, commands, skills, tools in that order; short names only when unique", () => {
+  const all = slashRows(src, "");
+  const kinds = all.map((r) => r.kind);
+  assert.equal(kinds.indexOf("command") > kinds.lastIndexOf("builtin"), true);
+  assert.equal(kinds.indexOf("skill") > kinds.lastIndexOf("command"), true);
+  assert.equal(kinds.indexOf("tool") > kinds.lastIndexOf("skill"), true);
+  const names = all.map((r) => r.name);
+  assert.ok(names.includes("bridge")); // unique: /bridge
+  assert.ok(names.includes("a:deploy") && names.includes("b:deploy")); // two plugins: qualified
+  assert.ok(names.includes("x:help")); // a built-in has /help
+  assert.ok(names.includes("shop:groove-check") && names.includes("groove-check")); // the skill yields to the command
+  assert.equal(all.find((r) => r.name === "bridge").hint, "[peers | inbox]");
+});
+
+t("slash rows filter: name prefixes first, then inside names, then descriptions", () => {
+  assert.deepEqual(slashRows(src, "gro").map((r) => `${r.kind}:${r.name}`), ["command:groove-check", "skill:shop:groove-check", "skill:flash-grooves"]);
+  assert.deepEqual(slashRows(src, "dep").map((r) => r.name), ["a:deploy", "b:deploy"]); // after the plugin's colon
+  assert.equal(slashRows(src, "pl")[0].name, "plugins");
+  assert.deepEqual(slashRows(src, "hub").map((r) => r.name), ["connect"]); // only by description (3+ letters)
+  assert.deepEqual(slashRows(src, "hu"), []);
+  assert.deepEqual(slashRows(src, "zzz"), []);
+});
+
+t("parseSlash: commands, plugin-qualified names and ordinary text", () => {
+  assert.deepEqual(parseSlash("/model sonnet"), { name: "model", args: "sonnet" });
+  assert.deepEqual(parseSlash("  /agent-bridge-unify3d:bridge  inbox  "), { name: "agent-bridge-unify3d:bridge", args: "inbox" });
+  assert.deepEqual(parseSlash("/clear"), { name: "clear", args: "" });
+  assert.deepEqual(parseSlash("/groove-check 2\nand more"), { name: "groove-check", args: "2\nand more" });
+  assert.equal(parseSlash("/path/to/file is broken"), null);
+  assert.equal(parseSlash("hello /clear"), null);
+  assert.equal(parseSlash("/ hello"), null);
+  assert.equal(parseSlash("//x"), null);
+});
+
+t("resolveSlash: built-ins win, then commands, skills, tools; ambiguity is reported", () => {
+  assert.deepEqual(resolveSlash("help", src), { kind: "builtin", name: "help" });
+  assert.equal(resolveSlash("x:help", src).command.id, "x:help");
+  assert.equal(resolveSlash("bridge", src).command.id, "agent-bridge-unify3d:bridge");
+  assert.equal(resolveSlash("Bridge", src).kind, "command");
+  assert.deepEqual(resolveSlash("deploy", src), { kind: "ambiguous", options: ["a:deploy", "b:deploy"] });
+  assert.equal(resolveSlash("b:deploy", src).command.plugin, "b");
+  assert.equal(resolveSlash("groove-check", src).kind, "command");
+  assert.equal(resolveSlash("shop:groove-check", src).kind, "command"); // the command's id wins over the skill's
+  assert.equal(resolveSlash("flash-grooves", src).skill.id, "shop:flash-grooves");
+  assert.equal(resolveSlash("connect", src).kind, "skill"); // a skill before a tool of the same name
+  assert.equal(resolveSlash("smart-rebuild", src).tool.name, "smart-rebuild");
+  assert.equal(resolveSlash("export-drawings", src).tool.kind, "workflow");
+  assert.deepEqual(resolveSlash("nope", src), { kind: "unknown" });
+  assert.deepEqual(resolveSlash("nope:x", src), { kind: "unknown" });
+});
+
+t("substituteArgs: $ARGUMENTS, $1..$9, quotes, and arguments never lost", () => {
+  assert.deepEqual(splitArgs(`2 "deep land" 'a b' c`), ["2", "deep land", "a b", "c"]);
+  assert.equal(substituteArgs("Depth $1 mm, land $2 mm.", "2 0.5"), "Depth 2 mm, land 0.5 mm.");
+  assert.equal(substituteArgs("Depth $1, land $2.", "2"), "Depth 2, land .");
+  assert.equal(substituteArgs("Do: $ARGUMENTS", "peers now"), "Do: peers now");
+  assert.equal(substituteArgs("A $1 and $ARGUMENTS", `"x y" z`), `A x y and "x y" z`);
+  assert.equal(substituteArgs("Cost $10 flat, $9 left", "a b c d e f g h i"), "Cost $10 flat, i left"); // $10 isn't $1 + "0"
+  assert.equal(substituteArgs("No placeholders.", "inbox"), "No placeholders.\n\nARGUMENTS: inbox");
+  assert.equal(substituteArgs("No placeholders.", ""), "No placeholders.");
+  assert.equal(substituteArgs("$ARGUMENTS$ARGUMENTS", "a"), "aa");
+});
+
+t("fileRefs: @relative/paths, not @mentions", () => {
+  assert.deepEqual(fileRefs("Check against @standards/flash-grooves.md, and ask @john."), ["standards/flash-grooves.md"]);
+  assert.deepEqual(fileRefs("@README.md first; then @docs\\a.txt and @README.md again"), ["README.md", "docs\\a.txt"]);
+  assert.deepEqual(fileRefs("mail@example.com is not a file"), []);
+});
+
+t("@ tags: the word at the caret, enabled plugins first, tag lines", () => {
+  assert.deepEqual(atQuery("use @agent", 10), { start: 4, query: "agent" });
+  assert.deepEqual(atQuery("@", 1), { start: 0, query: "" });
+  assert.equal(atQuery("mail@x", 6), null);
+  assert.equal(atQuery("use @agent now", 14), null);
+  const rows = tagRows(src, "");
+  assert.deepEqual(rows.filter((r) => r.kind === "plugin").map((r) => r.name), ["agent-bridge"]); // mold-sim is off
+  assert.equal(rows[0].kind, "plugin");
+  assert.deepEqual(tagRows(src, "mold").map((r) => `${r.kind}:${r.name}`), ["agent:shop:mold-reviewer"]);
+  assert.equal(tagLines([{ kind: "plugin", name: "agent-bridge" }, { kind: "skill", name: "shop:flash-grooves" }]), "[Use plugin: agent-bridge]\n[Use skill: shop:flash-grooves]");
+  assert.equal(commandHead("shop:groove-check", "2  0.5\n"), "[Command: /shop:groove-check 2 0.5 ]");
+  assert.equal(commandHead("bridge", ""), "[Command: /bridge]");
+});
+
+t("model aliases of commands and agents", () => {
+  assert.equal(modelFromAlias("sonnet"), "claude-sonnet-5-5");
+  assert.equal(modelFromAlias("Opus"), "claude-opus-5-5");
+  assert.equal(modelFromAlias("haiku"), "claude-haiku-5-5");
+  assert.equal(modelFromAlias("inherit"), null);
+  assert.equal(modelFromAlias(""), null);
+  assert.equal(modelFromAlias(null), null);
+  assert.equal(modelFromAlias("claude-sonnet-5-5"), "claude-sonnet-5-5");
+  assert.equal(modelFromAlias("gpt-5"), null);
+});
+
+// ---- hooks (lib/hooks.ts) ----
+
+t("matchers: empty and * match all; otherwise a whole-name regex; invalid ones match exactly", () => {
+  assert.equal(matcherMatches("", "execute_csharp"), true);
+  assert.equal(matcherMatches("*", "x"), true);
+  assert.equal(matcherMatches(undefined, "x"), true);
+  assert.equal(matcherMatches("execute_csharp", "execute_csharp"), true);
+  assert.equal(matcherMatches("execute", "execute_csharp"), false); // whole name
+  assert.equal(matcherMatches("Write|Edit", "Edit"), true);
+  assert.equal(matcherMatches("mcp__.*", "mcp__plugin_agent-bridge_agent-bridge__send_message"), true);
+  assert.equal(matcherMatches("(", "("), true);
+  assert.equal(matcherMatches("(", "x"), false);
+  const info = { hookEvents: { PostToolUse: ["mcp__.*"], Stop: [""], UserPromptSubmit: [] } };
+  assert.equal(hasHook(info, "PostToolUse", "mcp__a__b"), true);
+  assert.equal(hasHook(info, "PostToolUse", "execute_csharp"), false);
+  assert.equal(hasHook(info, "PreToolUse", "x"), false);
+  assert.equal(hasHook(info, "Stop"), true);
+  assert.equal(hasHook(info, "UserPromptSubmit"), false);
+  assert.equal(hasHook(null, "Stop"), false);
+});
+
+t("tool_response for hooks: text only, images as [image], capped", () => {
+  const r = hookToolResponse([{ type: "text", text: "ok" }, { type: "image", source: {} }], false);
+  assert.deepEqual(r, { content: [{ type: "text", text: "ok" }, { type: "text", text: "[image]" }], isError: false });
+  assert.deepEqual(hookToolResponse("plain", true), { content: [{ type: "text", text: "plain" }], isError: true });
+  const big = hookToolResponse([{ type: "text", text: "x".repeat(HOOK_RESPONSE_CAP + 50) }, { type: "text", text: "after" }], false);
+  assert.equal(big.content.length, 1);
+  assert.equal(big.content[0].text.endsWith("[cut]"), true);
+  assert.equal(big.content[0].text.length, HOOK_RESPONSE_CAP + "\n[cut]".length);
+});
+
+t("hook blocks: context and system events round-trip; the guard counts the last hour", () => {
+  const h = hookContextText("PostToolUse", ["one", "two"], 'mcp__a"b');
+  assert.equal(h, '<hook_context event="PostToolUse" tool="mcp__a&quot;b">\none\n\ntwo\n</hook_context>');
+  assert.deepEqual(parseTagged(h), { tag: "hook", attrs: { event: "PostToolUse", tool: 'mcp__a"b' }, body: "one\n\ntwo" });
+  const e = systemEventText("wake", "agent-bridge", "new message from <Claude>");
+  assert.deepEqual(parseTagged(e), { tag: "event", attrs: { kind: "wake", source: "agent-bridge" }, body: "new message from <Claude>" });
+  assert.equal(parseTagged("plain"), null);
+  const now = 10 * AUTO_WINDOW_MS;
+  const times = [now - AUTO_WINDOW_MS - 1, now - 1000, now - 500];
+  assert.deepEqual(autoTurnAllowed(times, now, 3), { allowed: true, recent: [now - 1000, now - 500] });
+  assert.equal(autoTurnAllowed(times, now, 2).allowed, false);
+  assert.equal(autoTurnAllowed([], now, 0).allowed, false);
+  assert.equal(autoTurnAllowed([], now, NaN).allowed, true); // a bad setting falls back to 20
 });
 
 console.log(`${n} checks passed`);
