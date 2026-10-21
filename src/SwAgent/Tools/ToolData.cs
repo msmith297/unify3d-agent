@@ -43,8 +43,8 @@ namespace SwAgent.Tools
             string overrides = null;
             try
             {
-                if (spec.Dir.StartsWith(UserTools.BuiltInRoot, StringComparison.OrdinalIgnoreCase))
-                    overrides = Path.Combine(UserTools.Root, "builtin-data", spec.Name);
+                if (UserTools.IsReadOnlyDir(spec.Dir)) // built in, or from an installed plugin ("plugin:tool" -> builtin-data\plugin+tool)
+                    overrides = Path.Combine(UserTools.Root, "builtin-data", UserTools.StorageKey(spec.Name));
             }
             catch (Exception ex)
             {
@@ -1380,7 +1380,7 @@ namespace SwAgent.Tools
     {
         public static string DefaultDir => Path.Combine(UserTools.Root, "last-inputs");
 
-        private static string PathOf(string tool, string dir) => Path.Combine(dir ?? DefaultDir, (tool ?? "tool").Trim().ToLowerInvariant() + ".json");
+        private static string PathOf(string tool, string dir) => Path.Combine(dir ?? DefaultDir, UserTools.StorageKey(tool ?? "tool") + ".json");
 
         public static JObject Load(string tool, string dir = null)
         {
