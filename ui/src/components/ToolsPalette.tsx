@@ -69,7 +69,7 @@ async function chooseCategory(t: UserToolInfo, existing: string[]) {
  * typed in the composer as inputs. The quick Tools live on the Unify3D ribbon tab; they're listed below the
  * workflows only to edit or delete them.
  */
-export function ToolsPalette({ disabled }: { disabled?: boolean }) {
+export function ToolsPalette({ disabled, labelClassName = "" }: { disabled?: boolean; labelClassName?: string }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useOutside(ref, useCallback(() => setOpen(false), []));
@@ -166,7 +166,7 @@ export function ToolsPalette({ disabled }: { disabled?: boolean }) {
     <div ref={ref}>
       <button type="button" title="Your workflows" aria-pressed={open} disabled={disabled} onClick={() => setOpen((o) => !o)} className="sw-tool text-[11.5px]">
         <IconToolbox size={14} />
-        Workflows
+        <span className={labelClassName}>Workflows</span>
         <Caret open className="opacity-70" />
       </button>
       {open && (

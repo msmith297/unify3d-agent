@@ -642,3 +642,37 @@ export function IconModelFile(p: P) {
     </Svg>
   );
 }
+
+/** A plugin: a blue puzzle piece. */
+export function IconPlugin(p: P) {
+  const id = useIds("b");
+  return (
+    <Svg {...p}>
+      <defs>
+        <Grad id={id.b} top={C.bTop} bot={C.bBot} />
+      </defs>
+      <path
+        d="M2 5h3.4a1.7 1.7 0 1 1 3.2 0H12v3.1a1.7 1.7 0 1 1 0 3.2V14.5H2v-3.2a1.7 1.7 0 1 0 0-3.2z"
+        fill={`url(#${id.b})`}
+        stroke={C.bLine}
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
+
+/** Effort: a gauge with its needle. */
+export function IconEffort(p: P) {
+  const id = useIds("g");
+  return (
+    <Svg {...p}>
+      <defs>
+        <Grad id={id.g} top={C.gTop} bot={C.gBot} />
+      </defs>
+      <path d="M1.5 12a6.5 6.5 0 0 1 13 0z" fill={`url(#${id.g})`} stroke={C.gLine} strokeLinejoin="round" />
+      <path d="M4 12a4 4 0 0 1 2-3.46M10 8.54A4 4 0 0 1 12 12" fill="none" stroke="#3FBF52" strokeWidth="1.2" />
+      <path d="M8 12 11.2 6.6" stroke={C.rLine} strokeWidth="1.5" strokeLinecap="round" />
+      <circle cx="8" cy="12" r="1.3" fill="#30353B" />
+    </Svg>
+  );
+}

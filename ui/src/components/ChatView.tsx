@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, X } from "lucide-react";
-import { IconCancel, IconCopy, IconDocs, IconEdit, IconError, IconEye, IconMic, IconModelFile, IconOk, IconQuestion, IconResend, IconShield, IconWatch, ToolIcon } from "./SwIcons";
+import { IconCancel, IconCopy, IconDocs, IconEdit, IconError, IconEye, IconMic, IconModelFile, IconOk, IconPlugin, IconQuestion, IconResend, IconShield, IconWatch, ToolIcon } from "./SwIcons";
 import { Markdown } from "./Markdown";
 import { BrandLogo } from "./Brand";
 import { FormCard } from "./FormCard";
@@ -12,16 +12,20 @@ import { breakLabel, isBreak } from "../lib/sessions";
 import { Caret } from "./SwIcons";
 import { ToolCard, statusFor, toolTitle, type ToolCall } from "./ToolCard";
 import { breakdown, highlights as pickHighlights } from "../agent/workSummary";
-import { MODEL_TAG, VOICE_TAG, WATCH_TAG, cellIdsAfter, currentThread, isPrompt, promptText, useStore, writesAfter, type RunState } from "../store";
+import { EVENT_TAG, HOOK_TAG, MODEL_TAG, VOICE_TAG, WATCH_TAG, cellIdsAfter, currentThread, isPrompt, promptText, useStore, writesAfter, type RunState } from "../store";
+import { parseTagged } from "../lib/hooks";
 import { ask } from "./Dialog";
 import { rpc } from "../lib/bridge";
 import { modelOption } from "../lib/models";
 import type { ContentBlockParam, ImageBlockParam, MessageParam, Thread, ToolResultBlockParam, TurnMeta } from "../lib/types";
 import type { LiveBlock } from "../agent/runAgent";
 
-/** A 3D model or "Watch me" log attached to a prompt: its text block and the images that follow it. */
+/**
+ * A 3D model or "Watch me" log attached to a prompt (its text block and the images that follow it), what a plugin hook
+ * added for the agent ("hook"), or a turn a plugin started ("event": a wake, a Stop-hook continuation).
+ */
 interface Extra {
-  kind: "model" | "watch" | "pdf" | "voice";
+  kind: "model" | "watch" | "pdf" | "voice" | "hook" | "event";
   title: string;
   body: string;
   images: string[];
@@ -46,7 +50,8 @@ type Item =
   | { kind: "question"; key: string; call: ToolCall }
   | { kind: "footer"; key: string; turn: TurnMeta; isLast: boolean }
   | { kind: "work"; key: string; items: Item[]; highlights: Item[]; steps: number; durationMs?: number; breakdown: string; more: number }
-  | { kind: "thinking"; key: string };
+  | { kind: "thinking"; key: string }
+  | { kind: "hook"; key: string; extra: Extra };
 
 export function ChatView() {
   const thread = useStore(currentThread);
@@ -151,6 +156,8 @@ function renderItem(item: Item, thread: Thread, run: RunState | undefined, onIma
       return <RestartCard reason={item.reason} title={item.title} onDismiss={() => useStore.getState().dismissRestart(thread.id, item.id)} />;
     case "work":
       return <WorkGroup item={item} thread={thread} run={run} onImage={onImage} />;
+    case "hook":
+      return <HookCard extra={item.extra} />;
   }
 }
 
@@ -353,6 +360,13 @@ function buildItems(thread: Thread, run: RunState | undefined, showProgress: boo
   let prevTurn: TurnMeta | undefined;
   const sessionNow = useStore.getState().sessionStart;
   thread.messages.forEach((m, i) => {
+    if (m.role === "user" && typeof m.content !== "string" && !isPrompt(m)) {
+      // After tool results: context a plugin's PreToolUse / PostToolUse hook added for the agent.
+      m.content.forEach((b, j) => {
+        if (b.type === "text" && b.text.startsWith(HOOK_TAG)) segment.push({ kind: "hook", key: `m${i}h${j}`, extra: parseExtra(b.text) });
+      });
+      return;
+    }
     if (isPrompt(m)) {
       if (currentPrompt >= 0) flushFooter(currentPrompt);
       else flushSegment(-1, false);
@@ -418,7 +432,7 @@ function promptItem(m: MessageParam, index: number): Item {
       if (b.text.startsWith("<sw_context>")) {
         refs = [...refs, ...parseRefs(b.text)];
         afterContext = true;
-      } else if (b.text.startsWith(MODEL_TAG) || b.text.startsWith(WATCH_TAG) || b.text.startsWith(VOICE_TAG)) {
+      } else if (b.text.startsWith(MODEL_TAG) || b.text.startsWith(WATCH_TAG) || b.text.startsWith(VOICE_TAG) || b.text.startsWith(HOOK_TAG) || b.text.startsWith(EVENT_TAG)) {
         extra = parseExtra(b.text);
         extras.push(extra);
       } else texts.push(b.text);
@@ -439,6 +453,15 @@ function promptItem(m: MessageParam, index: number): Item {
 }
 
 function parseExtra(raw: string): Extra {
+  const tagged = parseTagged(raw);
+  if (tagged?.tag === "hook") {
+    const { event, tool } = tagged.attrs;
+    return { kind: "hook", title: `Plugin context${event ? ` · ${event}` : ""}${tool ? ` · ${tool}` : ""}`, body: tagged.body, images: [] };
+  }
+  if (tagged?.tag === "event") {
+    const { kind, source } = tagged.attrs;
+    return { kind: "event", title: kind === "stop" ? "Continued by a plugin" : source || "Plugin", body: tagged.body, images: [] };
+  }
   if (raw.startsWith(VOICE_TAG)) {
     const head = /^<\w+([^>]*)>/.exec(raw)?.[1] ?? "";
     const attr = (name: string) => new RegExp(`${name}="([^"]*)"`).exec(head)?.[1];
@@ -463,9 +486,60 @@ function parseExtra(raw: string): Extra {
   };
 }
 
+/** What a plugin hook added for the agent: a small card that opens to the text (Options can hide them). */
+function HookCard({ extra }: { extra: Extra }) {
+  const [open, setOpen] = useState(false);
+  const shown = useStore((s) => s.settings.pluginEventsInChat !== false);
+  if (!shown) return null;
+  const first = extra.body.split("\n").find((l) => l.trim()) ?? "";
+  return (
+    <div className="flex max-w-[92%] min-w-0 flex-col gap-0.5 self-start">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex min-w-0 items-center gap-1 rounded-[3px] border border-dashed border-line px-1.5 py-0.5 text-left text-[11px] text-text-3 hover:text-text"
+        title={open ? "Hide" : "What the plugin added for the agent (not your words)"}
+      >
+        <IconPlugin size={12} />
+        <span className="shrink-0 font-semibold">{extra.title}</span>
+        {!open && <span className="min-w-0 truncate">{first}</span>}
+        <Caret open={open} className="shrink-0" />
+      </button>
+      {open && <div className="selectable max-h-[220px] overflow-y-auto whitespace-pre-wrap break-words rounded-[3px] border border-line bg-card-2 px-2 py-1 text-[11px] text-text-2">{extra.body}</div>}
+    </div>
+  );
+}
+
+/** A turn a plugin started (a wake: news from another agent; a Stop hook that kept the turn going): not the user's words. */
+function SystemEventPrompt({ extras }: { extras: Extra[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-2 flex min-w-0 flex-col gap-1 first:mt-0">
+      {extras.map((x, i) => (
+        <button
+          key={i}
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          title={open ? "Show less" : "Show all"}
+          className="flex min-w-0 items-start gap-1.5 self-stretch rounded-[3px] border border-accent/40 bg-accent-soft px-2 py-1 text-left text-[11.5px] text-text"
+        >
+          <span className="mt-px shrink-0">
+            <IconPlugin size={13} />
+          </span>
+          <span className="min-w-0 flex-1">
+            <b>{x.title}:</b> <span className={`whitespace-pre-wrap break-words ${open ? "" : "line-clamp-3"}`}>{x.body}</span>
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /** A 3D model or Watch me log in a sent prompt: a compact card that opens to the text the agent got. */
 function ExtraCard({ extra, onImage }: { extra: Extra; onImage: (s: string) => void }) {
   const [open, setOpen] = useState(false);
+  if (extra.kind === "hook") return <HookCard extra={extra} />;
+  if (extra.kind === "event") return <SystemEventPrompt extras={[extra]} />;
   if (extra.kind === "pdf") {
     return (
       <span className="flex max-w-[92%] items-center gap-1 rounded-[3px] border border-line bg-card-2 px-1.5 py-0.5 text-[11px] text-text-2">
@@ -649,6 +723,8 @@ function PromptBubble({
   }
 
   if (/^\[Run tool: /.test(text)) return <ToolRunPrompt text={text} images={images} refs={refs} view={view} extras={extras} onImage={onImage} />;
+  // A wake or a Stop-hook continuation (with no words of the user's): shown as the plugin's event, not as a bubble.
+  if (!text && images.length === 0 && extras.length > 0 && extras.every((x) => x.kind === "event")) return <SystemEventPrompt extras={extras} />;
 
   return (
     <div className="group mt-2 flex flex-col items-end gap-1 first:mt-0">
@@ -729,7 +805,7 @@ function ToolRunPrompt({
 }) {
   const [open, setOpen] = useState(false);
   const tools = useStore((s) => s.userTools);
-  const m = /^\[Run tool: ([a-z0-9-]+)\]\s*([\s\S]*)$/.exec(text);
+  const m = /^\[Run tool: ([a-z0-9:-]+)\]\s*([\s\S]*)$/.exec(text);
   const tool = m ? tools.find((t) => t.name === m[1]) : undefined;
   const body = (m?.[2] ?? "").replace(/<\/?tool_inputs>/g, "").trim();
   const hasDetails = !!body || images.length > 0 || refs.length > 0 || !!view || extras.length > 0;
@@ -776,16 +852,45 @@ function ToolRunPrompt({
   );
 }
 
-/** The user's words; a leading "[Run workflow: name]" / "[Run tool: name]" is shown as a chip instead of raw text. */
-function PromptText({ text }: { text: string }) {
+/**
+ * The user's words; a leading "[Run workflow: name]" / "[Run tool: name]" is shown as a chip instead of raw text, so
+ * are "[Use plugin: x]" tag lines, and a "[Command: /name args]" head with the command's expanded text folded away.
+ */
+function PromptText({ text: raw }: { text: string }) {
   const tools = useStore((s) => s.userTools);
-  const m = /^\[Run (tool|workflow): ([a-z0-9-]+)\]\s*([\s\S]*)$/.exec(text);
+  const [open, setOpen] = useState(false);
+  const tagRe = /^\[Use (plugin|tool|skill|agent): ([^\]\n]+)\]\n?/;
+  const tags: { kind: string; name: string }[] = [];
+  let text = raw;
+  for (let t = tagRe.exec(text); t; t = tagRe.exec(text)) {
+    tags.push({ kind: t[1], name: t[2] });
+    text = text.slice(t[0].length);
+  }
+  const cmd = /^\[Command: (\/[^\]\n]+)\]\n?([\s\S]*)$/.exec(text);
+  const m = /^\[Run (tool|workflow): ([a-z0-9:-]+)\]\s*([\s\S]*)$/.exec(text);
   const tool = m ? tools.find((t) => t.name === m[2]) : undefined;
-  const body = m ? m[3] : text;
+  const body = cmd ? (open ? cmd[2] : "") : m ? m[3] : text;
   const label = tool?.kind === "tool" ? "Tool" : tool?.kind === "workflow" ? "Workflow" : m?.[1] === "tool" ? "Tool" : "Workflow";
   return (
     <div className="selectable max-w-[88%] rounded-[3px] border border-line bg-user px-2.5 py-1.5 text-[12px] text-text shadow-[inset_0_1px_0_var(--bevel-hi),var(--shadow)]">
-      {m && (
+      {tags.length > 0 && (
+        <div className={`flex flex-wrap gap-1 ${body || cmd || m ? "mb-1" : ""}`}>
+          {tags.map((t) => (
+            <span key={`${t.kind}:${t.name}`} className="flex h-[18px] max-w-full items-center gap-1 rounded-[2px] border border-accent/50 bg-accent-soft px-1 text-[10.5px]" title={`Tagged ${t.kind}`}>
+              {t.kind === "plugin" && <IconPlugin size={10} />}
+              <span className="truncate">@{t.name}</span>
+            </span>
+          ))}
+        </div>
+      )}
+      {cmd && (
+        <button type="button" onClick={() => setOpen((o) => !o)} className={`flex max-w-full items-center gap-1.5 text-left font-semibold ${body ? "mb-1" : ""}`} title={open ? "Hide the command's text" : "Show what the command sent to the agent"}>
+          <IconPlugin size={14} />
+          <span className="min-w-0 break-words">{cmd[1]}</span>
+          <Caret open={open} className="shrink-0 text-text-3" />
+        </button>
+      )}
+      {m && !cmd && (
         <div className={`flex items-center gap-1.5 font-semibold ${body ? "mb-1" : ""}`}>
           {tool?.iconSvg ? <img src={svgDataUrl(tool.iconSvg)} alt="" width={14} height={14} /> : <ToolIcon name={tool?.icon ?? "macro"} size={14} />}
           <span>
@@ -793,7 +898,7 @@ function PromptText({ text }: { text: string }) {
           </span>
         </div>
       )}
-      {body && <div className="whitespace-pre-wrap">{body}</div>}
+      {body && <div className={`whitespace-pre-wrap ${cmd ? "text-[11.5px] text-text-2" : ""}`}>{body}</div>}
     </div>
   );
 }

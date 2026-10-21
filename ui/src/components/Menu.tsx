@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Caret, IconOk } from "./SwIcons";
 
 export interface MenuItem<T extends string> {
@@ -16,6 +16,7 @@ export function Dropdown<T extends string>({
   icon,
   align = "left",
   disabled,
+  labelClassName = "",
 }: {
   value: T;
   items: MenuItem<T>[];
@@ -24,22 +25,40 @@ export function Dropdown<T extends string>({
   icon?: ReactNode;
   align?: "left" | "right";
   disabled?: boolean;
+  /** E.g. a container query that hides the label in a narrow composer (the icon stays). */
+  labelClassName?: string;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+  // In a narrow panel the menu is moved (and if need be narrowed) to stay inside the window: no sideways scrolling.
+  const [fit, setFit] = useState<{ dx: number; maxWidth?: number }>({ dx: 0 });
   useOutside(ref, () => setOpen(false));
   const current = items.find((i) => i.id === value);
+  useLayoutEffect(() => {
+    const el = menu.current;
+    if (!open || !el) return setFit({ dx: 0 });
+    const r = el.getBoundingClientRect();
+    const zoom = el.offsetWidth ? r.width / el.offsetWidth : 1; // .zoom-chrome scales the composer
+    const room = document.documentElement.clientWidth - 8;
+    const maxWidth = r.width > room ? room / zoom : undefined;
+    const width = Math.min(r.width, room);
+    const dx = r.left + width > room + 4 ? (room + 4 - width - r.left) / zoom : 0;
+    setFit({ dx, maxWidth });
+  }, [open]);
 
   return (
     <div ref={ref} className="relative">
-      <button type="button" title={title} disabled={disabled} aria-pressed={open} onClick={() => setOpen((o) => !o)} className="sw-tool text-[11.5px]">
+      <button type="button" title={`${title}: ${current?.label ?? value}`} disabled={disabled} aria-pressed={open} onClick={() => setOpen((o) => !o)} className="sw-tool text-[11.5px]">
         {icon}
-        <span className="max-w-[110px] truncate">{current?.label ?? value}</span>
+        <span className={`max-w-[110px] truncate ${labelClassName}`}>{current?.label ?? value}</span>
         <Caret open className="opacity-70" />
       </button>
       {open && (
         <div
+          ref={menu}
           className={`absolute bottom-full z-30 mb-1 min-w-[220px] rounded-[3px] border border-line-strong bg-card py-0.5 shadow-[0_4px_12px_rgba(0,0,0,0.35)] ${align === "right" ? "right-0" : "left-0"}`}
+          style={{ transform: fit.dx ? `translateX(${fit.dx}px)` : undefined, maxWidth: fit.maxWidth, minWidth: fit.maxWidth }}
           role="menu"
         >
           <div className="sw-rollout-head mb-0.5 !min-h-[20px] text-[11px]">{title}</div>

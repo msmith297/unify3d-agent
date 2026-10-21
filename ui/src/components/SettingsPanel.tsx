@@ -6,7 +6,7 @@ import { useStore } from "../store";
 import { rpc } from "../lib/bridge";
 import { EFFORTS, MODELS } from "../lib/models";
 import { SW_THEME_NAMES } from "../lib/theme";
-import { Caret, IconAgent, IconGear, IconHistory, IconKey, IconMic, IconOk, IconPart, IconRebuild, IconShield, IconUpdate, Spinner } from "./SwIcons";
+import { Caret, IconAgent, IconGear, IconHistory, IconKey, IconMic, IconOk, IconPart, IconPlugin, IconRebuild, IconShield, IconToolbox, IconUpdate, Spinner } from "./SwIcons";
 import type { ApprovalMode, Effort, Settings, Theme } from "../lib/types";
 
 /** Options page laid out like a SolidWorks PropertyManager: stacked rollouts. */
@@ -130,6 +130,73 @@ export function SettingsPanel() {
               </label>
             ))}
           </div>
+        </Rollout>
+
+        <Rollout title="Tools" icon={<IconToolbox size={14} />}>
+          <div className="text-[11.5px] text-text-2">Where a tool's inputs appear when you run it</div>
+          <div className="flex flex-col">
+            {(
+              [
+                ["panel", "In the chat panel", "A card above the message box, like the agent's questions."],
+                ["page", "In a PropertyManager page", "SolidWorks' own page, as before."],
+              ] as ["panel" | "page", string, string][]
+            ).map(([id, label, note]) => (
+              <label key={id} className="flex cursor-default items-start gap-2 rounded-[2px] px-1 py-1 hover:bg-card-2">
+                <input type="radio" name="toolInputs" checked={(settings.toolInputs ?? "panel") === id} onChange={() => saveSettings({ toolInputs: id })} className="mt-0.5 accent-[var(--accent)]" />
+                <span>
+                  <span className="block text-[12px] text-text">{label}</span>
+                  <span className="block text-[11px] text-text-3">{note}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        </Rollout>
+
+        <Rollout title="Plugins" icon={<IconPlugin size={14} />}>
+          <Toggle
+            checked={settings.pluginAutoUpdate !== false}
+            onChange={(v) => saveSettings({ pluginAutoUpdate: v })}
+            label="Update plugins automatically"
+            note="At startup, in the background. Plugins from the built-in marketplace, and from other marketplaces where you turned updates on."
+          />
+          <Toggle
+            checked={settings.pluginHooks !== false}
+            onChange={(v) => saveSettings({ pluginHooks: v })}
+            label="Allow plugin hooks"
+            note="Programs a plugin runs when something happens (you send a message, the agent finishes). Each plugin shows what it runs and asks once."
+          />
+          <Toggle
+            checked={settings.pluginMcp !== false}
+            onChange={(v) => saveSettings({ pluginMcp: v })}
+            label="Allow MCP servers"
+            note="Programs that give the agent extra tools - from plugins, and from your own mcp.json."
+          />
+          <label className="flex cursor-default items-start gap-2 py-1">
+            <input
+              type="number"
+              min={0}
+              max={200}
+              value={settings.pluginWakesPerHour ?? 20}
+              onChange={(e) => {
+                const n = Math.round(Number(e.target.value));
+                if (Number.isFinite(n) && n >= 0) saveSettings({ pluginWakesPerHour: Math.min(200, n) });
+              }}
+              className="sw-input h-[22px] w-[52px] shrink-0 px-1 text-[12px]"
+            />
+            <span>
+              <span className="block text-[12px] text-text">Automatic turns per hour</span>
+              <span className="block text-[11px] text-text-3">How often plugins may start the agent by themselves (e.g. a message from another agent). Then they wait for your next message.</span>
+            </span>
+          </label>
+          <Toggle
+            checked={settings.pluginEventsInChat !== false}
+            onChange={(v) => saveSettings({ pluginEventsInChat: v })}
+            label="Show plugin events in the chat"
+            note="What hooks add for the agent appears as small cards in the chat."
+          />
+          <button type="button" className="sw-btn mt-1" onClick={() => setPanel("plugins")}>
+            <IconPlugin size={13} /> Manage plugins…
+          </button>
         </Rollout>
 
         <Rollout title="While the agent works" icon={<IconRebuild size={14} />}>
