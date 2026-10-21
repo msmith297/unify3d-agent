@@ -4,6 +4,7 @@
  */
 import type { ChatData, FileEntry, HostState, ToolDef, ToolRunResult, UserToolInfo, WatchEntry, WatchResult } from "./types";
 import { emitLocal } from "./bridge";
+import { mockOpenToolForm, mockToolForm } from "./toolFormMock";
 
 const DOC = { key: "mock-doc", title: "Mounting Bracket.SLDPRT", path: "C:\\Work\\Mounting Bracket.SLDPRT", type: "part" as const };
 
@@ -120,6 +121,11 @@ export async function mockRpc(method: string, params: any): Promise<unknown> {
     case "userTools.run": {
       // The add-in would show the tool's page, then hand the run to the panel (ToolRunner): do the hand-over.
       const t = mockUserTools().find((x) => x.name === params?.name);
+      // A tool with inputs opens its form in the panel (ToolFormBridge) unless the user chose the PropertyManager page.
+      if (t?.kind === "tool" && t.hasInputs && store.get<{ toolInputs?: string }>("settings", {}).toolInputs !== "page") {
+        setTimeout(() => mockOpenToolForm(emitLocal), 150);
+        return null;
+      }
       if (t?.kind === "tool")
         setTimeout(
           () =>
@@ -150,6 +156,12 @@ export async function mockRpc(method: string, params: any): Promise<unknown> {
       setTimeout(() => emitLocal("userTools.changed", mockUserTools()), 50);
       return null;
     }
+    case "toolForm.list":
+    case "toolForm.change":
+    case "toolForm.pick":
+    case "toolForm.ok":
+    case "toolForm.cancel":
+      return mockToolForm(method, params, emitLocal);
     case "update.status":
     case "update.check":
       return MOCK_UPDATE;

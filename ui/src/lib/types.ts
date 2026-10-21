@@ -158,6 +158,8 @@ export interface Settings {
   speakVoice?: string;
   /** -10 (slow) to 10 (fast); 0 is normal. */
   speakRate?: number;
+  /** Where a tool's inputs open: a form in the chat panel (default) or its PropertyManager page (ToolRunner reads it). */
+  toolInputs?: "panel" | "page";
 }
 
 /** One stretch of recognised speech; times in ms from the first key press. */

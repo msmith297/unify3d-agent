@@ -6,7 +6,7 @@ import { useStore } from "../store";
 import { rpc } from "../lib/bridge";
 import { EFFORTS, MODELS } from "../lib/models";
 import { SW_THEME_NAMES } from "../lib/theme";
-import { Caret, IconAgent, IconGear, IconHistory, IconKey, IconMic, IconOk, IconPart, IconRebuild, IconShield, IconUpdate, Spinner } from "./SwIcons";
+import { Caret, IconAgent, IconGear, IconHistory, IconKey, IconMic, IconOk, IconPart, IconRebuild, IconShield, IconToolbox, IconUpdate, Spinner } from "./SwIcons";
 import type { ApprovalMode, Effort, Settings, Theme } from "../lib/types";
 
 /** Options page laid out like a SolidWorks PropertyManager: stacked rollouts. */
@@ -106,6 +106,26 @@ export function SettingsPanel() {
             label="Send a screenshot of my view with each message"
             note="The agent sees exactly what you see, with your selection highlighted. Adds roughly 1,000 tokens per message."
           />
+        </Rollout>
+
+        <Rollout title="Tools" icon={<IconToolbox size={14} />}>
+          <div className="flex flex-col">
+            <span className="px-1 pt-0.5 text-[11.5px] text-text-2">Tool inputs open</span>
+            {(
+              [
+                ["panel", "In the chat panel", "A form in the chat with the tool's inputs, units and choices."],
+                ["page", "In a PropertyManager page", "SolidWorks' own page, next to the feature tree."],
+              ] as [NonNullable<Settings["toolInputs"]>, string, string][]
+            ).map(([id, label, note]) => (
+              <label key={id} className="flex cursor-default items-start gap-2 rounded-[2px] px-1 py-1 hover:bg-card-2">
+                <input type="radio" name="toolInputs" checked={(settings.toolInputs ?? "panel") === id} onChange={() => saveSettings({ toolInputs: id })} className="mt-0.5 accent-[var(--accent)]" />
+                <span>
+                  <span className="block text-[12px] text-text">{label}</span>
+                  <span className="block text-[11px] text-text-3">{note}</span>
+                </span>
+              </label>
+            ))}
+          </div>
         </Rollout>
 
         <Rollout title="Voice" icon={<IconMic size={14} />}>

@@ -7,6 +7,8 @@ import { FormCard } from "./FormCard";
 import { SelectionCard } from "./SelectionCard";
 import { Answered } from "./Answered";
 import { RestartCard } from "./Recovery";
+import { ToolFormCard, ToolFormPane } from "./ToolFormCard";
+import { useToolForm } from "../lib/toolForm";
 import { svgDataUrl } from "../lib/toolIcons";
 import { breakLabel, isBreak } from "../lib/sessions";
 import { Caret } from "./SwIcons";
@@ -55,6 +57,7 @@ export function ChatView() {
   const [lightbox, setLightbox] = useState<string | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const [pinned, setPinned] = useState(true);
+  const toolForm = useToolForm((s) => !!s.form);
 
   const items = useMemo(() => (thread ? buildItems(thread, run, showProgress) : []), [thread, run, showProgress]);
 
@@ -66,7 +69,7 @@ export function ChatView() {
 
   useEffect(() => setPinned(true), [thread?.id]);
 
-  if (!thread) return <EmptyState />;
+  if (!thread) return toolForm ? <ToolFormPane /> : <EmptyState />;
 
   return (
     <div className="relative min-h-0 flex-1">
@@ -82,6 +85,7 @@ export function ChatView() {
           {items.map((item) => (
             <Fragment key={item.key}>{renderItem(item, thread, run, setLightbox)}</Fragment>
           ))}
+          <ToolFormCard />
         </div>
       </div>
       {!pinned && (

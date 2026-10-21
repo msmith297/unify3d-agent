@@ -1,4 +1,4 @@
-// Checks for the panel's pure modules (lib/toolRun.ts, lib/selection.ts, lib/toolGroups.ts).
+// Checks for the panel's pure modules (lib/toolRun.ts, lib/selection.ts, lib/toolGroups.ts, lib/toolFormLogic.ts, lib/toolFormMock.ts).
 // Run from the ui folder:  node src/lib/checks/lib.check.mjs   (Node 22.18+ / 23.6+ runs the .ts imports as-is)
 // The ui has no test runner yet; when vitest is added (ui/package.json), these move into *.test.ts files unchanged.
 // Not part of the app: nothing imports this file, and tsc / vite ignore .mjs files.
@@ -15,6 +15,8 @@ import {
   STICKY_IDLE_MS,
 } from "../toolRun.ts";
 import { paletteSections, categoryNames } from "../toolGroups.ts";
+import { formatNumber, parseNumber, stepNumber, visibleGroups, chipText, takesText, acceptText, tableHint } from "../toolFormLogic.ts";
+import { mockOpenToolForm, mockToolForm } from "../toolFormMock.ts";
 
 let n = 0;
 const t = (name, fn) => {
@@ -271,6 +273,95 @@ t("palette sections: categories first (built-ins first), then today's three grou
   assert.deepEqual(categoryNames(all), ["Molding & Toolmaking", "Fixtures"]);
   const none = paletteSections([{ name: "a", kind: "workflow" }, { name: "b", builtIn: true, kind: "tool" }]);
   assert.equal(none.categories.length, 0);
+});
+
+// ---- tool forms in the panel (ToolFormCard) ----
+
+t("number boxes show and read numbers as people write them", () => {
+  assert.equal(formatNumber(2000), "2000");
+  assert.equal(formatNumber(1.5), "1.5");
+  assert.equal(formatNumber(137.895145), "137.895");
+  assert.equal(formatNumber(0.000123456789), "0.000123457");
+  assert.equal(formatNumber(610.0000000001), "610");
+  assert.equal(formatNumber(-3.25), "-3.25");
+  assert.equal(formatNumber(0), "0");
+  assert.equal(formatNumber(null), "");
+  assert.equal(parseNumber("1,5"), 1.5);
+  assert.equal(parseNumber(" 2 000 "), 2000);
+  assert.equal(parseNumber("1,234.5"), 1234.5);
+  assert.equal(parseNumber(".5"), 0.5);
+  assert.equal(parseNumber("-12"), -12);
+  assert.equal(parseNumber("1e3"), 1000);
+  assert.equal(parseNumber(""), null);
+  assert.equal(parseNumber("12 mm"), null);
+  assert.equal(parseNumber("abc"), null);
+  assert.equal(stepNumber(0.1, 0.2, 1), 0.3);
+  assert.equal(stepNumber(1, 1, -1, 1), 1); // stays at the minimum
+  assert.equal(stepNumber(63, undefined, 1, 1, 64), 64);
+  assert.equal(stepNumber(64, 1, 1, 1, 64), 64);
+});
+
+t("labels for chips, selection and file inputs, table hints", () => {
+  assert.equal(chipText({ type: "Face", label: "Boss-Extrude1" }), "Face · Boss-Extrude1");
+  assert.equal(chipText({ type: "Edge", label: null }), "Edge");
+  assert.equal(takesText(["face"]), "faces");
+  assert.equal(takesText(["vertex", "edge"]), "vertices or edges");
+  assert.equal(takesText(["edge"], false), "an edge");
+  assert.equal(takesText(["face", "sketch_segment"], false), "a face or a sketch segment");
+  assert.equal(takesText([]), "entities");
+  assert.equal(acceptText(["pdf", "image", "drawing"]), "PDFs, images, drawings");
+  assert.equal(acceptText(undefined), "files");
+  assert.equal(tableHint({ id: "s", type: "number", label: "", visible: true, enabled: true, required: false, unit: "%", table: 1.5, edited: true }), "Table: 1.5 %");
+  assert.equal(tableHint({ id: "t", type: "number", label: "", visible: true, enabled: true, required: false, unit: "°C", table: 170, edited: false }), null);
+  assert.equal(tableHint({ id: "c", type: "choice", label: "", visible: true, enabled: true, required: false, table: "Supplier datasheet", edited: true }), "Table: Supplier datasheet");
+});
+
+t("the mock form cascades, fills, switches units and hands over on OK", () => {
+  const events = [];
+  const emit = (name, data) => events.push([name, data]);
+  mockOpenToolForm(emit);
+  let form = events.at(-1)[1];
+  assert.equal(events.at(-1)[0], "toolForm.show");
+  const input = (f, id) => f.groups.flatMap((g) => g.inputs).find((i) => i.id === id);
+  const send = (change) => (form = mockToolForm("toolForm.change", { formId: form.formId, ...change }, emit));
+  assert.deepEqual(mockToolForm("toolForm.list", {}, emit).map((x) => x.formId), [form.formId]);
+  assert.equal(input(form, "mold_grade").value, "6061-T651");
+  assert.equal(input(form, "press_pressure").unit, "psi");
+  assert.equal(Math.round(input(form, "press_pressure").value), 2000);
+
+  send({ id: "mold_material", value: "Tool steel" });
+  assert.equal(input(form, "mold_grade").value, "P20 pre-hard");
+  assert.equal(input(form, "insert_grade").visible, false);
+  send({ id: "part_family", value: "EPDM" });
+  assert.equal(input(form, "part_grade").value, "EPDM sulfur 60A");
+  assert.equal(input(form, "viscosity_cp").visible, false); // n/a for a rubber
+  assert.equal(input(form, "press_temp").value, 170);
+  send({ id: "press_temp", value: 175 });
+  assert.equal(input(form, "press_temp").edited, true);
+
+  send({ id: "press_pressure", unit: "bar" });
+  assert.equal(Math.round(input(form, "press_pressure").value * 10) / 10, 137.9);
+  send({ id: "press_pressure", value: 2000 });
+  assert.equal(form.okEnabled, false);
+  assert.equal(form.okField, "press_pressure");
+  assert.match(input(form, "press_pressure").error, /Enter a value from/);
+  assert.deepEqual(mockToolForm("toolForm.ok", { formId: form.formId }, emit).closed, false);
+  send({ id: "press_pressure", value: 150 });
+  assert.equal(form.okEnabled, true);
+
+  send({ id: "daylight", value: 9999 }); // native boxes stay in range
+  assert.equal(input(form, "daylight").value, 3000);
+  form = mockToolForm("toolForm.pick", { formId: form.formId, id: "critical_faces" }, emit);
+  assert.equal(input(form, "critical_faces").items.length, 2);
+  send({ id: "critical_faces", remove: 0 });
+  assert.equal(input(form, "critical_faces").items.length, 1);
+  send({ tier: "high" });
+  assert.equal(form.agent.tier, "high");
+  assert.ok(visibleGroups(form).length >= 6);
+
+  assert.deepEqual(mockToolForm("toolForm.ok", { formId: form.formId }, emit), { closed: true });
+  assert.deepEqual(mockToolForm("toolForm.list", {}, emit), []);
+  assert.throws(() => mockToolForm("toolForm.change", { formId: form.formId, id: "cavities", value: 2 }, emit), /closed/);
 });
 
 console.log(`${n} checks passed`);
