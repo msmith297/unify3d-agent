@@ -290,6 +290,10 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
     eager_input_streaming: true,
   }));
 
+  // use_skill exists only with plugins (and a sub-agent may lack read_user_tool): exclude only tools this run has.
+  const names = new Set([...opts.tools, ...localTools(opts)].map((t) => t.name));
+  const clearing = { ...CLEAR_OLD_TOOL_USES, exclude_tools: CLEAR_OLD_TOOL_USES.exclude_tools.filter((n) => names.has(n)) };
+
   const system =
     opts.system ??
     buildSystemPrompt({
@@ -341,7 +345,7 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
           cache_control: opts.longRun ? { type: "ephemeral", ttl: "1h" } : { type: "ephemeral" },
           // Old tool calls (C# cells, screenshots, model dumps) are cleared server-side once the prompt grows, keeping
           // only the most recent ones. The stored history stays complete and append-only, so thinking stays valid.
-          context_management: { edits: [CLEAR_OLD_TOOL_USES] },
+          context_management: { edits: [clearing] },
           ...(m.fallbacks ? { fallbacks: "default" as const } : {}),
           betas,
         },
