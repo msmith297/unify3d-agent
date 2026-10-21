@@ -181,9 +181,9 @@
     "Al.E_MPa": 64077.0,
     "Al.Sy_MPa": 215.28,
     "Al.wDefl_noRoot_mm": 13.12182908855261,
-    "Al.wDefl_mm": 23.368462288814754,
+    "Al.wDefl_mm": 25.220972230561294,
     "Al.allowFatigue_MPa": 60.328917313841934,
-    "Al.wStruct_mm": 23.368462288814754,
+    "Al.wStruct_mm": 25.220972230561294,
     "P20.wDefl_mm": 11.669623372853273,
     "P20.sigmaAtDefl_MPa": 142.75216786646973,
     "P20.allow1e5_MPa": 230.90950487691032,
@@ -194,7 +194,7 @@
    "flags": {
     "Al.stocky": true
    },
-   "notes": "Re-derived for the L/h = 6 row (critique A4). Before: the L/h = 4 row gave 13.3 / 16.9 mm (Al) and 8.65 mm at 232 MPa against 231 MPa (P20, critique H1: fails by 0.4% -> 8.66 mm). The wall-root factor is Track A2's 3D 1 + 2.8 w/h (the design's constant 1.2 holds only below w/h 0.07), so the walls come out thicker than with 1.2. The aluminium wall is still stocky (w/h > 0.5): prefer P20 or a 3D check.",
+   "notes": "Re-derived for the L/h = 6 row (critique A4). Before: the L/h = 4 row gave 13.3 / 16.9 mm (Al) and 8.65 mm at 232 MPa against 231 MPa (P20, critique H1: fails by 0.4% -> 8.66 mm). The wall-root factor is Track A2's 3D 1 + 2.8 w/h (the design's constant 1.2 holds only below w/h 0.07), so the walls come out thicker than with 1.2. The aluminium wall is still stocky (w/h > 0.5): prefer P20 or a 3D check. Above w/h 0.53 the root's added bulge falls as h/w (review finding: the old product with alpha had no bounded answer for stocky walls), 23.4 -> 25.2 mm here; the 3D pocket at this L/h and w/h is about 1.4x below it (MoldStockyWallTests).",
    "tolerancePct": 1.0,
    "tableDependentTolerancePct": 2.0
   },

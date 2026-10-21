@@ -35,6 +35,13 @@ namespace SwAgent.Mold.Geometry
     /// </summary>
     public static class FlashLayout
     {
+        /// <summary>Slack on the separate-moat test (m): a layout planned at exactly the separate-moat gap measures a hair under
+        /// it (origins rounded to 6 significant digits, part boxes to 0.001 mm), which must not force a combined moat.</summary>
+        public const double SeparateMoatSlack = 1e-5;
+
+        /// <summary>Cavities this close (gap in m) need one combined moat instead of separate ones.</summary>
+        public static bool TooCloseForSeparateMoats(double gap, double separateMoatGap) => gap < separateMoatGap - SeparateMoatSlack;
+
         public static double Cross(double[] a, double[] b) => a[0] * b[1] - a[1] * b[0];
         public static double[] Sub(double[] a, double[] b) => new[] { a[0] - b[0], a[1] - b[1] };
         public static double[] Add(double[] a, double[] b) => new[] { a[0] + b[0], a[1] + b[1] };

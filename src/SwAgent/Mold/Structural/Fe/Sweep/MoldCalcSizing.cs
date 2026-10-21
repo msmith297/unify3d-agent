@@ -75,8 +75,8 @@ namespace SwAgent.Mold.Structural.Fe.Sweep
                 {
                     var wj = st.SelectToken("results.walls").OfType<JObject>().Single(x => (string)x["id"] == id);
                     double wd = (double)wj["w_defl_mm"], ws = (double)wj["w_stress_mm"], wst = (double)wj["w_struct_mm"];
-                    var gov = wst / h > 0.5 ? "out of range" : ws > wd ? "stress" : "deflection";
-                    walls.Add(new JObject { ["cavity"] = i, ["side"] = side, ["w_mm"] = wst, ["governs"] = gov });
+                    var gov = (bool?)wj["noSolution"] == true ? "no solution" : wst / h > 0.5 ? "out of range" : ws > wd ? "stress" : "deflection";
+                    walls.Add(new JObject { ["cavity"] = i, ["side"] = side, ["w_mm"] = wst, ["governs"] = gov, ["floor_mm"] = st.SelectToken("results.floors[0].required_mm")?.DeepClone() });
                 }
                 if (i == 0) plate = PlateOf(st, support);
             }

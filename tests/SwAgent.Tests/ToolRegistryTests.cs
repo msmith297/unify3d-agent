@@ -217,6 +217,19 @@ namespace SwAgent.Tests
             Assert.Equal(@"c:\x\20261019-091500-stage-4-2b.SLDPRT", RebuildTools.PickCheckpoint(files, "stage-4-2b"));
             Assert.Null(RebuildTools.PickCheckpoint(files, "4-2")); // a suffix is not a name
             Assert.Null(RebuildTools.PickCheckpoint(files, ""));
+            // a stamped name written as it was asked for ('.' kept) still finds the saved file (save writes '-')
+            Assert.Equal(@"c:\x\20261019-090000-stage-4-2.SLDPRT", RebuildTools.PickCheckpoint(files, "20261019-090000-stage-4.2"));
+        }
+
+        [Fact]
+        public void Prune_never_removes_the_newest_intake_checkpoint()
+        {
+            var t0 = new DateTime(2026, 1, 1);
+            var files = new List<(string, DateTime)> { (@"c:\x\20260101-000000-intake.SLDPRT", t0) };
+            files.AddRange(Enumerable.Range(1, 25).Select(k => ($"f{k}", t0.AddMinutes(k))));
+            var gone = RebuildTools.Prune(files, RebuildTools.KeepCheckpoints);
+            Assert.Equal(5, gone.Count);
+            Assert.DoesNotContain(@"c:\x\20260101-000000-intake.SLDPRT", gone);
         }
 
         [Fact]

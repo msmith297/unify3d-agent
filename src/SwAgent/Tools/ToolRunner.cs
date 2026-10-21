@@ -39,6 +39,34 @@ namespace SwAgent.Tools
         internal static readonly System.Collections.Concurrent.ConcurrentDictionary<string, ToolInputs> LastInputs =
             new System.Collections.Concurrent.ConcurrentDictionary<string, ToolInputs>();
 
+        /// <summary>The document each tool's latest run was on (the document object, its title and path then).</summary>
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (WeakReference Doc, string Title, string Path)> LastRunDoc =
+            new System.Collections.Concurrent.ConcurrentDictionary<string, (WeakReference, string, string)>();
+
+        /// <summary>Records which document a run's inputs belong to.</summary>
+        internal static void Remember(string tool, ToolInputs inputs, object doc, string title, string path)
+        {
+            LastInputs[tool] = inputs;
+            LastRunDoc[tool] = (new WeakReference(doc), title, path);
+        }
+
+        /// <summary>
+        /// The page values of this tool's latest run when it was on this document (the same document object, or the same
+        /// title or path) - null when there is none in this session or it was another document's run.
+        /// </summary>
+        internal static ToolInputs InputsFor(string tool, IModelDoc2 model)
+        {
+            if (!LastInputs.TryGetValue(tool, out var inputs) || inputs == null) return null;
+            if (!LastRunDoc.TryGetValue(tool, out var run)) return null;
+            if (model == null) return null;
+            if (ReferenceEquals(run.Doc.Target, model)) return inputs;
+            string title = null, path = null;
+            try { title = model.GetTitle(); path = model.GetPathName(); } catch (Exception) { }
+            if (!string.IsNullOrEmpty(path) && string.Equals(path, run.Path, StringComparison.OrdinalIgnoreCase)) return inputs;
+            if (!string.IsNullOrEmpty(title) && string.Equals(title, run.Title, StringComparison.OrdinalIgnoreCase)) return inputs;
+            return null;
+        }
+
         private readonly ISwApplication _app;
         private readonly ToolRegistry _tools;
         private readonly ScriptHost _scripts;
@@ -114,14 +142,20 @@ namespace SwAgent.Tools
                 }
 
                 // 3. The hard-coded part. Its inputs are kept for run_tool_macro (the agent re-runs or adapts it after a hand-over).
-                LastInputs[spec.Name] = inputs;
+                string runTitle = null, runPath = null;
+                try { runTitle = model.GetTitle(); runPath = model.GetPathName(); } catch (Exception) { }
+                Remember(spec.Name, inputs, model, runTitle, runPath);
                 string macroOutput = null;
                 if (spec.Macro != null && spec.Paused.Contains("macro"))
                 {
                     // SolidWorks closed while this macro ran last time: don't run it blind again.
-                    context["failure"] = "This tool's macro is paused because SolidWorks closed (crashed) while it was running last time. " +
-                                         "Do the job carefully with execute_csharp, find what in the macro crashed SolidWorks, and fix it with " +
-                                         "edit_user_tool (which un-pauses it). The macro:\n" + spec.Macro;
+                    context["failure"] = UserTools.IsBuiltIn(spec.Name)
+                        ? "This built-in tool's macro is paused because SolidWorks closed (crashed) while it was running last time. Built-in tools are " +
+                          "read-only: don't edit it - gather what it would have gathered with the tools (get_model_context, and the tool's own agent tools) " +
+                          "and do the job carefully. The macro:\n" + spec.Macro
+                        : "This tool's macro is paused because SolidWorks closed (crashed) while it was running last time. " +
+                          "Do the job carefully with execute_csharp, find what in the macro crashed SolidWorks, and fix it with " +
+                          "edit_user_tool (which un-pauses it). The macro:\n" + spec.Macro;
                 }
                 else if (spec.Macro != null)
                 {
@@ -231,6 +265,7 @@ namespace SwAgent.Tools
         private async Task<JObject> BuildPayloadAsync(ToolSpec spec, ToolInputs inputs, JObject context)
         {
             var list = new JArray();
+            var attached = new List<JObject>();
             foreach (var s in spec.Inputs)
             {
                 if (s == null || string.IsNullOrWhiteSpace(s.Id)) continue;
@@ -242,16 +277,21 @@ namespace SwAgent.Tools
                     foreach (var path in inputs.Files(s.Id))
                     {
                         if (ModelFileContext.IsModelFile(path)) _status($"Unify3D ▸ {spec.Title}: reading {Path.GetFileName(path)}...");
-                        files.Add(await FileAttachments.EntryAsync(_app.Sw, path));
+                        var f = await FileAttachments.EntryAsync(_app.Sw, path);
+                        files.Add(f);
+                        attached.Add(f);
                     }
                     entry["files"] = files;
                 }
                 list.Add(entry);
             }
+            // one budget for every file of the run (each was only checked against its own cap)
+            FileAttachments.ApplyRunBudget(attached);
             return new JObject
             {
                 ["tool"] = spec.Name,
                 ["title"] = spec.Title,
+                ["builtIn"] = UserTools.IsBuiltIn(spec.Name),
                 ["intelligence"] = spec.Intelligence,
                 ["maxSteps"] = spec.MaxSteps,
                 ["longRun"] = spec.LongRun,

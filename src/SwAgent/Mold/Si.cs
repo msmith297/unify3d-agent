@@ -7,8 +7,8 @@ namespace SwAgent.Mold
     /// <summary>
     /// Unit factors and a lenient number reader. Inside the calculator everything is N, mm, MPa (N/mm²), degC, K, kg, kN
     /// for forces in reports, cP and min (design section 3). Values arrive from the page already in SI-like units, but the
-    /// agent may hand-write a design with "2000 psi" or {"value": 2, "unit": "in"}, so numbers with a known unit are
-    /// converted here instead of being misread.
+    /// agent may hand-write a design with "2000 psi" or {"value": 2, "unit": "in"}, so numbers with a unit are converted
+    /// here; an unknown or mis-dimensioned unit throws instead of being misread.
     /// </summary>
     public static class Si
     {
@@ -27,33 +27,131 @@ namespace SwAgent.Mold
         public static double FToC(double f) => (f - 32.0) / 1.8;
         public static double CToF(double c) => c * 1.8 + 32.0;
 
-        /// <summary>Converts a value in `unit` to the calculator's unit for that quantity; unknown units pass through.</summary>
-        public static double ToCalc(double v, string unit)
+        /// <summary>Converts a value in `unit` to the calculator's unit (no quantity known: the unit says what it measures).</summary>
+        public static double ToCalc(double v, string unit) => ToCalc(v, unit, null);
+
+        /// <summary>
+        /// Converts a value in `unit` to the calculator's unit of `quantity` (pressure MPa, force kN, length mm, length_cm cm,
+        /// area mm², mass kg, temperature degC, viscosity cP, time min, angle deg, percent %). Every unit the page offers is
+        /// understood (Tools.Units: "US tons", "short tons", "metric tons", "kgf", "ft"...) plus kip, psig and atm; "lb" is a
+        /// pound-force in a force field. A unit that is unknown, or that does not measure `quantity`, throws an
+        /// ArgumentException - a wrong unit must never pass through as a calculator number.
+        /// </summary>
+        public static double ToCalc(double v, string unit, string quantity)
         {
-            switch ((unit ?? "").Trim().ToLowerInvariant())
+            var u = (unit ?? "").Trim();
+            if (u.Length == 0) return v;
+            var k = Tools.Units.Key(u);
+            if (k == "none" || k == "-") return v;
+            if (quantity != null && quantity != "count" && quantity != "dimensionless")
             {
-                case "psi": return v * PsiToMPa;
+                var si = SiOf(v, k, quantity);
+                if (si == null)
+                    throw new ArgumentException("unit '" + u + "' is " + (KnownAnywhere(k) ? "not a " + QuantityName(quantity) + " unit" : "not a unit the calculator knows") + " (write a " + QuantityName(quantity) + " like " + Example(quantity) + ")");
+                return FromSi(si.Value, quantity);
+            }
+            switch (k)
+            {
+                case "psi": case "psig": return v * PsiToMPa;
                 case "ksi": return v * KsiToMPa;
                 case "bar": return v * BarToMPa;
-                case "kgf/cm2": case "kgf/cm²": case "kg/cm2": return v * KgfCm2ToMPa;
+                case "atm": return v * 0.101325;
+                case "kgf/cm2": case "kg/cm2": return v * KgfCm2ToMPa;
                 case "pa": return v / 1e6;
                 case "kpa": return v / 1e3;
-                case "in": case "inch": case "\"": return v * InToMm;
+                case "mpa": case "n/mm2": return v;
+                case "in": case "inch": case "inches": case "\"": return v * InToMm;
+                case "ft": case "feet": case "foot": return v * 304.8;
                 case "m": return v * 1000.0;
                 case "cm": return v * 10.0;
-                case "lb": case "lbs": return v * LbToKg;
+                case "mm": return v;
+                case "lb": case "lbs": case "lbm": return v * LbToKg;
                 case "g": return v / 1000.0;
+                case "kg": return v;
                 case "lbf": return v * LbfToN / 1000.0;
+                case "kip": case "kips": return v * LbfToN;
+                case "kgf": return v * TonneForceToKN / 1000.0;
                 case "n": return v / 1000.0;
-                case "us ton": case "ton": case "tons": case "short ton": return v * UsTonToKN;
-                case "t": case "tf": case "tonne": case "tonnes": return v * TonneForceToKN;
-                case "degf": case "°f": case "f": return FToC(v);
+                case "kn": return v;
+                case "us ton": case "us tons": case "ton": case "tons": case "short ton": case "short tons": case "uston": return v * UsTonToKN;
+                case "t": case "tf": case "tonne": case "tonnes": case "metric ton": case "metric tons": case "tonne-force": return v * TonneForceToKN;
+                case "degf": case "°f": case "f": case "deg f": return FToC(v);
+                case "degc": case "°c": case "c": case "deg c": return v;
                 case "k": return v - 273.15;
-                case "pa*s": case "pa·s": case "pas": return v * 1000.0;
-                case "s": return v / 60.0;
-                case "h": return v * 60.0;
+                case "pa*s": case "pas": case "pa.s": case "pa s": return v * 1000.0;
+                case "cp": case "mpa*s": case "mpa.s": return v;
+                case "p": case "poise": return v * 100.0;
+                case "s": case "sec": return v / 60.0;
+                case "min": return v;
+                case "h": case "hr": return v * 60.0;
                 case "rad": return v * 180.0 / Math.PI;
-                default: return v; // mm, MPa, degC, kg, kN, cP, min, deg, %, none
+                case "deg": case "°": return v;
+                case "%": return v;
+                case "mm2": return v;
+                case "in2": return v * InToMm * InToMm;
+                case "cm2": return v * 100.0;
+                case "m2": return v * 1e6;
+            }
+            var any = Tools.Units.FindAny(u);
+            if (any != null) return FromSi(any.ToSiValue(v), CalcQuantity(any.Quantity));
+            throw new ArgumentException("unit '" + u + "' is not a unit the calculator knows");
+        }
+
+        /// <summary>The true SI value of v in unit key k, when k measures `quantity`; null otherwise.</summary>
+        private static double? SiOf(double v, string k, string quantity)
+        {
+            if (quantity == "force" && (k == "lb" || k == "lbs" || k == "pound" || k == "pounds")) return v * LbfToN;
+            if (quantity == "force" && (k == "kip" || k == "kips")) return v * LbfToN * 1000.0;
+            if (quantity == "pressure" && k == "psig") return v * PsiToMPa * 1e6;
+            if (quantity == "pressure" && k == "atm") return v * 101325.0;
+            if (quantity == "area")
+            {
+                switch (k)
+                {
+                    case "mm2": return v * 1e-6;
+                    case "cm2": return v * 1e-4;
+                    case "m2": return v;
+                    case "in2": case "sq in": return v * 0.00064516;
+                    default: return null;
+                }
+            }
+            foreach (var q in UnitsQuantities(quantity))
+            {
+                var def = Tools.Units.Find(q, k);
+                if (def != null) return def.ToSiValue(v);
+            }
+            return null;
+        }
+
+        private static string[] UnitsQuantities(string quantity)
+        {
+            switch (quantity)
+            {
+                case "force": return new[] { "force", "tonnage" };
+                case "length": case "length_cm": return new[] { "length" };
+                default: return new[] { quantity };
+            }
+        }
+
+        private static string CalcQuantity(string unitsQuantity) => unitsQuantity == "tonnage" ? "force" : unitsQuantity;
+
+        private static bool KnownAnywhere(string k) => Tools.Units.FindAny(k) != null || Array.IndexOf(KnownUnits, k) >= 0;
+
+        private static string QuantityName(string q) => q == "length_cm" ? "length" : q;
+
+        private static string Example(string q)
+        {
+            switch (q)
+            {
+                case "pressure": return "\"2000 psi\" or {\"value\": 13.8, \"unit\": \"MPa\"}";
+                case "force": return "\"50 US ton\", \"445 kN\" or \"100000 lbf\"";
+                case "length": case "length_cm": return "\"24 in\" or \"610 mm\"";
+                case "mass": return "\"25 lb\" or \"11 kg\"";
+                case "temperature": return "\"200 degF\" or \"93 degC\"";
+                case "time": return "\"30 min\"";
+                case "viscosity": return "\"1500 cP\"";
+                case "area": return "\"1200 mm2\"";
+                default: return "a number";
             }
         }
 
@@ -77,7 +175,7 @@ namespace SwAgent.Mold
                 case JTokenType.Boolean:
                     return null;
                 case JTokenType.String:
-                    return ParseWithUnit((string)t, out _);
+                    return ParseWithUnit((string)t, out _, quantity);
                 case JTokenType.Object:
                     var o = (JObject)t;
                     var siTok = o["si"];
@@ -90,17 +188,19 @@ namespace SwAgent.Mold
                         var val = o["value"];
                         if (val != null && (val.Type == JTokenType.Integer || val.Type == JTokenType.Float) && o["unit"] != null)
                             return ToCalc((double)val, (string)o["unit"]);
-                        if (val != null && val.Type == JTokenType.String && ParseWithUnit((string)val, out var known) is double pv && known)
+                        // the display text is only a hint here: the si number stands when its unit cannot be read
+                        if (val != null && val.Type == JTokenType.String && TryParseWithUnit((string)val) is double pv)
                             return pv;
                         var disp = o["display"];
-                        if (disp != null && disp.Type == JTokenType.String && ParseWithUnit((string)disp, out var known2) is double dv && known2)
+                        if (disp != null && disp.Type == JTokenType.String && TryParseWithUnit((string)disp) is double dv)
                             return dv;
                         return si;
                     }
                     var inner = o["value"];
                     if (inner == null || inner.Type == JTokenType.Null) return null;
+                    if (inner.Type == JTokenType.String && o["unit"] == null) return ParseWithUnit((string)inner, out _, quantity);
                     var n = Num(inner, null);
-                    return n == null ? (double?)null : ToCalc(n.Value, (string)o["unit"]);
+                    return n == null ? (double?)null : ToCalc(n.Value, (string)o["unit"], quantity);
                 default:
                     return null;
             }
@@ -129,10 +229,18 @@ namespace SwAgent.Mold
         {
             "psi", "ksi", "bar", "kgf/cm2", "kgf/cm²", "kg/cm2", "pa", "kpa", "mpa", "in", "inch", "\"", "m", "cm", "mm", "lb", "lbs",
             "g", "kg", "lbf", "n", "kn", "us ton", "ton", "tons", "short ton", "t", "tf", "tonne", "tonnes", "degf", "°f", "f", "degc",
-            "°c", "c", "k", "pa*s", "pa·s", "pas", "cp", "s", "min", "h", "rad", "deg", "°", "%",
+            "°c", "c", "k", "pa*s", "pa·s", "pas", "cp", "s", "min", "h", "rad", "deg", "°", "%", "psig", "atm", "kip", "kips", "kgf",
+            "ft", "us tons", "short tons", "metric ton", "metric tons", "mpa*s", "n/mm2", "mm2", "in2", "cm2", "m2",
         };
 
-        private static double? ParseWithUnit(string s, out bool knownUnit)
+        /// <summary>A number with a unit it can read; null for a bare number, no number, or an unknown unit.</summary>
+        private static double? TryParseWithUnit(string s)
+        {
+            try { return ParseWithUnit(s, out var known) is double v && known ? v : (double?)null; }
+            catch (ArgumentException) { return null; }
+        }
+
+        private static double? ParseWithUnit(string s, out bool knownUnit, string quantity = null)
         {
             knownUnit = false;
             if (string.IsNullOrWhiteSpace(s)) return null;
@@ -152,8 +260,8 @@ namespace SwAgent.Mold
             if (br >= 0) unit = unit.Substring(0, br);
             unit = unit.Trim();
             if (unit.Length == 0) return v;
-            knownUnit = Array.IndexOf(KnownUnits, unit.ToLowerInvariant()) >= 0;
-            return ToCalc(v, unit);
+            knownUnit = true;
+            return ToCalc(v, unit, quantity);
         }
 
         /// <summary>The text after the leading number ("24 in" -> "in"; "24" -> "").</summary>
@@ -232,6 +340,16 @@ namespace SwAgent.Mold
             var mag = (int)Math.Floor(Math.Log10(Math.Abs(v)));
             var dec = Math.Max(0, Math.Min(10, digits - 1 - mag));
             return Math.Round(v, dec, MidpointRounding.AwayFromZero);
+        }
+
+        /// <summary>Rounds down to `digits` significant digits (a maximum that is printed must not exceed the computed one).</summary>
+        public static double RDown(double v, int digits)
+        {
+            if (double.IsNaN(v) || double.IsInfinity(v) || v <= 0) return v;
+            var mag = (int)Math.Floor(Math.Log10(v));
+            var dec = Math.Max(0, Math.Min(10, digits - 1 - mag));
+            var f = Math.Pow(10, dec);
+            return Math.Floor(v * f * (1 + 1e-15)) / f;
         }
 
         public static string F(double v, int digits = 3) => R(v, digits).ToString("0.##########", CultureInfo.InvariantCulture);

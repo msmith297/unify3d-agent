@@ -33,6 +33,11 @@ namespace SwAgent.UI
         private const int MaxVariantCombinations = 2000, MaxVariants = 80;
         private static readonly string[] TierNames = { "Fast", "Balanced", "High", "Max" };
 
+        /// <summary>Tool pages of this add-in open right now: their command doesn't hold back the agent's tool calls.</summary>
+        private static int _open;
+        private bool _counted;
+        public static bool AnyOpen => System.Threading.Volatile.Read(ref _open) > 0;
+
         private readonly ISldWorks _sw;
         private readonly IModelDoc2 _model;
         private readonly ToolSpec _spec;
@@ -195,6 +200,7 @@ namespace SwAgent.UI
             {
                 Quiet(Build);
                 _page.Show2(0);
+                if (!_counted) { _counted = true; System.Threading.Interlocked.Increment(ref _open); }
             }
             catch
             {
@@ -1268,6 +1274,7 @@ namespace SwAgent.UI
 
         public void AfterClose()
         {
+            if (_counted) { _counted = false; System.Threading.Interlocked.Decrement(ref _open); }
             var result = _result;
             _page = null;
             _keep.Clear();

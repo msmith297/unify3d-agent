@@ -271,6 +271,8 @@ namespace SwAgent.Tools
                 case "cyan": return Color.FromArgb(0x26, 0xD0, 0xE0);
                 case "magenta": return Color.FromArgb(0xE0, 0x4C, 0xD6);
                 case "white": return Color.White;
+                case "grey":
+                case "gray": return Color.FromArgb(0x9E, 0x9E, 0x9E);
                 default: return SceneOverlay.DefaultColor;
             }
         }

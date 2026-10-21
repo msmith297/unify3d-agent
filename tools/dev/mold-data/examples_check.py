@@ -125,13 +125,20 @@ def coef(bc, aspect, tau, nu=0.33):
     return a[0] * ALLOW, a[1] * ALLOW
 
 # ---------------------------------------------------------------- walls (S21-S23)
-# S21 wall-root factor: 1 + c w/h (Track A2's 3D pocket models, solid3d-summary.json; sizing-defaults wallRootFactor)
+# S21 wall-root factor: 1 + c w/h (Track A2's 3D pocket models, solid3d-summary.json; sizing-defaults wallRootFactor),
+# calibrated up to w/h 0.53; above that the root's added bulge c tau_c alpha(tau_c)/tau_c^3 falls as tau_c/tau (review: the
+# product with alpha extended in tau^2 had a bulge floor no width could beat)
 ROOT_SLOPE = 2.8
-def root_factor(w, h, slope=ROOT_SLOPE, base=1.0): return base + slope * w / h
+ROOT_TAU = 0.53
+def root_factor(w, h, slope=ROOT_SLOPE, base=1.0, L=None, nu=0.33):
+    t = w / h
+    if slope == 0 or t <= ROOT_TAU or L is None: return base + slope * t
+    ac = coef("Wall-C", L / h, ROOT_TAU, nu)[0]; a = coef("Wall-C", L / h, t, nu)[0]
+    return base + slope * ac * t * t / (ROOT_TAU * a)
 def wall(p, h, L, b, E, delta, allow, slope=ROOT_SLOPE, base=1.0, nu=0.33):
     w = 0.3 * h
     for _ in range(200):
-        wn = (root_factor(w, h, slope, base) * coef("Wall-C", L / h, w / h, nu)[0] * p * h ** 4 / (E * delta)) ** (1 / 3)
+        wn = (root_factor(w, h, slope, base, L, nu) * coef("Wall-C", L / h, w / h, nu)[0] * p * h ** 4 / (E * delta)) ** (1 / 3)
         if abs(wn - w) / w < 1e-10: w = wn; break
         w = wn
     sig = lambda x: coef("Wall-C", L / h, x / h, nu)[1] * p * h * h / x ** 2 + p * b / (2 * x)
@@ -204,11 +211,15 @@ mlid = L * Wd * tlid * rho
 drawnU, drawnV = min(edgeU, gap), edgeV
 def at_drawn(Lw, b, w):
     al, be = coef("Wall-C", Lw / h, w / h, a6["nu"])
-    return be * pLC1 * h * h / w ** 2 + pLC1 * b / (2 * w), root_factor(w, h) * al * pLC1 * h ** 4 / (a6["E"] * w ** 3)
+    return be * pLC1 * h * h / w ** 2 + pLC1 * b / (2 * w), root_factor(w, h, L=Lw, nu=a6["nu"]) * al * pLC1 * h ** 4 / (a6["E"] * w ** 3)
 sigV, defV = at_drawn(pu, pv, drawnV)
 sigU, defU = at_drawn(pv, pu, drawnU)
-capV = a6["Sy"] / (3 * h * h / drawnV ** 2 + pv / (2 * drawnV))
-capU = a6["Sy"] / (3 * h * h / drawnU ** 2 + pu / (2 * drawnU))
+# S24 abuse (LC1x): beta for a plate-like wall, the strip 3 h^2/w^2 only for a stocky one (w/h > 0.5)
+def abuse_cap(Lw, b, w):
+    k = 3.0 if w / h > 0.5 else coef("Wall-C", Lw / h, w / h, a6["nu"])[1]
+    return a6["Sy"] / (k * h * h / w ** 2 + b / (2 * w))
+capV = abuse_cap(pu, pv, drawnV)
+capU = abuse_cap(pv, pu, drawnU)
 moat = (P + 2 * math.pi * (lip + W / 2)) * W
 band = lip + W; pitch = 2 * IN
 def runners():
@@ -268,7 +279,7 @@ examples.append({"id": "E3", "title": "Class B wall: p = 10.3 MPa, h = 25 mm, L 
                  "P20.wDefl_mm": wp, "P20.sigmaAtDefl_MPa": coef("Wall-C", 6, wp / 25, p20["nu"])[1] * 10.3 * 625 / wp ** 2,
                  "P20.allow1e5_MPa": min(pa["fat"], pa["static"]), "P20.wStruct1e5_mm": max(wp, wsp), "P20.allow1e6_MPa": min(pb["fat"], pb["static"]), "P20.wStruct1e6_mm": max(wp6, wsp6)},
     "flags": {"Al.stocky": max(w1, ws1) / 25 > 0.5},
-    "notes": "Re-derived for the L/h = 6 row (critique A4). Before: the L/h = 4 row gave 13.3 / 16.9 mm (Al) and 8.65 mm at 232 MPa against 231 MPa (P20, critique H1: fails by 0.4% -> 8.66 mm). The wall-root factor is Track A2's 3D 1 + 2.8 w/h (the design's constant 1.2 holds only below w/h 0.07), so the walls come out thicker than with 1.2. The aluminium wall is still stocky (w/h > 0.5): prefer P20 or a 3D check.",
+    "notes": "Re-derived for the L/h = 6 row (critique A4). Before: the L/h = 4 row gave 13.3 / 16.9 mm (Al) and 8.65 mm at 232 MPa against 231 MPa (P20, critique H1: fails by 0.4% -> 8.66 mm). The wall-root factor is Track A2's 3D 1 + 2.8 w/h (the design's constant 1.2 holds only below w/h 0.07), so the walls come out thicker than with 1.2. The aluminium wall is still stocky (w/h > 0.5): prefer P20 or a 3D check. Above w/h 0.53 the root's added bulge falls as h/w (review finding: the old product with alpha had no bounded answer for stocky walls), 23.4 -> 25.2 mm here; the 3D pocket at this L/h and w/h is about 1.4x below it (MoldStockyWallTests).",
     "tolerancePct": 1.0, "tableDependentTolerancePct": 2.0})
 
 # ---------------------------------------------------------------- E4 bolted frame corner (critique A1: scatter + hot proof)

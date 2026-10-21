@@ -1200,7 +1200,7 @@
       "id": "4.1",
       "name": "Frame and reference",
       "status": "done",
-      "checkpoint": "20261019-201500-stage-4.1",
+      "checkpoint": "20261019-201500-stage-4-1",
       "features": [
         "MOLD CS",
         "MOLD PL1",
@@ -1214,7 +1214,7 @@
       "id": "4.9",
       "name": "Finish",
       "status": "done",
-      "checkpoint": "20261019-212000-stage-4.9",
+      "checkpoint": "20261019-212000-stage-4-9",
       "features": [
         "MOLD Chamfer BASE-1",
         "MOLD Chamfer LID-1"

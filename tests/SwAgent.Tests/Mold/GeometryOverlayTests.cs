@@ -144,5 +144,40 @@ namespace SwAgent.Tests.Mold
             {
             }
         }
+
+        [Fact]
+        public async Task The_loaders_own_synchronous_sections_count_as_busy_and_it_never_resumes_inside_synchronous_work()
+        {
+            // review finding: the async loader's own OpenDoc6/LoadFile4, facts and Close sweep ran with no synchronous depth,
+            // so a drawing's Lock() re-entered from that pump went ahead and two hidden opens interleaved
+            using (await HiddenDocuments.LockAsync(CancellationToken.None))
+            {
+                using (HiddenDocuments.SyncSection())
+                {
+                    Assert.True(HiddenDocuments.SyncBusy);
+                    var busy = Assert.Throws<InvalidOperationException>(() => HiddenDocuments.Lock());
+                    Assert.Contains("try again", busy.Message);
+                }
+                Assert.False(HiddenDocuments.SyncBusy);
+                using (HiddenDocuments.Lock()) { }   // between slices synchronous work still goes ahead
+            }
+            // ...and the loader's slices wait while synchronous hidden work is on the stack (the other direction)
+            var slicer = new Slicer();
+            Task tick;
+            var section = HiddenDocuments.SyncSection();
+            try
+            {
+                Thread.Sleep(40);                    // past the 30 ms slice, so the tick yields
+                tick = slicer.TickAsync(CancellationToken.None);
+                await Task.Delay(150);
+                Assert.False(tick.IsCompleted);
+            }
+            finally
+            {
+                section.Dispose();
+            }
+            await tick;
+            Assert.False(HiddenDocuments.SyncBusy);
+        }
     }
 }

@@ -37,8 +37,17 @@ namespace SwAgent.Mold.Geometry
                 again = null;
             }
             if (again == null) throw new MoldApiException("CboreHoles: the counterbores are cut, but the face wasn't found again for the through holes - cut them with TappedHoles-style holes from the face.");
-            // The through hole starts at the same face (the original plane), so its depth is measured from there too.
-            return Cut(sw, model, name ?? "MOLD Bolt holes", again, points, holeDia, holeDepth) ?? cb;
+            // The through hole starts at the same face (the original plane), so its depth is measured from there too. If it
+            // fails, the counterbores are taken out again so "nothing was changed" stays true.
+            try
+            {
+                return Cut(sw, model, name ?? "MOLD Bolt holes", again, points, holeDia, holeDepth) ?? cb;
+            }
+            catch (MoldApiException ex)
+            {
+                var removed = cb != null && SwGeo.DeleteFeatures(model, cb);
+                throw new MoldApiException(ex.Message + (removed ? " (the counterbores cut just before were removed again)" : " - NOTE: the counterbores cut just before are still in the model (" + cb?.Name + ")"));
+            }
         }
 
         public static IFeature Tapped(ISldWorks sw, IModelDoc2 model, string name, IFace2 face, List<double[]> points, double drillDia, double depth, string thread)
@@ -126,14 +135,16 @@ namespace SwAgent.Mold.Geometry
             var mu = (IMathUtility)sw.GetMathUtility();
             var sm = model.SketchManager;
             var adb = sm.AddToDB;
+            // InsertSketch(true) is a toggle: inside an open sketch it would close that one instead
+            if (model.GetActiveSketch2() != null) throw new MoldApiException("Holes: a sketch is open for editing: exit it (or ask the user to finish it), then run again. Nothing was changed.");
             model.ClearSelection2(true);
             if (!((IEntity)face).Select4(false, null)) throw new MoldApiException("Holes: couldn't select the face to sketch on.");
             sm.InsertSketch(true);
-            IFeature sketch;
+            var sk = model.GetActiveSketch2() as ISketch ?? throw new MoldApiException("Holes: no sketch opened on the face.");
+            IFeature sketch = sk as IFeature;
             try
             {
                 sm.AddToDB = true;
-                var sk = model.GetActiveSketch2() as ISketch ?? throw new MoldApiException("Holes: no sketch opened on the face.");
                 var t = (IMathTransform)sk.ModelToSketchTransform;
                 foreach (var p in points)
                 {
@@ -144,9 +155,9 @@ namespace SwAgent.Mold.Geometry
             finally
             {
                 sm.AddToDB = adb;
-                sm.InsertSketch(true);
+                if (model.GetActiveSketch2() != null) sm.InsertSketch(true);
             }
-            sketch = model.Extension.GetLastFeatureAdded() as IFeature ?? throw new MoldApiException("Holes: the sketch wasn't created.");
+            sketch = sketch ?? model.Extension.GetLastFeatureAdded() as IFeature ?? throw new MoldApiException("Holes: the sketch wasn't created.");
             var f = ScopedCut(model, name, sketch, target, others, v0, depth);
             // Measure: a cylinder of radius d/2 whose axis passes through each point.
             var cylinders = ((f.GetFaces() as object[]) ?? new object[0]).OfType<IFace2>()

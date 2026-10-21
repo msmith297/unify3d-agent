@@ -228,10 +228,28 @@ namespace SwAgent.Mold.Structural.Fe.Sweep
                 string side = (string)wj["side"];
                 double w = (double)wj["w_mm"], h = c.h, len = side == "length" ? c.l : c.w, perp = side == "length" ? c.w : c.l;
                 var wc = new Check { Sample = index, Support = support, Element = "wall-" + side, Governs = (string)wj["governs"], Grade = grade, T = w, Span = h, Tau = w / h };
+                if ((string)wj["governs"] == "no solution")
+                {
+                    // the sizing failed it (WALL-NOSOLN: no width up to 3 h carries it) - nothing was accepted to check
+                    wc.Skipped = true; wc.Note = "WALL-NOSOLN: the sizing refused this wall"; list.Add(wc);
+                    continue;
+                }
                 if (w / h > 0.5)
                 {
-                    // outside plate theory (S24): the sizing flags it, a plate model can't judge it
-                    wc.Skipped = true; wc.Note = "w/h over 0.5"; list.Add(wc);
+                    // outside plate theory (S24): the 3D pocket is the truth for the bulge (review finding: stocky walls had no
+                    // validation) - a quarter pocket on the platen with the floor rule's floor (S26, at least 0.25 h), two
+                    // meshes (h/8, h/12) extrapolated at first order; the stress is not judged here (the plate formula is the
+                    // sizing's own, and the root stress of a stocky wall is a 3D corner value)
+                    var floor = Math.Max(0.25, ((double?)wj["floor_mm"] ?? 0) / h);
+                    var pc = new Solid3dValidation.WallCase("stocky", Math.Min(len / h, 12), Math.Min(perp / h, 4), w / h, floor) { Nu = nu };
+                    var (w1, _, r1) = Solid3dValidation.WallPocket(pc, 2, false);
+                    var (w2, _, r2) = Solid3dValidation.WallPocket(pc, 3, false);
+                    var w3d = Solid3dValidation.Extrapolate(1.0 / 8, w1, 1.0 / 12, w2, 1);
+                    wc.Rw = w3d * p * h / e / delta;
+                    wc.Rs = 0;
+                    wc.Note = "w/h over 0.5: 3D pocket bulge (h/8, h/12 extrapolated)" + (r1.Converged && r2.Converged ? "" : ", NOT converged");
+                    if (!r1.Converged || !r2.Converged) wc.Error = true;
+                    list.Add(wc);
                     continue;
                 }
                 double lh = Math.Min(len / h, 12); // beyond L/h 12 the wall is the strip; the 12 model is within 0.5% of it

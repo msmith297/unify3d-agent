@@ -40,6 +40,12 @@ namespace SwAgent.Mold.Geometry
             model is IPartDoc part ? ((part.GetBodies2((int)swBodyType_e.swSheetBody, false) as object[]) ?? new object[0]).OfType<IBody2>().ToList() : new List<IBody2>();
 
         /// <summary>Volume in m^3 (mass properties at density 1).</summary>
+        /// <summary>A finite measurement (mass properties that fail give NaN, and NaN passes every "> tol" test).</summary>
+        public static bool Finite(double x) => !double.IsNaN(x) && !double.IsInfinity(x);
+
+        /// <summary>A self-check deviation that fails: off by more than tol, or not measurable at all.</summary>
+        public static bool Off(double deviation, double tol) => !Finite(deviation) || Math.Abs(deviation) > tol;
+
         public static double Volume(IBody2 b) => b?.GetMassProperties(1.0) is double[] mp && mp.Length > 3 ? mp[3] : double.NaN;
 
         /// <summary>Centre of mass in model meters.</summary>
@@ -239,7 +245,7 @@ namespace SwAgent.Mold.Geometry
         }
 
         /// <summary>Delete features by name (with their absorbed sketches) - undoing a failed step before reporting it.</summary>
-        public static void DeleteFeatures(IModelDoc2 model, params IFeature[] features)
+        public static bool DeleteFeatures(IModelDoc2 model, params IFeature[] features)
         {
             try
             {
@@ -247,11 +253,12 @@ namespace SwAgent.Mold.Geometry
                 var any = false;
                 foreach (var f in features)
                     if (f != null && f.Select2(true, 0)) any = true;
-                if (any) model.Extension.DeleteSelection2((int)swDeleteSelectionOptions_e.swDelete_Absorbed);
+                return any && model.Extension.DeleteSelection2((int)swDeleteSelectionOptions_e.swDelete_Absorbed);
             }
             catch (Exception ex)
             {
                 Log.Warn("Deleting a failed mold feature: " + ex.Message);
+                return false;
             }
             finally
             {

@@ -38,7 +38,7 @@ All commands run from the working folder.
 | Purpose | Command |
 |---|---|
 | Debug build | `"/c/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/MSBuild.exe" src/SwAgent/SwAgent.csproj -restore -nologo -v:minimal -p:Configuration=Debug` |
-| Tests | `dotnet test tests/SwAgent.Tests`. Expect **378 passed, 0 failed, 3 skipped**. The skipped three are the long FE sweeps; run them with `MOLD_SWEEP=1`. Tests set `SWAGENT_DATA_DIR` through `tests/SwAgent.Tests/test.runsettings`, so they never touch the user's real data. Keep it that way. |
+| Tests | `dotnet test tests/SwAgent.Tests`. Expect **412 passed, 0 failed, 3 skipped**. The skipped three are the long FE sweeps; run them with `MOLD_SWEEP=1`. Tests set `SWAGENT_DATA_DIR` through `tests/SwAgent.Tests/test.runsettings`, so they never touch the user's real data. Keep it that way. |
 | UI | `cd ui && npx tsc -b && npm run build` (node_modules is installed). Panel logic checks: `node ui/src/lib/checks/lib.check.mjs`. |
 | Mold data generators | `python -I tools/dev/mold-data/<gen>.py --check`. Each must report that its output matches the shipped files. See `tools/dev/mold-data/README.md`. |
 | FE sweeps / Monte Carlo | `tools/dev/MoldSweep` (README inside). Build it in Release **from a scratch copy**, never into `src/SwAgent/bin/Release`. |
@@ -112,6 +112,8 @@ All commands run from the working folder.
 | Registry safety | `ToolRegistry.SchemaFor` handles JToken and dictionaries and has a depth limit. A test builds the schema of every `[AgentTool]` input, because a JObject input once meant a stack overflow at add-in load. |
 
 ### 5.3 What is NOT done: do these next, in order
+
+**Update 2026-10-20 (review pass):** the `compression-mold-review` findings (engineering, SolidWorks safety, page/panel, procedure) were applied in one commit on this branch, with regression tests (`tests/SwAgent.Tests/Mold/MoldReview2*Tests.cs`, `MoldStockyWallTests.cs`). Not re-run: the 2,000-mold Monte Carlo and the 3D sweep (`MOLD_SWEEP=1`), so `data/validation/montecarlo-summary.json` predates the stocky-wall and design-force changes. Nothing was tested in SolidWorks. Item 1 below is therefore done except for those runs.
 
 1. **The multi-angle review and fix pass** was stopped by the usage limit, so the integrated tool has had no independent review.
    - Run it again as the saved workflow `compression-mold-review` (`.claude\workflows\compression-mold-review.js`). It runs review, verify and fix, and points at this folder. The original script also had an integrate phase, already done, and pointed at the old folder and a scratch folder that no longer exists.

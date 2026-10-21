@@ -182,6 +182,8 @@ namespace SwAgent.Mold
         public const string ReplaceKey = "$replace";
         /// <summary>Patch directive: check groups (Check.Group, or "all") whose earlier mold_calc checks are dropped first.</summary>
         public const string ReplaceChecksKey = "$replaceChecks";
+        /// <summary>Patch directive: check sources (e.g. "mold_bodies") whose earlier checks are dropped first.</summary>
+        public const string ReplaceChecksFromKey = "$replaceChecksFrom";
 
         /// <summary>
         /// The record's merge: objects by key, id-carrying object arrays by id, everything else replaced; an empty array
@@ -192,7 +194,9 @@ namespace SwAgent.Mold
         /// </summary>
         public static void DeepMerge(JObject target, JObject patch)
         {
-            if (patch[ReplaceKey] != null || patch[ReplaceChecksKey] != null)
+            // a user's waiver (status "waived", waivedBy, note) outlives the calculator re-running the check it waived
+            var waivers = Waivers(target);
+            if (patch[ReplaceKey] != null || patch[ReplaceChecksKey] != null || patch[ReplaceChecksFromKey] != null)
             {
                 patch = (JObject)patch.DeepClone();
                 if (patch[ReplaceKey] is JArray rp)
@@ -208,10 +212,55 @@ namespace SwAgent.Mold
                             c.Remove();
                     }
                 }
+                if (patch[ReplaceChecksFromKey] is JArray sources && target["checks"] is JArray checks2)
+                {
+                    var ss = new HashSet<string>(sources.Select(x => (string)x).Where(x => !string.IsNullOrEmpty(x)), StringComparer.OrdinalIgnoreCase);
+                    foreach (var c in checks2.OfType<JObject>().ToList())
+                    {
+                        var src = (string)c["source"] ?? "";
+                        if (ss.Contains(src) || ss.Any(x => src.StartsWith(x + "@", StringComparison.OrdinalIgnoreCase))) c.Remove();
+                    }
+                }
                 patch.Remove(ReplaceKey);
                 patch.Remove(ReplaceChecksKey);
+                patch.Remove(ReplaceChecksFromKey);
             }
             MergeCore(target, patch);
+            Rewaive(target, waivers);
+        }
+
+        /// <summary>The checks the user waived: id -> the waived entry (status, waivedBy, note).</summary>
+        private static Dictionary<string, JObject> Waivers(JObject target)
+        {
+            var map = new Dictionary<string, JObject>(StringComparer.Ordinal);
+            if (target["checks"] is JArray checks)
+                foreach (var c in checks.OfType<JObject>())
+                    if ((string)c["status"] == "waived" && c["id"]?.Type == JTokenType.String)
+                        map[(string)c["id"]] = new JObject { ["waivedBy"] = c["waivedBy"]?.DeepClone(), ["note"] = c["note"]?.DeepClone() };
+            return map;
+        }
+
+        /// <summary>
+        /// Puts the waiver back on a check a tool computed again (source mold_calc@... or mold_bodies) that still fails or
+        /// warns; a check that now passes needs no waiver. A user entry written with status fail un-waives it.
+        /// </summary>
+        private static void Rewaive(JObject target, Dictionary<string, JObject> waivers)
+        {
+            if (waivers.Count == 0 || !(target["checks"] is JArray checks)) return;
+            foreach (var c in checks.OfType<JObject>())
+            {
+                var id = (string)c["id"];
+                if (id == null || !waivers.TryGetValue(id, out var w)) continue;
+                var st = (string)c["status"];
+                var src = (string)c["source"] ?? "";
+                var computed = src.StartsWith("mold_calc@", StringComparison.Ordinal) || src.StartsWith("mold_bodies", StringComparison.Ordinal);
+                if (!computed || (st != "fail" && st != "warn")) continue;
+                c["status"] = "waived";
+                c["waivedBy"] = w["waivedBy"]?.DeepClone();
+                var oldNote = (string)w["note"] ?? "";
+                var newNote = (string)c["note"] ?? "";
+                c["note"] = oldNote.Length == 0 ? newNote : newNote.Length == 0 || newNote == oldNote ? oldNote : oldNote + " | now: " + newNote;
+            }
         }
 
         private static void RemovePath(JObject target, string path)

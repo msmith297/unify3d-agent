@@ -81,7 +81,14 @@ namespace SwAgent
                     // panel offers to have the agent find and fix the cause.
                     var tool = (string)crash["tool"];
                     var kind = (string)crash["kind"];
-                    if (tool != null && (kind == "preview" || kind == "macro" || kind == "page"))
+                    if (tool != null && (kind == "preview" || kind == "macro" || kind == "page") && UserTools.IsBuiltIn(tool))
+                    {
+                        // a built-in tool is read-only: a pause written to builtin-settings.json could never be cleared (edit_user_tool
+                        // refuses built-ins), so it isn't persisted - the crash card still reports it
+                        crash["builtIn"] = true;
+                        Log.Warn($"Built-in tool '{tool}' was running ({kind}) when SolidWorks closed; not paused (built-in tools are read-only).");
+                    }
+                    else if (tool != null && (kind == "preview" || kind == "macro" || kind == "page"))
                     {
                         try
                         {

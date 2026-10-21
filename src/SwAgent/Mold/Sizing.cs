@@ -317,7 +317,9 @@ namespace SwAgent.Mold
             LayoutBlock(r, cfg, data);
             PressBlock(r, cfg, data, r.Layout);
             var p = r.Press;
-            var pLC1 = p.PLC1;
+            // class B: the cavity pressure at the force the operator may use (the setting or the recommended one, whichever
+            // is higher), so the recommended gauge is always inside what was checked; class A: the hydrostatic load
+            var pLC1 = p.PDesign;
             var field = PressureFieldMax(r);
             if (field != null && field.Value > pLC1)
             {
@@ -326,7 +328,7 @@ namespace SwAgent.Mold
             }
             var pAbuse = d.Class == ProcessClass.A_Pour ? p.PLC1x : 0.0;
             // class B: the stop pads carry the press force (S33) and sit in the edge steel, so the edge is sized with them
-            if (d.Class != ProcessClass.A_Pour) fg = FlashGeometry(r, cfg, data, PadSide(p.Force_N, g, d.Cycles, cfg));
+            if (d.Class != ProcessClass.A_Pour) fg = FlashGeometry(r, cfg, data, PadSide(p.ForceDesign_N, g, d.Cycles, cfg));
 
             // allowables (S15-S19) at the wall root: K_t from the part's floor radius over the wall width
             var hBase = d.DepthBase * sx.Sw;
@@ -335,7 +337,7 @@ namespace SwAgent.Mold
             var pv = d.PartV * sx.Sv;
             // S21 wall-root factor base + c w/h (Track A2's 3D pocket models: 1 + 2.8 w/h); a plain number is a constant factor
             var (rootBase, rootSlope) = RootFactor(cfg);
-            var rootText = rootSlope == 0 ? Si.F(rootBase) : Si.F(rootBase) + " + " + Si.F(rootSlope) + " w/h";
+            var rootText = rootSlope == 0 ? Si.F(rootBase) : Si.F(rootBase) + " + " + Si.F(rootSlope) + " w/h (above w/h " + Si.F(Walls.RootCalibratedTau) + ": an added bulge falling as h/w)";
             var tauMax = cfg.D("tauMax", 0.5);
             var kf = cfg.ParamNum("kf");
 
@@ -391,12 +393,26 @@ namespace SwAgent.Mold
             var lidRule = "S28: 0.05 x longest side, min plate, plug + 10 mm";
             var support = d.FlatOnPlaten ? Plates.ParseSupport(cfg.ParamStr("support") ?? (string)d.Json.SelectToken("structural.inputs.support")) : Plates.ParseSupport(cfg.ParamStr("support") ?? "B");
             var spanNotes = new JObject();
+            // the as-built check (A12) checks the plates as they are: the measured thickness (structural.asBuilt), else the
+            // planned one in the record - never a freshly re-sized plate, which would pass by construction
+            // measured by mold_bodies: the thickest body of the role (its W extent) when the record has no explicit value
+            double? Measured(string role) => (d.Json["bodies"] as JArray)?.OfType<JObject>().Where(b => string.Equals((string)b["role"], role, StringComparison.OrdinalIgnoreCase))
+                .Select(b => Si.Lengths(b["box_mm"])).Where(x => x != null && x.Length == 3 && x[2] > 0).Select(x => (double?)x[2]).DefaultIfEmpty(null).Max();
+            double? Built(string key, string role, string planned) => asBuilt ? Num(d.Json, "structural.asBuilt." + key) ?? Measured(role) ?? Num(d.Json, planned) : null;
+            var tBaseBuilt = Built("baseThickness_mm", "base", "structural.results.plates.base.t_mm");
+            var tLidBuilt = Built("lidThickness_mm", "lid", "structural.results.plates.lid.t_mm");
             if (support != Support.A)
-                baseReq = Math.Max(baseReq, SpanBlock(r, cfg, data, support, lay, hBase, spanNotes) + hBase);
-            var baseT = StockRounding.Thickness(baseReq, d.PlateGrade, data, d.Imperial);
-            var lidT = StockRounding.Thickness(lidReq, d.PlateGrade, data, d.Imperial);
-            var tBase = Num(d.Json, "structural.asBuilt.baseThickness_mm") ?? baseT.Finished;
-            var tLid = Num(d.Json, "structural.asBuilt.lidThickness_mm") ?? lidT.Finished;
+                baseReq = Math.Max(baseReq, SpanBlock(r, cfg, data, support, lay, hBase, spanNotes, tBaseBuilt - hBase) + hBase);
+            var baseT = StockRounding.Thickness(tBaseBuilt ?? baseReq, d.PlateGrade, data, d.Imperial);
+            var lidT = StockRounding.Thickness(tLidBuilt ?? lidReq, d.PlateGrade, data, d.Imperial);
+            var tBase = tBaseBuilt ?? baseT.Finished;
+            var tLid = tLidBuilt ?? lidT.Finished;
+            if (tBaseBuilt != null)
+            {
+                // the floor under the deepest cavity and the plate rules (S26-S28) at the as-built thickness
+                if (hBase > 0)
+                    r.Checks.Add(ToJson(new JCheck { Id = "PLATE-BASE-T", Type = "deflection", Demand = tBase, Capacity = hBase + tFloor, Unit = "mm", Lower = true, Method = "S26-S27 (as built): base thickness >= cavity depth + required floor" + (support == Support.A ? "" : " (the span is checked at this thickness)") }, "size", "BASE-1"));
+            }
 
             // masses and boxes (S71-S73), lid limit (A2)
             var cavVolBase = d.PartVolume * sx.Su * sx.Sv * sx.Sw * (d.PartH > 0 ? hBase / (d.PartH * sx.Sw) : 1);
@@ -455,7 +471,10 @@ namespace SwAgent.Mold
                 r.Checks.Add(Check.Status("SPLIT-LID", "scope", "fail", "S74: a class A lid is never split (its seam would cross the seal)", "remove structural.split.lid; use fewer cavities, a smaller footprint, lightening pockets or a lift assist"));
                 lidPlan = null;
             }
-            var built = asBuilt ? (d.Json["bodies"] as JArray)?.OfType<JObject>().Where(b => b["mass_kg"] != null && Si.Lengths(b["box_mm"])?.Length == 3).ToList() : null;
+            // machined pieces with a measured mass (mold_bodies writes "mass_kg": null when it cannot weigh a body)
+            var machined = new[] { "base", "subplate", "middle", "lid", "insert", "stop" };
+            var built = asBuilt ? (d.Json["bodies"] as JArray)?.OfType<JObject>().Where(b => (b["mass_kg"]?.Type == JTokenType.Float || b["mass_kg"]?.Type == JTokenType.Integer)
+                && machined.Contains(((string)b["role"] ?? "base").ToLowerInvariant()) && Si.Lengths(b["box_mm"])?.Length == 3).ToList() : null;
             // the chosen split (S74): the pieces between the cut lines, keyed into a (possibly split) backing plate
             double SplitPieces(JObject plan, string plateId, string subId, string role, string subRole, double t, double depth, StockChoice st)
             {
@@ -527,20 +546,24 @@ namespace SwAgent.Mold
                 // the same sideways pressure (lambda x p_LC1) that SizeWall used
                 var pLat = pLC1 * cfg.D("lateralPressureFactor", 1.0);
                 wr.Sigma = co.Beta * pLat * h * h / (drawn * drawn) + pLat * (isU ? pu : pv) / (2 * drawn);
-                wr.Deflection = (rootBase + rootSlope * drawn / h) * co.Alpha * pLat * Math.Pow(h, 4) / (g.E * Math.Pow(drawn, 3));
+                wr.Deflection = Walls.RootAt(rootBase, rootSlope, drawn / h, wr.LOverH, g.Nu) * co.Alpha * pLat * Math.Pow(h, 4) / (g.E * Math.Pow(drawn, 3));
                 wr.SigmaAllow = fa.Allow;
+                var noSoln = wr.Checks.FirstOrDefault(c => c.Id.StartsWith("WALL-NOSOLN-", StringComparison.Ordinal));
                 wr.Checks.Clear();
+                if (noSoln != null) wr.Checks.Add(noSoln);
                 wr.Checks.Add(new JCheck { Id = "WALL-DEFL-" + w.Id, Type = "deflection", Demand = wr.Deflection, Capacity = r.Gap.DeltaWall, Unit = "mm", LoadCase = "LC1", Method = "S21 + A11: (" + rootText + ") alpha p h^4/(E w^3) <= 0.25 x width tolerance" });
                 wr.Checks.Add(new JCheck { Id = "WALL-STRESS-" + w.Id, Type = fa.AllowFatigue < fa.AllowStatic ? "fatigue" : "stress", Demand = wr.Sigma, Capacity = fa.Allow, Unit = "MPa", LoadCase = "LC1", Method = "S22-S23: beta p h^2/w^2 + p b/(2w) <= min(Sy/2, fatigue), K_f " + Si.F(fa.Kf) });
                 if (wr.StockyFlag)
                     wr.Checks.Add(new JCheck { Id = "WALL-STOCKY-" + w.Id, Type = "stress", Demand = wr.TauStruct, Capacity = tauMax, Unit = "w/h", Status = "warn", Method = "S24: w/h > 0.5 - plate theory no longer applies; prefer steel, a keyed wall, or a 3D check" });
                 if (pAbuse > 0)
                 {
-                    var strip1 = 3 * h * h / (drawn * drawn) + (isU ? pu : pv) / (2 * drawn);
-                    wr.SigmaAbuse = pAbuse * strip1;
-                    wr.PAbuseCap = g.Sy / strip1;
+                    // S24: beta for a plate-like wall; the strip upper bound only for a stocky one (w/h above tauMax)
+                    var stocky = drawn / h > tauMax;
+                    var f1 = Walls.AbuseFactor(stocky, co.Beta, h, isU ? pu : pv, drawn);
+                    wr.SigmaAbuse = pAbuse * f1;
+                    wr.PAbuseCap = g.Sy / f1;
                     wallAbuseCap = Math.Min(wallAbuseCap, wr.PAbuseCap.Value);
-                    wr.Checks.Add(new JCheck { Id = "WALL-ABUSE-" + w.Id, Type = "stress", Demand = wr.SigmaAbuse.Value, Capacity = g.Sy, Unit = "MPa", LoadCase = "LC1x", Method = "S24/LC1x: strip 3 p h^2/w^2 + p b/(2w) <= Sy,T at F/A_proj (SF 1.0)" });
+                    wr.Checks.Add(new JCheck { Id = "WALL-ABUSE-" + w.Id, Type = "stress", Demand = wr.SigmaAbuse.Value, Capacity = g.Sy, Unit = "MPa", LoadCase = "LC1x", Method = Walls.AbuseMethod(stocky) });
                 }
                 foreach (var c in wr.Checks) r.Checks.Add(ToJson(c, "size"));
                 finalWalls.Add(wr);
@@ -552,7 +575,7 @@ namespace SwAgent.Mold
                     ["w_drawn_mm"] = Si.R(drawn, 6), ["alpha"] = Si.R(co.Alpha, 5), ["beta"] = Si.R(co.Beta, 5),
                     ["sigma_MPa"] = Si.R(wr.Sigma, 5), ["allow_MPa"] = Si.R(fa.Allow, 5), ["Kf"] = Si.R(fa.Kf, 4), ["Sa_MPa"] = Si.R(fa.Sa, 5), ["sigmaMaxR0_MPa"] = Si.R(fa.SigmaMaxR0, 5),
                     ["deflection_mm"] = Si.R(wr.Deflection, 5), ["governs"] = drawn > w.WStruct + 1e-9 ? (d.Class == ProcessClass.A_Pour ? "flash system and dowels" : "flash band, hardware and class B minimum") : (w.WStress > w.WDefl ? "stress" : "deflection"),
-                    ["stocky"] = wr.StockyFlag, ["sigmaAbuse_MPa"] = wr.SigmaAbuse == null ? null : (JToken)Si.R(wr.SigmaAbuse.Value, 5),
+                    ["stocky"] = wr.StockyFlag, ["noSolution"] = w.NoSolution, ["sigmaAbuse_MPa"] = wr.SigmaAbuse == null ? null : (JToken)Si.R(wr.SigmaAbuse.Value, 5),
                 });
             }
 
@@ -593,9 +616,9 @@ namespace SwAgent.Mold
             // multi-piece base (keys, bolts) when a split was chosen
             var hardwareBolts = new JArray();
             var keysJson = new JArray();
-            double jointAbuseCap = double.PositiveInfinity;
-            if (basePlan != null) SplitJoints(r, cfg, data, basePlan, "BASE", "SUB", pLC1, pAbuse, hBase, tBase, hardwareBolts, keysJson, ref jointAbuseCap);
-            if (lidPlan != null) SplitJoints(r, cfg, data, lidPlan, "LID", "LSUB", pLC1, pAbuse, hLid, tLid, hardwareBolts, keysJson, ref jointAbuseCap);
+            double jointAbuseCap = double.PositiveInfinity, jointLc1Cap = double.PositiveInfinity;
+            if (basePlan != null) SplitJoints(r, cfg, data, basePlan, "BASE", "SUB", pLC1, pAbuse, hBase, tBase, hardwareBolts, keysJson, ref jointAbuseCap, ref jointLc1Cap);
+            if (lidPlan != null) SplitJoints(r, cfg, data, lidPlan, "LID", "LSUB", pLC1, pAbuse, hLid, tLid, hardwareBolts, keysJson, ref jointAbuseCap, ref jointLc1Cap);
 
             // threads for the handle / insert screws are listed in the hardware; dowels (S58), inserts (S59), pins (S61-S63)
             var dowelD = data.ShopMm("dowels.diameter", 12.7);
@@ -699,23 +722,34 @@ namespace SwAgent.Mold
 
             // maximum gauge: press rating, bearing (S35), wall, pin and joint abuse (S24, S62, A3)
             var caps = new List<GaugeCap>();
-            if (d.RatedGauge_MPa > 0) caps.Add(new GaugeCap(d.RatedGauge_MPa, "press rating", null));
+            if (p.RatingGauge_MPa > 0) caps.Add(new GaugeCap(p.RatingGauge_MPa, d.RatedGauge_MPa > 0 ? "press rating" : "press rating (F_rated / A_ram)", null));
             if (!double.IsNaN(bear.GaugeMax_MPa) && !double.IsInfinity(bear.GaugeMax_MPa)) caps.Add(new GaugeCap(bear.GaugeMax_MPa, "bearing S35", null));
             foreach (var (pc, basis) in new[] { (wallAbuseCap, "wall abuse LC1x (S24)"), (pinAbuseCap, "pin/insert abuse LC1x (S62)"), (jointAbuseCap, "joint abuse LC1x (A3)") })
                 if (pAbuse > 0 && !double.IsInfinity(pc) && !double.IsNaN(pc)) caps.Add(new GaugeCap(pc * p.AProj_mm2 / p.RamArea_mm2, basis, pc));
+            // every LC1 capacity that follows the press force caps the gauge too, so the setup sheet's maximum never exceeds
+            // what was checked: class B walls, pins, keys and joints (their cavity pressure is F/A_proj), and the supported
+            // span in both classes (its load grows with F)
+            caps.AddRange(StructuralCaps(r, cfg, pLC1, d.Class != ProcessClass.A_Pour ? jointLc1Cap : double.PositiveInfinity));
             ApplyGaugeCaps(r, caps);
-            // abuse (LC1x) failures that the gauge cap covers are warnings with the cap; failing even the recommended gauge stays a fail
+            // abuse (LC1x) failures: the user's own setting is above what the part carries. Covered by the maximum gauge
+            // (a warning with the number to set) when the recommended gauge is inside it; failing even that stays a fail
+            var userGauge = p.GaugeNeeded_MPa;
             foreach (var c in r.Checks.Where(c => (string)c["loadCase"] == "LC1x" && (string)c["status"] == "fail").ToList())
             {
                 if (r.GaugeMax_MPa != null && p.GaugeSet_MPa <= r.GaugeMax_MPa.Value * (1 + 1e-9))
                 {
                     c["status"] = "warn";
-                    c["note"] = "covered by the maximum gauge " + Si.F(r.GaugeMax_MPa.Value) + " MPa on the setup sheet";
+                    c["note"] = userGauge > r.GaugeMax_MPa.Value * (1 + 1e-9)
+                        ? "fails at your setting (" + Si.F(userGauge) + " MPa gauge): set the gauge to " + Si.F(p.GaugeSet_MPa) + " MPa, never above the maximum " + Si.F(r.GaugeMax_MPa.Value) + " MPa on the setup sheet"
+                        : "covered by the maximum gauge " + Si.F(r.GaugeMax_MPa.Value) + " MPa on the setup sheet";
                 }
             }
 
-            // press block again with the final footprint and stack height (S8, S9)
+            // press block again with the final footprint and stack height (S8, S9): the subplate under a split base and the lid
+            // plate of a split class B lid are part of the closed stack
             var stack = tBase + tLid;
+            if (basePlan != null) stack += Si.Num(basePlan.SelectToken("subplate.t_mm")) ?? 22.225;
+            if (lidPlan != null) stack += Si.Num(lidPlan.SelectToken("subplate.t_mm")) ?? 22.225;
             PressBlock(r, cfg, data, lay, stack);
             if (r.GaugeMax_MPa != null) { r.PressJson["gauge"]["max_MPa"] = Si.R(r.GaugeMax_MPa.Value, 5); r.PressJson["gauge"]["maxBasis"] = r.GaugeMaxBasis; }
 
@@ -1005,23 +1039,29 @@ namespace SwAgent.Mold
         /// (design 2.3.2, Track A2: cavities plus land loaded, supports where they are, two meshes extrapolated) - the table alone
         /// is about 17% thick on rails and over openings, and unsafe next to the plate edges on pillars. The press force beyond
         /// what the cavities carry is spread over the footprint. Case D is the overhang strip; case F needs a separate FE.
+        /// Loads: the design force (the user's setting or the recommended one, whichever is higher). With tBuilt (the
+        /// as-built check, A12) nothing is sized: the floor is checked at that thickness and 0 is returned.
         /// </summary>
-        private static double SpanBlock(SizingResult r, Cfg cfg, MoldData data, Support s, LayoutResult lay, double hBase, JObject notes)
+        private static double SpanBlock(SizingResult r, Cfg cfg, MoldData data, Support s, LayoutResult lay, double hBase, JObject notes, double? tBuilt = null)
         {
             var d = r.Design;
             var g = r.Plate;
-            var p = Math.Max(r.Press.PLC1, r.Press.Force_N / (lay.FootprintL * lay.FootprintW));
+            var p = Math.Max(r.Press.PDesign, r.Press.ForceDesign_N / (lay.FootprintL * lay.FootprintW));
+            if (tBuilt != null && !(tBuilt > 0))
+                throw new ArgumentException("The as-built base leaves no floor under the cavities (" + Si.F(tBuilt.Value) + " mm): re-measure structural.asBuilt.baseThickness_mm.");
             var delta = r.Gap.DeltaGap;
             var tauMax = cfg.D("tauMax", 0.5);
             if (s == Support.D)
             {
                 var c = cfg.ParamNum("overhang_mm") ?? Si.Num(d.Json.SelectToken("structural.inputs.overhang_mm")) ?? 0;
                 if (c <= 0) return 0;
-                var t = Plates.OverhangThickness(p, c, g.E, g.Nu, delta);
+                var t = tBuilt ?? Plates.OverhangThickness(p, c, g.E, g.Nu, delta);
                 var ov = Plates.Overhang(p, c, t, g.E, g.Nu);
                 notes["case"] = "D"; notes["overhang_mm"] = c; notes["t_mm"] = Si.R(t, 5); notes["sigma_MPa"] = Si.R(ov.Sigma, 5);
+                if (tBuilt != null)
+                    r.Checks.Add(ToJson(new JCheck { Id = "SPAN-DEFL", Type = "deflection", Demand = ov.W, Capacity = delta, Unit = "mm", LoadCase = "LC1", Method = "S32 (as built): overhang strip deflection at the as-built floor <= delta_gap" }, "size", "BASE-1"));
                 r.Checks.Add(ToJson(new JCheck { Id = "SPAN-STRESS", Type = "stress", Demand = ov.Sigma, Capacity = g.Sy / cfg.D("sfStatic", 2), Unit = "MPa", LoadCase = "LC1", Method = "S32: overhang strip 3 p c^2/t^2 <= Sy/2" }, "size"));
-                return t;
+                return tBuilt != null ? 0 : t;
             }
             if (s == Support.F)
             {
@@ -1064,6 +1104,32 @@ namespace SwAgent.Mold
                         r.Notes.Add("Case E without pillar positions: the plate is sized on its edges alone - pass overrides {\"pillars_mm\": {\"u\": [...], \"v\": [...]}} (from the plate corner) or {\"span_mm\": pitch}");
                     }
                     break;
+            }
+            if (tBuilt != null)
+            {
+                // the as-built check: the floor as it is, against delta_gap and the allowable (layout FE, else the table)
+                var tb = tBuilt.Value;
+                notes["case"] = s.ToString(); notes["bc"] = bc; notes["span_mm"] = Si.R(b, 6); notes["p_MPa"] = Si.R(p, 5); notes["t_mm"] = Si.R(tb, 5);
+                notes["tOverB"] = Si.R(tb / b, 4); notes["asBuilt"] = true; notes["geometry"] = plan;
+                if ((bool?)cfg.Param("plate_fe") != false)
+                {
+                    try
+                    {
+                        var (rw, rs) = LayoutPlate.Extrapolated(plan, tb, g.E, g.Nu, fa.Allow, alphaFactor);
+                        notes["fe"] = new JObject { ["method"] = "layout plate FE at the as-built floor, two meshes extrapolated", ["t_mm"] = Si.R(tb, 5), ["r_w"] = Si.R(rw, 4), ["r_s"] = Si.R(rs, 4) };
+                        r.Checks.Add(ToJson(new JCheck { Id = "SPAN-DEFL", Type = "deflection", Demand = rw * delta, Capacity = delta, Unit = "mm", LoadCase = "LC1", Method = "S29 + 2.3.2 (as built): land deflection by the layout plate FE at the as-built floor <= delta_gap" }, "size", "BASE-1"));
+                        r.Checks.Add(ToJson(new JCheck { Id = "SPAN-STRESS", Type = fa.AllowFatigue < fa.AllowStatic ? "fatigue" : "stress", Demand = rs * fa.Allow, Capacity = fa.Allow, Unit = "MPa", LoadCase = "LC1", Method = "S30 + 2.3.2 (as built): plate stress by the layout plate FE at the as-built floor <= min(Sy/2, fatigue)" }, "size", "BASE-1"));
+                        return 0;
+                    }
+                    catch (InvalidOperationException ex)
+                    {
+                        r.Checks.Add(Check.Status("SPAN-FE", "deflection", "warn", "2.3.2: the layout plate FE could not run", ex.Message + " - the coefficient table is used; check the supports"));
+                    }
+                }
+                var cob = Coefficients.Get(bc, len / b, tb / b, g.Nu, 1.0);
+                r.Checks.Add(ToJson(new JCheck { Id = "SPAN-DEFL", Type = "deflection", Demand = alphaFactor * cob.Alpha * p * Math.Pow(b, 4) / (g.E * Math.Pow(tb, 3)), Capacity = delta, Unit = "mm", LoadCase = "LC1", Method = "S29 (as built): alpha p b^4/(E t^3) at the as-built floor <= delta_gap (" + bc + " rows)" }, "size", "BASE-1"));
+                r.Checks.Add(ToJson(new JCheck { Id = "SPAN-STRESS", Type = "stress", Demand = cob.Beta * p * b * b / (tb * tb), Capacity = fa.Allow, Unit = "MPa", LoadCase = "LC1", Method = "S30 (as built): beta p b^2/t^2 at the as-built floor <= min(Sy/2, fatigue)" }, "size", "BASE-1"));
+                return 0;
             }
             var sp = Plates.Span(bc, len / b, b, p, g.E, g.Nu, delta, tauMax, alphaFactor: alphaFactor, allow: fa.Allow);
             notes["case"] = s.ToString(); notes["bc"] = bc; notes["span_mm"] = Si.R(b, 6); notes["p_MPa"] = Si.R(p, 5);
@@ -1148,9 +1214,9 @@ namespace SwAgent.Mold
                 foreach (var c in lay.Cavities) cav.Add(new[] { c.U + L / 2 - pu / 2, c.V + W / 2 - pv / 2, c.U + L / 2 + pu / 2, c.V + W / 2 + pv / 2 });
             }
             var land = cfg.ParamNum("land_mm") ?? LandWidth(d, data);
-            var pCav = r.Press.PLC1;
+            var pCav = r.Press.PDesign;
             var loaded = cav.Sum(c => (c[2] - c[0] + 2 * land) * (c[3] - c[1] + 2 * land));
-            var extra = Math.Max(0, r.Press.Force_N - pCav * loaded) / (L * W);
+            var extra = Math.Max(0, r.Press.ForceDesign_N - pCav * loaded) / (L * W);
             // rails along V: transpose so the rails run along x like the Rails rows and the FE model expect
             var railsU = s == Support.B ? GA("rails_u_mm") : null;
             var railsV = s == Support.B ? GA("rails_v_mm") : null;
@@ -1227,7 +1293,7 @@ namespace SwAgent.Mold
         /// plate so nothing stands proud of the base's underside (E4). Screws along a joint keep S53's 1.5 d edge distance
         /// and 4-6 d spacing; a second row is used when one row cannot hold the count.
         /// </summary>
-        private static void SplitJoints(SizingResult r, Cfg cfg, MoldData data, JObject split, string plateId, string subId, double p, double pAbuse, double h, double tPlate, JArray bolts, JArray keys, ref double abuseCap)
+        private static void SplitJoints(SizingResult r, Cfg cfg, MoldData data, JObject split, string plateId, string subId, double p, double pAbuse, double h, double tPlate, JArray bolts, JArray keys, ref double abuseCap, ref double lc1Cap)
         {
             var d = r.Design;
             var g = r.Plate;
@@ -1335,6 +1401,29 @@ namespace SwAgent.Mold
                     continue;
                 }
                 var bb = best.Value;
+                // the LC1 cavity pressure this joint carries at its chosen preload (bolt checks and thread stripping): with a
+                // pressure that follows the press (class B) it caps the maximum gauge, so the setup sheet's maximum stays checked
+                if (p > 0 && kr.PTotTipping > 0)
+                {
+                    var perBolt = kr.PTotTipping / bb.N;
+                    var ji = new JointInput
+                    {
+                        Bolt = bb.B, Tapped = true, TopThickness = bb.Clamp + bb.B.WasherT, TappedThickness = bb.T.Le,
+                        Layers = new List<Layer> { new Layer { T = bb.Clamp, E = g.E, Aluminium = g.IsAluminium } }, AlphaMember = g.Cte_perK,
+                        TempC = d.TempC, P = perBolt, MemberSuT = g.Su,
+                    };
+                    var hotStrip = bb.T.StripStress > 0 ? bb.J.HotMax * bb.T.StripAllow / bb.T.StripStress : double.PositiveInfinity;
+                    bool Ok(double load)
+                    {
+                        ji.P = load;
+                        var ev = Bolts.Evaluate(ji, cfg, bb.J.Fraction);
+                        return ev.Checks.Where(c => c.LoadCase != "LC1x").All(Bolts.Passes) && ev.HotMax <= hotStrip * (1 + 1e-12);
+                    }
+                    double lo = 0, hi = perBolt;
+                    if (Ok(perBolt)) { lo = perBolt; hi = 2 * perBolt; for (var k = 0; k < 60 && Ok(hi); k++) { lo = hi; hi *= 2; } }
+                    for (var k = 0; k < 60; k++) { var m = 0.5 * (lo + hi); if (Ok(m)) lo = m; else hi = m; }
+                    lc1Cap = Math.Min(lc1Cap, p * lo / perBolt);
+                }
                 foreach (var c in bb.J.Checks) { var cj = ToJson(c, "size", pc.Id); cj["id"] = c.Id + "-" + pc.Id; r.Checks.Add(cj); }
                 r.Checks.Add(ToJson(new JCheck
                 {
@@ -1447,12 +1536,79 @@ namespace SwAgent.Mold
             r.GaugeMaxBasis = null;
             if (r.GaugeCaps.Count == 0) return;
             var min = r.GaugeCaps.OrderBy(c => c.Gauge).ThenBy(c => c.Basis, StringComparer.Ordinal).First();
-            r.GaugeMax_MPa = min.Gauge;
+            // the printed maximum is rounded down, so a gauge set to it never exceeds what was checked
+            r.GaugeMax_MPa = Si.RDown(min.Gauge, 5);
             r.GaugeMaxBasis = min.Basis;
             r.Checks.Add(ToJson(new JCheck { Id = "PRESS-GAUGE-MAX", Type = "press", Demand = p.GaugeSet_MPa, Capacity = min.Gauge, Unit = "MPa", Method = "S35/S24/S62/A3: recommended gauge <= the lowest maximum (" + min.Basis + ")" }, "press"));
-            // the user's own setting above the cap: a warning with the number to set (the cap is on the setup sheet)
-            if (d.Meaning == PressMeaning.Gauge && d.PressValue > min.Gauge * (1 + 1e-9))
-                r.Checks.Add(Check.Status("PRESS-SETTING", "press", "warn", "S35/A3: your gauge setting is above the maximum", "set the gauge to " + Si.F(p.GaugeSet_MPa) + " MPa (max " + Si.F(min.Gauge) + " MPa, " + min.Basis + ")"));
+            // the user's own setting (as the gauge it needs, F/A_ram, whatever its meaning) above the cap: a warning with the
+            // number to set (the cap is on the setup sheet)
+            var userGauge = p.GaugeNeeded_MPa;
+            if (userGauge > min.Gauge * (1 + 1e-9))
+                r.Checks.Add(Check.Status("PRESS-SETTING", "press", "warn", "S35/A3: your " + (d.Meaning == PressMeaning.Gauge ? "gauge setting" : d.Meaning == PressMeaning.OnPart ? "pressure on the part" : "force reading") + " is above the maximum (it needs a gauge of " + Si.F(userGauge) + " MPa)", "set the gauge to " + Si.F(p.GaugeSet_MPa) + " MPa (max " + Si.F(min.Gauge) + " MPa, " + min.Basis + ")"));
+            // a gauge setting the operator cannot read: below 5% of the gauge's full scale (the gauge at the rating)
+            var full = p.RatingGauge_MPa;
+            if (full > 0)
+            {
+                var low = new List<string>();
+                if (p.GaugeSet_MPa < 0.05 * full) low.Add("recommended " + Si.F(p.GaugeSet_MPa) + " MPa");
+                if (min.Gauge < 0.05 * full) low.Add("maximum " + Si.F(min.Gauge) + " MPa");
+                if (low.Count > 0)
+                    r.Checks.Add(Check.Status("PRESS-GAUGE-READ", "press", "warn", "S7: gauge setting below 5% of the gauge's full scale (" + Si.F(full) + " MPa) cannot be read reliably", string.Join(", ", low) + ": use a low-range gauge or a smaller press, or set by force on a load cell"));
+            }
+        }
+
+        /// <summary>
+        /// The gauge caps of the LC1 checks whose load follows the press force (the setup sheet's maximum must have been
+        /// checked): the demand is linear (walls, pins, keys) or affine with a non-negative intercept (a span under the
+        /// cavities plus the rest of the force) in F, so gauge_design x capacity/demand is the gauge at which the check is
+        /// exactly met, or a conservative bound below it. Class A walls, pins and keys carry the hydrostatic load and do
+        /// not follow the press. A beyond-limit temperature (A8) holds plate stresses to its stress ratio.
+        /// </summary>
+        private static List<GaugeCap> StructuralCaps(SizingResult r, Cfg cfg, double pDesign, double jointLc1Cap)
+        {
+            var d = r.Design;
+            var p = r.Press;
+            var caps = new List<GaugeCap>();
+            if (!(p.ForceDesign_N > 0) || !(p.RamArea_mm2 > 0)) return caps;
+            var gaugeDesign = p.ForceDesign_N / p.RamArea_mm2;
+            var classB = d.Class != ProcessClass.A_Pour;
+            var g = r.Plate;
+            var strict = g.Service == "beyond-limit" || (g.Service == "limited" && d.Cycles > cfg.D("limitedTemperature.maxCycles", 10000));
+            var lim = strict ? cfg.D("limitedTemperature.stressRatioMax", 0.5) : 1.0;
+            var pinsInInsert = g.IsAluminium && r.Insert != null;
+            var groups = new[]
+            {
+                (Prefixes: new[] { "WALL-DEFL-", "WALL-STRESS-" }, Basis: "walls LC1 (S21-S23)", B: true),
+                (Prefixes: new[] { "PIN-STRESS-", "PIN-DEFL-" }, Basis: "pins LC1 (S62)", B: true),
+                (Prefixes: new[] { "KEY-BEAR-", "KEY-SHEAR-" }, Basis: "keys LC1 (S38-S39)", B: true),
+                (Prefixes: new[] { "SPAN-DEFL", "SPAN-STRESS" }, Basis: "plate span LC1 (S29-S30)", B: false),
+            };
+            var ratios = new List<(double, string)>();
+            foreach (var grp in groups)
+            {
+                if (grp.B && !classB) continue;
+                var ratio = double.PositiveInfinity;
+                foreach (var c in r.Checks)
+                {
+                    var id = (string)c["id"] ?? "";
+                    if ((string)c["loadCase"] != "LC1" || !grp.Prefixes.Any(x => id.StartsWith(x, StringComparison.Ordinal)) || id.Contains("-X-")) continue;
+                    var dem = Si.Num(c["demand"]);
+                    var cap = Si.Num(c["capacity"]);
+                    if (dem == null || cap == null || !(dem > 0) || !(cap > 0)) continue;
+                    var type = (string)c["type"];
+                    var plateStress = type != "deflection" && !(pinsInInsert && id.StartsWith("PIN-", StringComparison.Ordinal));
+                    ratio = Math.Min(ratio, cap.Value * (plateStress ? lim : 1.0) / dem.Value);
+                }
+                // 0.1% below the exact ratio (the record's demands and capacities are rounded to 4 digits), but never below
+                // the design force when the check passes there (a wall sized exactly for it)
+                if (!double.IsInfinity(ratio)) ratios.Add((ratio >= 1 ? Math.Max(1.0, ratio * 0.999) : ratio, grp.Basis));
+            }
+            if (classB && !double.IsInfinity(jointLc1Cap) && !double.IsNaN(jointLc1Cap) && pDesign > 0)
+                ratios.Add((jointLc1Cap / pDesign >= 1 ? Math.Max(1.0, jointLc1Cap / pDesign * 0.999) : jointLc1Cap / pDesign, "joint bolts LC1 (S47-S56)"));
+            // each cap is a press force; its cavity pressure F/A_proj is stored so a later press run converts it to its own ram
+            foreach (var (ratio, basis) in ratios)
+                caps.Add(new GaugeCap(gaugeDesign * ratio, basis, p.ForceDesign_N * ratio / p.AProj_mm2));
+            return caps;
         }
 
         // ------------------------------------------------------------------ partial cavity loading (critique E3)

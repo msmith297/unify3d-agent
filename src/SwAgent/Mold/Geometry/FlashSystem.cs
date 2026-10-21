@@ -300,6 +300,9 @@ namespace SwAgent.Mold.Geometry
             var sm = model.SketchManager;
             var fm = model.FeatureManager;
             var mu = (IMathUtility)_sw.GetMathUtility();
+            // InsertSketch(true) is a toggle: with a sketch already open it would close that one instead of opening ours
+            if (sm.ActiveSketch != null || model.GetActiveSketch2() != null)
+                throw new MoldApiException("Flash grooves: a sketch is open for editing. Exit the sketch (or ask the user to finish it), then run again. Nothing was changed.");
             if (_o.ReplaceExisting)
             {
                 var old = SwGeo.AllFeatures(model).Where(f => f.Name.StartsWith(MoatName, StringComparison.Ordinal) || f.Name.StartsWith(RunnersName, StringComparison.Ordinal) ||
@@ -320,6 +323,7 @@ namespace SwAgent.Mold.Geometry
             var adb = sm.AddToDB;
             IMathTransform T = null, Ti = null;
             var sketchOpen = false;
+            IFeature openSketchFeature = null;   // the sketch this call opened (never "the last feature added")
             double[] S2(double[] p)
             {
                 var mp = (IMathPoint)mu.CreatePoint(new[] { p[0], p[1], p[2] });
@@ -332,15 +336,29 @@ namespace SwAgent.Mold.Geometry
                 var r = (double[])((IMathPoint)mp.MultiplyTransform(Ti)).ArrayData;
                 return new[] { r[0], r[1], r[2] };
             }
-            void CloseSketch(bool deleteIfEmpty)
+            // Opens a sketch on a face; sketchOpen and the feature are set only once a sketch really is open.
+            ISketch OpenSketch(IFace2 on, string what)
             {
-                if (!sketchOpen) return;
+                model.ClearSelection2(true);
+                if (!((IEntity)on).Select4(false, null)) throw Handoff("couldn't select the " + what + " to sketch on.");
+                sm.InsertSketch(true);
+                var opened = model.GetActiveSketch2() as ISketch ?? throw Handoff("no sketch opened on the " + what + ".");
+                sketchOpen = true;
+                openSketchFeature = opened as IFeature;
+                return opened;
+            }
+            // Closes the sketch this call opened (toggles only while a sketch is active - it can only be ours: the run refuses
+            // to start inside one) and returns its feature; deleteIfEmpty deletes exactly that feature.
+            IFeature CloseSketch(bool deleteIfEmpty)
+            {
+                if (!sketchOpen) return null;
                 sketchOpen = false;
                 sm.AddToDB = adb;
-                sm.InsertSketch(true);
-                if (!deleteIfEmpty) return;
-                var f = model.Extension.GetLastFeatureAdded() as IFeature;
-                if (f != null && f.GetTypeName2() == "ProfileFeature") SwGeo.DeleteFeatures(model, f);
+                if (model.GetActiveSketch2() != null) sm.InsertSketch(true);
+                var f = openSketchFeature;
+                openSketchFeature = null;
+                if (deleteIfEmpty && f != null) { SwGeo.DeleteFeatures(model, f); return null; }
+                return f;
             }
 
             var result = new FlashResult();
@@ -350,12 +368,8 @@ namespace SwAgent.Mold.Geometry
                 using (SwGeo.Quiet(model))
                 {
                     // ---- the moat sketch on the parting face; everything is measured in its coordinates ----
-                    model.ClearSelection2(true);
-                    if (!((IEntity)face).Select4(false, null)) throw Handoff("couldn't select the parting face to sketch on.");
-                    sm.InsertSketch(true);
-                    sketchOpen = true;
+                    var sk = OpenSketch(face, "parting face");
                     sm.AddToDB = true;
-                    var sk = model.GetActiveSketch2() as ISketch ?? throw Handoff("no sketch opened on the parting face.");
                     T = (IMathTransform)sk.ModelToSketchTransform;
                     Ti = (IMathTransform)T.Inverse();
 
@@ -543,7 +557,7 @@ namespace SwAgent.Mold.Geometry
                             var g = FlashLayout.Gap(cav[i], cav[j]);
                             if (g < 2 * LIP - 1e-6)
                                 throw Handoff($"openings C{i + 1} ({cavSrc[i].Where}) and C{j + 1} ({cavSrc[j].Where}) are only {g / In:0.###} in apart - too close for a lip on each, so probably not both product cavities. Ask which openings are cavities. Nothing was changed except removing earlier flash grooves.");
-                            if (g < R.SeparateMoatGap)
+                            if (FlashLayout.TooCloseForSeparateMoats(g, R.SeparateMoatGap))
                                 throw Handoff($"cavities C{i + 1} and C{j + 1} are {g / In:0.###} in apart (separate moats need {R.SeparateMoatGap / In:0.###} in): build ONE combined moat around them by the rules, then runners and fillets, and verify the checks. Nothing was changed except removing earlier flash grooves.");
                         }
 
@@ -577,10 +591,10 @@ namespace SwAgent.Mold.Geometry
                         moats.Add(moat);
                         _log.AppendLine($"C{ci} ({cs.Where}): moat {moat.Inner.Count} sides, lip corner R {string.Join("/", moat.InnerRadii.Select(x => (x / In).ToString("0.###")).Distinct())} in");
                     }
-                    CloseSketch(moats.Count == 0);
+                    var moatSk = CloseSketch(moats.Count == 0);
                     if (moats.Count == 0)
                         throw Handoff("no cavity outline is straight-sided (lines and corner arcs), so no moat was drawn. Nothing was changed except removing earlier flash grooves. Draw the moat from the cavity edges (convert, offset lip and lip + width, cut). Log: " + _log);
-                    var moatSk = model.Extension.GetLastFeatureAdded() as IFeature ?? throw Handoff("the moat sketch was not created.");
+                    if (moatSk == null) throw Handoff("the moat sketch was not created.");
                     model.ClearSelection2(true);
                     moatSk.Select2(false, 0);
                     moatCut = fm.FeatureCut4(true, false, false, (int)swEndConditions_e.swEndCondBlind, 0, D, 0, false, false, false, false, 0, 0,
@@ -595,12 +609,8 @@ namespace SwAgent.Mold.Geometry
                     if (runners.Count > 0)
                     {
                         var topFace = TopFace(N0, H0) ?? throw Handoff("the parting face isn't there after the moat cut.");
-                        model.ClearSelection2(true);
-                        ((IEntity)topFace).Select4(false, null);
-                        sm.InsertSketch(true);
-                        sketchOpen = true;
+                        var t2 = (IMathTransform)OpenSketch(topFace, "parting face (runners)").ModelToSketchTransform;
                         sm.AddToDB = true;
-                        var t2 = (IMathTransform)((ISketch)model.GetActiveSketch2()).ModelToSketchTransform;
                         double[] R2(double[] p2)
                         {
                             var q = M3(p2);
@@ -613,8 +623,7 @@ namespace SwAgent.Mold.Geometry
                             var c = r.Rectangle(W).Select(R2).ToArray();
                             for (var k = 0; k < 4; k++) sm.CreateLine(c[k][0], c[k][1], 0, c[(k + 1) % 4][0], c[(k + 1) % 4][1], 0);
                         }
-                        CloseSketch(false);
-                        var rs = model.Extension.GetLastFeatureAdded() as IFeature;
+                        var rs = CloseSketch(false);
                         model.ClearSelection2(true);
                         rs?.Select2(false, 0);
                         runnerCut = fm.FeatureCut4(true, false, false, (int)swEndConditions_e.swEndCondBlind, 0, D, 0, false, false, false, false, 0, 0,

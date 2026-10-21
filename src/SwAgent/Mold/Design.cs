@@ -81,7 +81,9 @@ namespace SwAgent.Mold
             double? N(params string[] keys)
             {
                 var k = Key(keys);
-                return k == null ? null : Si.Num(inp[k], Quantities.TryGetValue(k, out var q) ? q : null);
+                if (k == null) return null;
+                try { return Si.Num(inp[k], Quantities.TryGetValue(k, out var q) ? q : null); }
+                catch (ArgumentException ex) { throw new ArgumentException("inputs." + k + " (" + inp[k].ToString(Newtonsoft.Json.Formatting.None) + "): " + ex.Message + ".", ex); }
             }
             string S(params string[] keys)
             {
@@ -202,8 +204,11 @@ namespace SwAgent.Mold
             if (box != null && box.Length >= 3) { d.PartU = box[0]; d.PartV = box[1]; d.PartH = box[2]; }
             if (d.PartArea <= 0 && d.PartU > 0) d.PartArea = d.PartU * d.PartV;
             if (d.PartPerimeter <= 0 && d.PartU > 0) d.PartPerimeter = 2 * (d.PartU + d.PartV);
-            d.DepthBase = Si.Num(part["depthBase_mm"]) ?? d.PartH;
-            d.DepthLid = Si.Num(part["depthLid_mm"]) ?? Math.Max(0, d.PartH - d.DepthBase);
+            // the depths per half: merged from the chosen parting-line candidate; else the candidate at the agreed plane
+            // (partingLine.planes[0].w_mm, or partingLine.candidate by id); else the whole part in the base
+            var chosen = ChosenCandidate(design);
+            d.DepthBase = Si.Num(part["depthBase_mm"]) ?? Si.Num(chosen?["baseDepth_mm"]) ?? d.PartH;
+            d.DepthLid = Si.Num(part["depthLid_mm"]) ?? Si.Num(chosen?["lidDepth_mm"]) ?? Math.Max(0, d.PartH - d.DepthBase);
             d.PlugHeight = Si.Num(part["plugHeight_mm"]) ?? 0;
             d.CornerRadius = Si.Num(part["floorRadius_mm"]) ?? Si.Num(part["cornerRadius_mm"]) ?? 0;
             d.MaxSection = Si.Num(part["maxSection_mm"]) ?? Math.Min(d.PartH, Math.Min(d.PartU, d.PartV));
@@ -217,6 +222,18 @@ namespace SwAgent.Mold
                 if (width.Count > 0) d.WidthTol = width.Min();
             }
             return d;
+        }
+
+        /// <summary>The parting-line candidate the plan chose: by id (partingLine.candidate / .id) or by the plane's W (0.01 mm).</summary>
+        private static JObject ChosenCandidate(JObject design)
+        {
+            var cands = design.SelectToken("part.partingLineCandidates") as JArray;
+            var pl = design["partingLine"] as JObject;
+            if (cands == null || pl == null) return null;
+            var id = (string)pl["candidate"] ?? (string)pl["candidateId"];
+            if (id != null) return cands.OfType<JObject>().FirstOrDefault(c => string.Equals((string)c["id"], id, StringComparison.OrdinalIgnoreCase));
+            var w = Si.Num(pl.SelectToken("planes[0].w_mm"));
+            return w == null ? null : cands.OfType<JObject>().FirstOrDefault(c => Si.Num(c["w_mm"]) is double cw && Math.Abs(cw - w.Value) < 0.01);
         }
 
         public bool HasGeometry => PartU > 0 && PartV > 0 && DepthBase + DepthLid > 0;

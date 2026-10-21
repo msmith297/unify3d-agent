@@ -26,6 +26,37 @@ namespace SwAgent.ModelFiles
         /// </summary>
         public const long MaxPdfBytes = 20_000_000;
 
+        /// <summary>
+        /// All the files of one tool run together (raw bytes): each file fits its own cap, but several PDFs or images could
+        /// still push the first request past the API's 32 MB after base64 - and that message is resent on every Retry and
+        /// follow-up, so the whole chat would stay broken. 20 MB raw is 26.7 MB base64, with room for the view and text.
+        /// </summary>
+        public const long MaxRunBytes = 20_000_000;
+
+        /// <summary>
+        /// Keeps the files of one run inside MaxRunBytes, in the order given: a file that would go over it keeps only its path
+        /// (kind "file", note "not attached: over the run's attachment budget"). Returns the bytes attached.
+        /// </summary>
+        public static long ApplyRunBudget(IEnumerable<JObject> entries, long budget = MaxRunBytes)
+        {
+            long used = 0;
+            foreach (var e in entries)
+            {
+                var data = (string)e?["data"];
+                if (string.IsNullOrEmpty(data)) continue;
+                var raw = (long)data.Length * 3 / 4;
+                if (used + raw <= budget)
+                {
+                    used += raw;
+                    continue;
+                }
+                e.Remove("data");
+                e["kind"] = "file";
+                e["error"] = $"not attached: over the run's attachment budget ({budget / 1e6:0} MB of files per run) - path only";
+            }
+            return used;
+        }
+
         public static string MediaType(string path)
         {
             switch (Path.GetExtension(path ?? "").ToLowerInvariant())

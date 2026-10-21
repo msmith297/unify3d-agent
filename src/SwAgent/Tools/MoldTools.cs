@@ -70,13 +70,13 @@ namespace SwAgent.Tools
             [ToolParam("Design in SI with the record's keys (inputs, materials, process, part, layout, structural.inputs). Omit to use the mold record.")]
             public JObject Design { get; set; }
 
-            [ToolParam("lookup: {part:id} | {mold:id, temp_c} | {fastener:\"1/2-13\"|\"M10\"} | {stock:id}.")]
+            [ToolParam("lookup: {part:id} | {mold:id, temp_c} | {fastener:\"1/2-13\"|\"M10\"} | {stock:id} | {family:name}. split: {plate:\"base\"|\"lid\" (default base), option:i (1-based: writes that option to structural.split.<plate>), box_mm:[L,W,T], cavities:[...], subplate_grade:id, depth_mm}.")]
             public JObject Query { get; set; }
 
             [ToolParam("This call's changes to sizing defaults or support, e.g. {delta_allow_mm:0.02, support:\"rails\", rail_span_mm:80}. Support geometry (mm from the plate corner; kept in structural.inputs): rails_v_mm [v1,v2], rails_u_mm, opening_mm [u1,v1,u2,v2], pillars_mm {u:[..], v:[..]}, span_mm.")]
             public JObject Overrides { get; set; }
 
-            [ToolParam("Write the results to the record (default true except lookup, split and calls with design - a what-if).")]
+            [ToolParam("Write the results to the record (default true, except lookup, split without query.option, and calls with design - a what-if).")]
             public bool? Record { get; set; }
         }
 
@@ -112,9 +112,11 @@ namespace SwAgent.Tools
                 }
                 var result = MoldCalc.Run(action, design ?? new JObject(), input.Query ?? new JObject(), input.Overrides ?? new JObject(), data);
                 var sb = new StringBuilder(result.Text ?? "");
-                if (result.Json != null) sb.Append("\n```json\n").Append(Json(result.Json, 4000)).Append("\n```");
-                // A design passed in is a what-if: it doesn't overwrite the as-designed record unless asked.
-                var write = input.Record ?? (input.Design == null && action != "lookup" && action != "split");
+                // the calculator's text already carries its JSON block (MoldCalc.Done); only lookup's doesn't
+                if (result.Json != null && !(result.Text ?? "").Contains("```json")) sb.Append("\n```json\n").Append(Json(result.Json, 4000)).Append("\n```");
+                // A design passed in is a what-if: it doesn't overwrite the as-designed record unless asked. split writes only
+                // the option chosen with query.option.
+                var write = input.Record ?? (input.Design == null && action != "lookup" && (action != "split" || input.Query?["option"] != null));
                 if (write && record != null && (result.RecordPatch != null || (result.Checks?.Count ?? 0) > 0))
                 {
                     var patch = (JObject)(result.RecordPatch?.DeepClone() ?? new JObject());
@@ -266,7 +268,14 @@ namespace SwAgent.Tools
                     ? "\nShown on the model (red: draft/undercut, cyan: best parting line, magenta: air traps, orange: fragile steel)."
                     : "\n(Couldn't draw on the view: the document has no active view.)");
             }
-            if (input.Record != false)
+            // the record's part section is the UNSCALED molded part (Design reads it so): a plate, an insert, a cavity copy or
+            // anything analysed after MOLD Shrink would overwrite it - never recorded, whatever record says
+            var notPart = input.Record != false ? NotTheMoldedPart(model, body) : null;
+            if (notPart != null)
+            {
+                sb.Append("\n(Not recorded: " + notPart + ". The record keeps the molded part's own analysis; use record: false for checks like this.)");
+            }
+            else if (input.Record != false)
             {
                 if (record != null)
                 {
@@ -307,6 +316,31 @@ namespace SwAgent.Tools
             var c = (JObject)json.DeepClone();
             foreach (var p in c.Descendants().OfType<JProperty>().Where(p => p.Name == "persist").ToList()) p.Remove();
             return c;
+        }
+
+        /// <summary>
+        /// Why this body's analysis must not go into the record's part section (null when it may): it sits in a mold body folder
+        /// other than the reference, or the part has been scaled for shrink already (MOLD Shrink).
+        /// </summary>
+        private static string NotTheMoldedPart(IModelDoc2 model, IBody2 body)
+        {
+            try
+            {
+                var frame = SwGeo.Frame(model);
+                var name = SwGeo.SafeName(body);
+                var mb = BodyReport.List(model, frame).FirstOrDefault(b => b.Name == name);
+                var role = mb?.Role;
+                if (role != null && role != "reference" && role != "unfiled")
+                    return $"'{mb.Id}' is a mold body ({mb.Folder}), not the molded part";
+                if (SwGeo.AllFeatures(model).Any(f => f.Name.StartsWith("MOLD Shrink", StringComparison.Ordinal)))
+                    return "the part is already scaled for shrink (MOLD Shrink): this is the scaled part, the record holds the unscaled one";
+                return null;
+            }
+            catch (Exception ex) when (!(ex is NotImplementedException))
+            {
+                Log.Warn("mold_part: checking the body's role failed: " + ex.Message);
+                return null;
+            }
         }
 
         /// <summary>The body to analyze and its mold id (for the record's face locators).</summary>
@@ -470,7 +504,15 @@ namespace SwAgent.Tools
                     {
                         try
                         {
-                            var patch = new JObject { ["bodies"] = json["bodies"].DeepClone(), ["checks"] = new JArray(checks) };
+                            // the report is the whole truth about the bodies: bodies[] and this tool's earlier checks are replaced, so a
+                            // body or an interference that is gone (a restore, a fix) does not linger
+                            var patch = new JObject
+                            {
+                                [MoldRecord.ReplaceKey] = new JArray("bodies"), [MoldRecord.ReplaceChecksFromKey] = new JArray("mold_bodies"),
+                                ["bodies"] = json["bodies"].DeepClone(),
+                            };
+                            // an empty array would clear every check in the record (agent and calculator ones too)
+                            if (checks.Count > 0) patch["checks"] = new JArray(checks);
                             sb.Append("\nRecord: ").Append(record.Merge(patch));
                             record.Save();
                             sb.Append(StatusLine(record));
@@ -723,13 +765,26 @@ namespace SwAgent.Tools
             return list;
         }
 
-        /// <summary>The grade id for a role from the record (materials.plates / materials.inserts).</summary>
-        private static string GradeOf(MoldRecord record, string role)
+        /// <summary>
+        /// The grade id for a role from the record: what mold_calc size wrote (structural.materials.plates / inserts; the stop
+        /// pads' grade from hardware.stops), else materials.*.id, else the page's grade inputs (mold_grade, insert_grade).
+        /// </summary>
+        internal static string GradeOf(MoldRecord record, string role) => GradeOf(record?.Json, role);
+
+        internal static string GradeOf(JObject json, string role)
         {
             try
             {
-                var key = role == "insert" || role == "stop" ? "inserts" : "plates";
-                return (string)record?.Json?.SelectToken($"materials.{key}.id") ?? (string)record?.Json?.SelectToken("materials.plates.id");
+                if (json == null) return null;
+                string S(string path)
+                {
+                    var t = json.SelectToken(path);
+                    if (t is JObject o) t = o["value"] ?? o["display"];
+                    return t != null && t.Type == JTokenType.String && ((string)t).Trim().Length > 0 ? (string)t : null;
+                }
+                if (role == "stop") return S("hardware.stops[0].grade") ?? S("structural.materials.inserts.id") ?? S("materials.inserts.id") ?? S("inputs.insert_grade") ?? S("structural.materials.plates.id") ?? S("inputs.mold_grade");
+                if (role == "insert") return S("structural.materials.inserts.id") ?? S("materials.inserts.id") ?? S("inputs.insert_grade") ?? S("structural.materials.plates.id") ?? S("inputs.mold_grade");
+                return S("structural.materials.plates.id") ?? S("materials.plates.id") ?? S("inputs.mold_grade");
             }
             catch (NotImplementedException)
             {
@@ -826,15 +881,27 @@ namespace SwAgent.Tools
                             exists = false;
                         }
                         MoldRecord rec;
+                        // the page values of this tool's run on THIS document (never another mold's run or a stale slot)
+                        var page = ToolRunner.InputsFor(ToolName, model);
+                        var pageNote = "";
                         if (exists)
                         {
                             rec = MoldRecord.Open(folder);
+                            if (page != null)
+                            {
+                                var diff = InputDifferences(InputsJson(page), rec.Json["inputs"] as JObject);
+                                if (diff.Count > 0)
+                                    pageNote = "\nPAGE CHANGED - this run's page differs from the record's inputs (the calculator reads only the record):\n" +
+                                               string.Join("\n", diff.Select(x => "  " + x)) +
+                                               "\nAsk the user whether to use the new values; they may invalidate finished stages. To use them, merge them into inputs (as on the page), then re-run the stages they affect.\n";
+                            }
                         }
                         else
                         {
-                            foreach (var sub in new[] { "part", Path.Combine("exports", "bodies"), Path.Combine("exports", "part"), "checks" })
+                            foreach (var sub in new[] { "part", Path.Combine("exports", "bodies"), Path.Combine("exports", "part"), "checks", "views" })
                                 Directory.CreateDirectory(Path.Combine(folder, sub));
-                            ToolRunner.LastInputs.TryGetValue(ToolName, out var page);
+                            if (page == null)
+                                pageNote = "\nNO PAGE VALUES - this session has no page run for this document (SolidWorks restarted, or the tool ran on another document): inputs is empty. Merge the values from <tool_inputs> into inputs as \"<number> <unit>\" strings before mold_calc.\n";
                             rec = MoldRecord.Init(folder, path, InputsJson(page), ToolVersion(), typeof(MoldTools).Assembly.GetName().Version?.ToString());
                             // the calculator reads the display system from here (screws, stock and rounding follow it): MMGS, CGS
                             // and MKS are metric, IPS (and custom inch or pound units) imperial
@@ -848,6 +915,7 @@ namespace SwAgent.Tools
                         return ToolResult.Ok((exists ? "The record already exists - continuing it" : "Record created") + $": {file} (id {rec.Id}, units {(string)rec.Json.SelectToken("units.display")}). " +
                                              (backup != null ? $"The earlier record is kept as {backup}. " : "") +
                                              "Checkpoints for this mold restore over this file (checkpoint save/restore). Save the part to keep the record link.\n" +
+                                             pageNote +
                                              (exists ? rec.Summary(6000) : "") +
                                              // a new record was written; continuing an existing one writes nothing (and must not end a run on a done record)
                                              (exists ? "" : StatusLine(rec)));
@@ -914,6 +982,34 @@ namespace SwAgent.Tools
         }
 
         /// <summary>The page inputs of the latest run (ToolRunner.LastInputs) as JSON: values, selections (label + ref), files.</summary>
+        /// <summary>The inputs a page run would write that differ from the record's: "id: page X, record Y".</summary>
+        internal static List<string> InputDifferences(JObject page, JObject record)
+        {
+            var list = new List<string>();
+            if (page == null) return list;
+            string Show(JToken t)
+            {
+                if (t == null || t.Type == JTokenType.Null) return "(not set)";
+                if (t is JObject o && (o["value"] ?? o["display"]) is JToken v) return v.Type == JTokenType.String ? (string)v : v.ToString(Formatting.None);
+                return t.Type == JTokenType.String ? (string)t : t.ToString(Formatting.None);
+            }
+            foreach (var p in page.Properties())
+            {
+                var r = record?[p.Name];
+                if (JToken.DeepEquals(Comparable(p.Value), Comparable(r))) continue;
+                if (Show(p.Value) == Show(r)) continue;
+                list.Add($"{p.Name}: page {Show(p.Value)}, record {Show(r)}");
+            }
+            return list;
+        }
+
+        /// <summary>A value without its display text, for comparing a page value with what the record holds.</summary>
+        private static JToken Comparable(JToken t)
+        {
+            if (t is JObject o && o["si"] != null) return o["si"];
+            return t;
+        }
+
         internal static JObject InputsJson(ToolInputs page)
         {
             var o = new JObject();

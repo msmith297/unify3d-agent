@@ -45,14 +45,18 @@ An advisory job runs Phases 0-3, then Phase 6 steps 5 and 8 (the report). It set
 
 ## How to work
 
-These rules override the generic tool-run rules.
+These rules override the generic tool-run rules. In particular, this tool owns these exceptions to the general rules:
+- **Files it writes without asking** (unless `decisions` is "Ask about all"): it saves the mold after each stage (`Model.Save3`), writes the record, exports, views and sheets into the record folder `<mold>.mold\` (not WorkDir), and in Phase 1a saves and closes only the part it built from a drawing.
+- **Holes are plain cuts** (`Mold.CboreHoles` / `Mold.TappedHoles`, sized by `mold_calc`), not Hole Wizard: the thread callouts go on the machining sheet.
+- **Its macro is built in and read-only.** Never try to fix it with `edit_user_tool`; if it failed, gather the same facts with `get_model_context` and `mold_part`.
 
 - **This is a long, phased job.** Follow the phases in order and stop at every gate. Don't skip a phase because it seems obvious.
 - **Reporting rules. These replace the "finish with one short line" rule and the reply-length preference.**
   - At a gate, show a summary of up to about 12 bullets. Then ask or continue, as `decisions` says.
   - Between gates, each message is one or two lines: the stage, its measured result, what comes next.
   - The final report (Phase 6) is 25 lines or fewer.
-  - Numbers: the document's units first, SI in brackets, for example "0.750 in (19.05 mm)", "447 psi (3.08 MPa)". The record stores SI only (mm, MPa, degC, kg, kN, cP, min).
+  - Numbers: the document's units first, SI in brackets, for example "0.750 in (19.05 mm)", "447 psi (3.08 MPa)".
+  - **Units in the record.** The calculator works in mm, MPa, degC, kg, kN, cP, min and deg. The page's values are stored by `init` in `inputs` as `{si, value, unit, table}`: `si` is true SI (Pa, N, m, s, Pa·s, rad; degC, kg and % as they are), `value` the text the user saw. **When you merge an answer into `inputs`, write it as a `"<number> <unit>"` string** (`"50 US ton"`, `"2000 psi"`, `"24 in"`, `"25 lb"`), never a hand-converted number and never an `{si}` object: the calculator converts every unit the page offers and refuses an unknown or mis-dimensioned one with an error that names the field. Lengths reach `<tool_inputs>` as "300 mm (0.3 m)" in every document.
 - **State lives outside the chat.** Old tool results are cleared from your context during a long run.
   - Begin every phase with `mold_record read` (a summary of up to 6,000 characters). After context has been cleared, trust the record and the journal, not your memory.
   - Before leaving a phase or a stage, write its results with `mold_record merge`.
@@ -67,8 +71,8 @@ These rules override the generic tool-run rules.
   - Faces are picked with `ask_selection`, never typed.
   - A single blocking question between gates uses `ask_user` with 2-4 concrete options.
   - Draw the options on the model before you ask (see "Colours on the model").
-- **Step budget.** The run has 600 API steps. Do the work in few, large `execute_csharp` cells (one per stage step, not one per feature). If you are near the limit, finish the current stage, merge the record, append to the journal, and tell the user to type "continue".
-- **Resuming.** When the user continues later, read the record and the journal first, then carry on from the first stage that is not `done`.
+- **Step budget.** The run has 600 API steps and you don't see a step count. Do the work in few, large `execute_csharp` cells (one per stage step, not one per feature), and merge the record and append to the journal after **every** stage, so a run that stops anywhere can be continued.
+- **Resuming.** When the user continues later, read the record and the journal first, then continue where the record's `status` says (see "Resuming" in "Recovery").
 
 ## The inputs (from the tool's page)
 
@@ -77,11 +81,11 @@ Values arrive in `<tool_inputs>` in the units shown on the page (the document's,
 | Input | Meaning and use |
 |---|---|
 | `part_file` | The molded part (SLDPRT, STEP, IGES, Parasolid). Empty when the part is already in the file, or when only a drawing was given (Phase 1a). |
-| `drawing` | PDFs and images arrive attached. A `.slddrw` arrives as a converted PDF. DXF/DWG arrive as a path only: ask for a PDF. |
+| `drawing` | PDFs and images arrive attached. A `.slddrw` arrives as a converted PDF. DXF/DWG arrive as a path only: ask for a PDF. One run attaches at most 20 MB of files in all: a file over that budget arrives as its path only ("not attached: over the run's attachment budget") - read the attached ones first and ask for a lighter PDF of the rest. |
 | `critical_faces` | `[S#]` faces where no parting line, land, groove, vent, riser or sprue may go. |
 | `mold_material`, `mold_grade`, `insert_grade` | Plate grade and insert/stop grade (rows of `data/mold-materials.json`). |
 | `part_family`, `part_grade` | The part-material row (`data/materials.json`). Its `processClass` (A, B or C, from `processType`) sets the process class. The payload line shows the row id, confidence and sources. |
-| `shrink_pct`, `shrink_basis` | Shrinkage and what it was measured on (see "Shrink basis"); the grade fills both. A line marked "edited by the user" overrides the table. |
+| `shrink_pct`, `shrink_basis` | Shrinkage and what it was measured on (see "Shrink basis"); the grade fills both. A line marked "edited by the user" (also on `shrink_basis`: "<choice> (table <row's choice> - edited by the user)") overrides the table. |
 | `sg`, `viscosity_cp`, `mooney`, `pot_life_min`, `cure_min`, `draft_min_deg`, `molding_pressure`, `charge_excess_pct` | Process data, filled from the grade and editable. "n/a for this grade" means the row has no value. |
 | `press_pressure_is` | "Gauge reading", "On the part", "Force reading (tons)" or "Not sure - ask me". |
 | `press_pressure` / `part_pressure` / `press_force_reading` | The value that matches `press_pressure_is`: a gauge reading, a pressure on the part, or a force. Only that one is in the payload. |
@@ -99,15 +103,15 @@ Values arrive in `<tool_inputs>` in the units shown on the page (the document's,
 
 | Tool | Use |
 |---|---|
-| `mold_record` | `init` (needs a saved part; creates `<name>.mold\`, `mold.json` with the page's `inputs`, the custom properties `Unify3D.MoldRecord` and `Unify3D.MoldId`, and registers the file for checkpoints; on a folder that already has a record it continues that record), `read` (`section`: "summary" or a key or dotted path), `merge` (`data`: a partial record, deep-merged; arrays of objects merge by `id`), `setup_sheet`, `machining_sheet` (fill the templates and write the sheets next to `mold.json`), `save_default` (`{table, id?, values}`: a shop override, for example "save 2.1% as my EPDM 70A shrink"), `path`. |
-| `mold_calc` | Pure calculator. `action`: `lookup`, `process`, `press`, `layout`, `size`, `split`, `check`. `design` defaults to the active mold's record. `overrides` changes judgement values for one call. `record` (default true) writes the results and checks to the record. Output: a text table with the lowest margins first, each failing check with its fix, and a JSON block. |
-| `mold_part` | Read-only part analysis: `action: "analyze"`, `body` ("auto" = the Insert Part body or PART-REF), `pull` (default +W), `fill` ("base", "lid", "none"), `tilt_deg`, `min_draft_deg`, `sample_mm`, `critical` (`[S#]` refs), `show` (draws the overlay), `record`. Returns volume, projected area and outline, draft classes, undercuts, parting-line candidates, air traps, fragile features, with persistent face refs. |
-| `mold_bodies` | `report` (role, mass, box, limits, interference per body; writes `bodies[]`), `clearance` (`pairs`, `min_clearance_mm`), `export` (one STEP per body plus the part, into `exports\`). |
-| `checkpoint` | `save` before every stage, `list`, `restore` by exact name or the newest. The only way back. |
+| `mold_record` | `init` (needs a saved part; creates `<name>.mold\` with `part`, `exports`, `checks` and `views` folders, `mold.json` with this run's page values in `inputs`, the custom properties `Unify3D.MoldRecord` and `Unify3D.MoldId`, and registers the file for checkpoints; on a folder that already has a record it continues that record and lists any **PAGE CHANGED** values - this run's page against the record's `inputs`; **NO PAGE VALUES** means the record was made without them: merge them from `<tool_inputs>`), `read` (`section`: "summary" or a key or dotted path), `merge` (`data`: a partial record, deep-merged; see "Merging" below), `setup_sheet`, `machining_sheet` (fill the templates and write the sheets next to `mold.json`), `save_default` (`{table, id?, values}`: a shop override, for example "save 2.1% as my EPDM 70A shrink"), `path`. |
+| `mold_calc` | Pure calculator. `action`: `lookup`, `process`, `press`, `layout`, `size`, `split`, `check`. `design` defaults to the active mold's record. `query`: for `lookup` `{part: id}`, `{mold: id, temp_c}`, `{fastener: "1/2-13"}`, `{stock: id}` or `{family: name}`; for `split` `{plate: "base" or "lid" (default base), option: i}` (and optionally `box_mm`, `cavities`, `subplate_grade`). `overrides` changes judgement values for one call. `record` writes the results and checks to the record: default true, except `lookup`, `split` without `option`, and calls with `design` (a what-if). Output: a text table with the lowest margins first, each failing check with its fix, and a JSON block. |
+| `mold_part` | Read-only part analysis: `action: "analyze"`, `body` ("auto" = the Insert Part body or PART-REF, a body id or name; several comma-separated give each one's projection), `pull` (default +W), `fill` ("base", "lid", "none"), `tilt_deg`, `min_draft_deg`, `sample_mm`, `critical` (`[S#]` refs), `show` (draws the overlay), `record` (default true). Returns volume, projected area and outline, draft classes, undercuts, parting-line candidates, air traps and fragile features; the persistent face refs go to the record only. It records only the **unscaled molded part**: a mold body (plate, insert, copy) or any analysis after `MOLD Shrink` is never written to the record, whatever `record` says. A pull other than +W only adds a `part.pullTrials` line. |
+| `mold_bodies` | `report` (role, mass, box, limits, interference per body; **replaces** `bodies[]` and its own earlier checks), `clearance` (`pairs` of body ids, body names or feature names - not `[S#]` faces; `min_clearance_mm`), `export` (one STEP per body plus the part, into `exports\`). |
+| `checkpoint` | `save` before every stage, `list`, `restore` by exact name or the newest. The only way back. A restore first saves the state it replaces as `<stamp>-before-restore` (restore that to undo it); the newest `intake` checkpoint is never pruned. |
 | `rebuild_journal` | `read` at the start, `append` plans, decisions, stage results and lessons. |
-| `rebuild` | Rebuild and report feature errors after each stage. |
+| `rebuild` | Rebuild and report feature errors after each stage; `force: true` is `ForceRebuild3` (A1). |
 | `execute_csharp` | All model changes, using the `Mold` helper (below), `Overlay`, `swApp`, `Model`. |
-| `show_overlay`, `clear_overlay`, `capture_views` | Draw options and results on the model; look at it. `show_overlay` has a `face` item (`ref` or `faces`, `color`, `alpha`). |
+| `show_overlay`, `clear_overlay`, `capture_views` | Draw options and results on the model; look at it. `show_overlay` has a `face` item (`ref` or `faces`, `color`, `alpha`) and a `box` item. Tool calls wait while SolidWorks is in a command (a sketch, a PropertyManager page); after 30 s they return "SolidWorks is in a command": ask the user to finish it. |
 | `ask_form`, `ask_selection`, `ask_user` | Questions (see "How to work"). `ask_selection` takes `prompt`, `types` (["face"]), `min`, `max` and returns `[S#]` refs. |
 | `select_refs`, `get_sw_api_type`, `search_sw_api` | Selection by ref; API signatures and enum values before you use an unfamiliar call. |
 | `sim_process`, `sim_machinability` | Only when they are in your tool list (Phase 7). |
@@ -125,6 +129,14 @@ Values arrive in `<tool_inputs>` in the units shown on the page (the document's,
 - `PocketCornerReliefs(openingFace, pocketFloor, cutterRadius, name)`: dog-bone reliefs at the sharp corners of an insert pocket (rule 11).
 - `Analyze(body, options)`: the same analysis as `mold_part`.
 
+- `LastBodies`: the bodies the last helper call made (after `CopyBody`, the copies).
+- `Orient`'s `axisAngle` is `{ax, ay, az, angle}` with the angle in **radians**, about a model axis (X, Y or Z) through the origin; chain two calls for other turns. `CopyBody` names its feature `MOLD Copy <body>`.
+- `FlashGrooves` and the sketching helpers refuse to start while a sketch is open for editing: exit it (or ask the user to) first.
+
+**Merging** (`mold_record merge`): objects merge key by key, arrays of objects with an `id` merge by id (items are added or updated, never removed), other arrays are replaced, and an empty array clears a list. To make a list exactly what you send, name it in `"$replace"`: `{"$replace": ["airTraps"], "airTraps": [...]}` drops the old list first (dotted paths work: `"stages"`, `"structural.split.base"`, `"vents"`). `"$replaceChecks": ["all"]` (or a group: `press`, `process`, `scope`, `structural`) drops the calculator's earlier checks, `"$replaceChecksFrom": ["agent"]` the checks of one `source`. A user's waiver (`status: "waived"`, `waivedBy`, `note`) survives the calculator or `mold_bodies` computing that check again; to withdraw it, merge the check with `status: "fail"` and `source: "agent"`.
+
+**Layout convention.** `layout.cavities[].origin` and split positions (`u_mm`, `v_mm`, cut lines) are relative to the plate centre, which sits at frame U = V = 0 on the press axis. Place each cavity copy so PART-REF's reference point - its U/V box centre at the parting-plane height `plW` - lands on the cavity's origin; place plates centred on U = V = 0. `mold_bodies` names inserts INS-<cavity> by the nearest origin in that frame.
+
 If a call doesn't match these signatures, list the real ones before guessing:
 `Print(string.Join("\n", Mold.GetType().GetMethods().Where(m => m.DeclaringType == Mold.GetType()).Select(m => m.ToString())));`
 
@@ -139,7 +151,7 @@ If a call doesn't match these signatures, list the real ones before guessing:
    - Body ids: BASE-n, MID-n, LID-n, SUB-n (subplate), INS-<cavity>-n, STOP-n, PART-REF.
    - Body folders: "Mold - Base", "Mold - Middle", "Mold - Lid", "Mold - Subplate", "Mold - Inserts", "Mold - Stops", "Mold - Reference", and "Garbage" for leftover tool bodies.
    - Body names don't persist through the API. Identify bodies by folder plus geometry (centroid U, then V), never by `IBody2.Name` or by stored COM objects.
-   - Global variables `Mold_*` (`Mold_FloorT`, `Mold_LidT`, `Mold_PlateL`, `Mold_PlateW` ...) drive the plate sizes where the helper can link them. If linking fails, keep the numbers in the record and move on.
+   - Plate sizes live in the record (`structural.results.pieces`); `Mold.Plate` draws them as numbers, so there are no `Mold_*` global variables to link.
 3. **Multi-body work.**
    - One fillet or chamfer feature per body.
    - Combine-subtract: target body Mark 1, tool bodies Mark 2, `InsertCombineFeature((int)swBodyOperationType_e.SWBODYCUT, null, null)`. Move/Copy: select the body with Mark 1 (Mark 0 fails).
@@ -159,13 +171,13 @@ If a call doesn't match these signatures, list the real ones before guessing:
    - **At the start of every phase and stage**, check in a cell that the active document is the mold: a part whose custom property `Unify3D.MoldId` equals the record's `id`. If it is not, `swApp.ActivateDoc3` the mold (its path is `files.moldPart`) and check again in a new cell; if that fails, ask the user.
    - Never close or reopen the mold document from code. To go back, use `checkpoint restore`.
    - Never save over the customer's part file.
-   - Save the mold (`Model.Save3`) after each stage that passed its check.
+   - Save the mold (`Model.Save3`) right after `mold_record init`, after each stage that passed its check, and after the final custom properties (Phase 6 step 7). `init` sets `Unify3D.MoldRecord` and `Unify3D.MoldId` in memory only: unsaved, a crash loses the link to the record, its journal and its checkpoints.
 7. **Hard limits.** They hold even with "Decide everything".
    - Never: a parting line, land, groove, runner, vent, riser or sprue on a critical face. Only the user can take a face off the critical list.
-   - Never: aluminium above its grade's `never_above` temperature, or 2024 above 120 degC.
+   - Never: a plate grade whose `mold_calc lookup` status at the press temperature is `blocked` (an aluminium that ages above its `never_above`; 2024 above 150 degC) or `no-data`. A `limited` or `beyond-limit` grade is allowed only when `mold_calc size` passes its stress-ratio test (the `TEMP-<grade>` check; ≤ 0.5 × the derated allowable); otherwise switch to steel.
    - Never: a joint held by friction alone.
    - Never: a mold built for a press temperature above 250 degC.
-   - A weight or size limit may be exceeded only when the user waives it explicitly. Record the waiver in `checks[]` as `waived`, with `waivedBy` and the reason.
+   - A weight or size limit may be exceeded only when the user waives it explicitly. Record the waiver in `checks[]` as `waived`, with `waivedBy` and the reason (the `note`). It stays waived when `mold_calc size`/`check` or `mold_bodies report` compute that check again.
 8. **Data confidence.**
    - When the material row's confidence is "low", say so where its values drive a decision (shrink, viscosity, pressure).
    - Ask for datasheet values when a drawing tolerance is tighter than half the shrink spread: (S_max − S_min) × L > 0.5 × tol. That dimension is also flagged "steel-safe" (cavity cut small where it can be enlarged later).
@@ -202,7 +214,7 @@ If a call doesn't match these signatures, list the real ones before guessing:
 | magenta | air trap, labelled with its volume |
 | blue | vent, riser, pour point |
 | orange | fragile feature: steel insert recommended |
-| grey, translucent | plate-stack and layout previews |
+| grey (`#9E9E9E`), translucent | plate-stack and layout previews: `Overlay.Box(Mold.Frame(), u0, v0, w0, u1, v1, w1, "#9E9E9E", label, 0.3)` or `show_overlay` box items - never temporary bodies |
 | white | labels and dimensions |
 
 Clear the overlay (`clear_overlay`) before each new set of options, so old marks don't mislead.
@@ -217,15 +229,17 @@ Aim: 6 steps or fewer.
    - **Continue:** go to "Resuming" in "Recovery".
    - **Start over:** `checkpoint restore` the `intake` checkpoint if it exists. Then run `mold_record init` with `start_over: true`: it keeps the old record as `mold.json.bak-<yyyyMMdd-HHmmss>` (never delete it) and starts a new record with a new id.
    - A `done` record: ask whether to make a new revision (`identity.revision` + 1, start over) or to change something (use Smart Rebuild for that, and stop).
+   - **A new revision of a done record**, in this order (a `done` record is no longer registered for restores): `mold_record init` **without** `start_over` (it re-registers the file with the record's id), then `checkpoint restore` `intake`, then `mold_record init` with `start_over: true`, then merge `identity.revision` + 1. If `checkpoint list` has no `intake`, don't start over on top of the built mold: make a new blank mold file (Phase 0 step 3/4) and start there.
 3. **The active document** must be a part (the macro stops otherwise).
    - Solid bodies and no record: `ask_user` "Are these bodies the molded part?". Options: "Yes - save this as a new mold file (the original stays as it is)" or "No - stop".
    - On "yes", Save As a new file in the same folder: `<part name> mold.SLDPRT`. The bodies become the part to mold.
 4. **Saving.** If the part has never been saved, propose `<molded part name> mold.SLDPRT` in the molded part's folder (or in the drawing's folder for Phase 1a).
    - Save with `Model.Extension.SaveAs3(path, 0, (int)swSaveAsOptions_e.swSaveAsOptions_Silent, null, null, ref err, ref warn)`.
    - Ask first only with "Ask about all". Otherwise do it and report the path.
-   - Then `mold_record init`, then `checkpoint save` with the name `intake`.
-5. **Press and lifting answers.** `mold_calc` reads the page values from the record's `inputs`, so every answer you collect goes there with `mold_record merge` (`{"inputs": {...}}`), in the record's SI units (MPa, kN, mm).
-   - If `press_pressure_is` is "Not sure - ask me", ask now with one `ask_form` of 4 fields or fewer: what the number on the page is (gauge reading / pressure on the part / force reading); the press's rated tonnage and the gauge reading at that tonnage, pre-filled from the page; what the gauge reads in (psi / bar / MPa / kgf/cm²). Merge `press_pressure_is` with the chosen meaning, the value under the matching id (`press_pressure` for a gauge reading, `part_pressure` on the part, `press_force_reading` for a force), `press_rated_force` and `press_rated_gauge`.
+   - **Always** (a part saved before, or the step 3 Save As, too): `mold_record init`, save the mold (`Model.Save3`, so the record properties are in the file), then `checkpoint save` with the name `intake`.
+   - If `init` reports **NO PAGE VALUES**, merge every value of `<tool_inputs>` into `inputs` (as `"<number> <unit>"` strings, choices as their text) before any `mold_calc`.
+5. **Press and lifting answers.** `mold_calc` reads the page values from the record's `inputs`, so every answer you collect goes there with `mold_record merge` (`{"inputs": {...}}`), as `"<number> <unit>"` strings in the unit the user gave (`"50 US ton"`, `"3000 psi"`).
+   - If `press_pressure_is` is "Not sure - ask me", ask now with one `ask_form` of 4 fields or fewer: what the number on the page is (gauge reading / pressure on the part / force reading); the press's rated tonnage and the gauge reading at that tonnage, pre-filled from the page; what the gauge reads in (psi / bar / MPa / kgf/cm²). Merge `press_pressure_is` with the chosen meaning, the value under the matching id (`press_pressure` for a gauge reading, `part_pressure` on the part, `press_force_reading` for a force), `press_rated_force`, `press_rated_gauge`, and the gauge's unit as `gauge_unit` (`"psi"`, `"bar"`, `"MPa"` or `"kgf/cm2"`: the setup sheet prints the gauge in it).
    - Lid lifting (when `max_lid_mass` is not set): the calculator applies the NIOSH limit itself - inside the press the reach is at least 55 cm whatever the page says, and "Not sure" gives the 11 kg (25 lb) fallback. If `lid_lift_at` is "Not sure", ask where the lid comes off in the G2 form and merge the answer into `lid_lift_at`; if the user still doesn't know, leave it (11 kg) and record that in `decisions[]` with `by: "default"`.
 6. **Quick refusals.**
    - Press temperature above 250 degC: say so, set `scope: "advisory"`, and continue with Phase 1 and the plan (Phases 1-3 still run, for the advisory numbers).
@@ -248,7 +262,7 @@ Aim: 6 steps or fewer.
    - Tolerances: thicknesses, and which dimensions cross the parting line (closure dimensions).
    - Finish (SPI or Ra) per face group, inserts or overmolded hardware, marking, quantity.
    - Record each item in `part.drawing` with its sheet and zone.
-4. **Analyze.** Run `mold_part analyze` with `pull` +W, `min_draft_deg` from the page, `fill: "base"` (class A) or `"none"` (class B), `critical` = the page's critical faces, `show: true` and `record: true`. It writes volume, projected area and outline, draft, undercuts, parting-line candidates, air traps and fragile features to the record.
+4. **Analyze.** Run `mold_part analyze` with `pull` +W, `min_draft_deg` from the page, `fill: "base"` (class A) or `"none"` (class B), `critical` = the page's critical faces, `show: true` and `record: true`. It writes volume, projected area and outline, draft, undercuts, parting-line candidates, air traps and fragile features to the record. (Phase 2 re-runs it with the confirmed critical faces.)
    - Draft and undercuts are classified per tessellation sample. A sample with |n·W| < sin(min draft) may sit on either side of the parting line: it is flagged for draft, not counted as an undercut.
 5. **Gate G1.** No question unless something blocks the job. Summarize the part in 8 bullets or fewer:
    - size, volume, and mass at the material's SG;
@@ -296,8 +310,8 @@ If there is no part file, no drawing and no body, stop with: "Nothing to mold: a
 Start with `mold_record read`. Then:
 
 1. **Critical faces.**
-   - Pre-select the faces the drawing marks, plus the page's `critical_faces`.
-   - Show them in yellow (`show_overlay` face items, alpha 0.3).
+   - Pre-select the faces the drawing marks, plus the page's `critical_faces`, **plus your own proposals** - the user asked for them: functional, sealing and mating faces, cosmetic faces (large visible faces, "class A" or textured), and faces that carry tight drawing tolerances. With no drawing, your proposals are the whole suggestion.
+   - Show them in yellow (`show_overlay` face items, alpha 0.3), each proposal labelled with why ("sealing face", "±0.05 mm", "cosmetic").
    - Call `ask_selection` with the prompt "Add or remove critical faces (no parting line, flash, vent or sprue), then press Done" and `types: ["face"]`.
    - Record each face in `part.criticalFaces[]` with its ref, persistent id, a point on it, the source (drawing note or user) and its area.
 2. **Process class and mold type** (from the part row's `processType`):
@@ -311,19 +325,20 @@ Start with `mold_record read`. Then:
    | Class C | `positive` | advisory |
 
    - For an advisory job: set `scope: "advisory"`, tell the user in one line, and continue the plan without building.
-   - **Mold metal at temperature.** Run `mold_calc lookup` with `{mold: <grade id>, temp_c: <press temp>}`. The service status decides:
-     - "ok" or "ok-derated": go on; a derated grade gets a note in the plan.
-     - "limited": allowed only when every governing stress is ≤ 0.5 × the derated allowable (`mold_calc size` reports it in Phase 3). Otherwise recommend steel.
-     - "not allowed": the plan must switch grade.
+   - **Mold metal at temperature.** Run `mold_calc lookup` with `query: {mold: <grade id>, temp_c: <press temp>}`. The service status decides:
+     - `ok` or `ok-derated`: go on; a derated grade gets a note in the plan.
+     - `limited` (e.g. 2024 between 120 and 150 degC) or `beyond-limit` (above the grade's `never_above` for a grade that doesn't age): allowed only when every governing stress is ≤ 0.5 × the derated allowable - `mold_calc size` reports it as `TEMP-<grade>` in Phase 3 (a `limited` grade with N ≤ 10,000 warns and needs the user's confirmation). Otherwise recommend steel.
+     - `blocked` (an aging aluminium above `never_above`, 2024 above 150 degC): the plan must switch grade (rule 7).
+     - `no-data` (above 250 degC): refused - advisory only.
    - Above 150 degC, aluminium bearing (lands, stop seats) uses D_b = 4 until creep data is loaded. `mold_calc` applies this.
    - Corrosive or inhibiting materials (FKM, CR, PVC releasing HCl, platinum-cure LSR): read the row's `moldCompat`, `corrosiveness` and `notes`, and put the grade advice in the plan (420 stainless, plating).
 3. **Parting line.**
-   - Take the candidates from `mold_part`. Drop any that touch a critical face.
+   - First re-run `mold_part analyze` (`fill` as in Phase 1, `record: true`) with `critical` = every confirmed `[S#]` from step 1: the candidates in the record were computed without them. A critical face vetoes a plane only where it reaches the outline at that level; a face inside the outline costs a shut-off penalty. Use only candidates that are not vetoed - don't drop others by eye.
    - Score the rest on: undercut area, closure dimensions they create (critical tolerances should be inside one piece), air traps in the pour orientation they force, depth per half, and setups per machined piece.
    - Draw the best 1-3 in cyan, labelled with their scores.
    - v1 builds planar parting lines. When no planar one exists, show the conflicting faces in red and offer: a steel insert or loose piece for the conflicting region; a stepped parting line (built with the SolidWorks Mold Tools chain, an expert path that needs the user's agreement); or an advisory stop.
 4. **Pour or charge, and air traps.**
-   - Class A: compute air traps for a base pour (`mold_part analyze`, `fill: "base"`). If any appear, also compute a lid pour and a 10 deg tilt, and compare.
+   - Class A: compute air traps for a base pour (`mold_part analyze`, `fill: "base"`). If any appear, also compute a lid pour and a 10 deg tilt, and compare. Run every comparison scenario with `record: false`: each run numbers its traps AT1.. again, and a rejected scenario's traps would stay in the record. Record only the chosen scenario (step 10).
    - Draw traps in magenta with their trapped volume. Draw the proposed vents, risers and pour points in blue.
    - Vents exit above the pour level. A trap that can't be vented without crossing a critical face is solved with a tilt (5-15 deg, with a tilt foot on the base) or a riser.
    - Class B: the charge goes in the lower half, placed so flow paths to every extremity are about equal. Air is released by bumping (on the setup sheet) and by vents 0.1-0.2 mm deep where flow fronts meet.
@@ -338,13 +353,13 @@ Start with `mold_record read`. Then:
 6. **Layout.** Run `mold_calc layout` for `cavities`.
    - Cavities are spaced so the flash system fits and the load is centred.
    - Separate moats when cavities are at least 2 × (lip + groove width) + 0.25 in apart (1.5 in with the shop values); otherwise one combined moat.
-   - Draw the footprint as translucent grey boxes (`Overlay.Body` with `IModeler.CreateBodyFromBox3`).
+   - Draw the footprint as translucent grey boxes: `Overlay.Box(Mold.Frame(), u0, v0, w0, u1, v1, w1, "#9E9E9E", label, 0.3)` per plate and cavity (or `show_overlay` box items), never temporary bodies.
 7. **Alignment scheme.** The lid and the base run at different temperatures:
    - Use ΔT = 30 K when the mold slides in and out each cycle (the lid cools on the table), and 10 K when it stays in the press.
    - Default scheme: one round dowel at the datum corner, the others slotted along radial lines from it. Steel bushings in aluminium. Pins engage at least 12 mm before any plug enters.
    - The shop's practice is 4 dowels of 0.5 in with a 0.25 in key offset. Unless `notes` says how the shop's dowels are fitted, ask in the form: "keep 4 round dowels (shop practice)" or "1 round + 3 slotted radially (recommended for this ΔT)". Show the computed mismatch over the dowel diagonal for the user's choice.
 8. **Shrink basis.** Settle it now (see "Shrink basis"). Put it in the form when:
-   - `shrink_basis` was not edited and the row's `shrinkBasisConfidence` is "estimate" (the hot-cast PU rows), or the value is "v1 style" without a note saying why; or
+   - `shrink_basis` has no "edited by the user" marker (it is still the row's `shrinkBasisChoice`) and the row's `shrinkBasisConfidence` is "estimate" (the hot-cast PU rows), or the value is "v1 style" without a note saying why; or
    - a closure or critical tolerance fails the rule-8 test.
 9. **One `ask_form`** (gate G2), 8 fields or fewer, pre-filled with your recommendation. Leave out what is already decided (by the page, `notes` or the drawing):
    - the parting line (choice of the drawn candidates);
@@ -358,7 +373,10 @@ Start with `mold_record read`. Then:
    - where the lid is lifted off, only when `lid_lift_at` was "Not sure" (merge the answer into `inputs`, Phase 0 step 5);
    - anything else (text), including any press question still open (`mold_support` rails: span; clamping method; ejector).
    If more than 8 remain, keep the ones that change the geometry most and state the others as assumptions in the form's intro. With "Decide everything", skip the form and list the choices in the gate summary.
-10. **Write the plan.** Merge `partingLine`, `process.pour`, `layout`, `airTraps`, `vents` (planned), the inserts in `part.fragile[].decision`, `identity` and `decisions[]`. Append "Plan agreed: ..." to the journal. Merge `status: "sizing"`.
+10. **Write the plan.** Merge `partingLine` (with `candidate`: the chosen candidate's id), `process.pour`, `layout`, `vents` (planned), the inserts in `part.fragile[].decision`, `identity` and `decisions[]`.
+    - The depths per half from the chosen candidate: `part.depthBase_mm` (its `baseDepth_mm`), `part.depthLid_mm` (its `lidDepth_mm`) and, for a lid with a plug, `part.plugHeight_mm`. Without them the calculator puts the whole part in the base.
+    - The chosen scenario's air traps with `"$replace": ["airTraps"]` - or re-run `mold_part analyze` for the chosen pour and tilt with `record: true` after merging `{"$replace": ["airTraps"], "airTraps": []}`.
+    - Append "Plan agreed: ..." to the journal. Merge `status: "sizing"`.
 
 ## Phase 3 - Size
 
@@ -387,15 +405,15 @@ Start with `mold_record read`.
    - the lid lifting index;
    - joints, keys and bolts again at the abuse pressure LC1x (SF 1.0, no separation), capping the maximum gauge where they can't take it.
    **Read the lowest margins first.**
-4. **A weight or size limit fails.** Run `mold_calc split` and present up to 3 options with piece masses, boxes, keys and bolts. Ask, merge the chosen option, then run `size` again.
+4. **A weight or size limit fails.** Run `mold_calc split` (`query: {plate: "base"}`, or `"lid"` for a class B lid) and present up to 3 options with piece masses, boxes, keys and bolts. Ask, then run `split` again with `query: {plate, option: i}`: it writes the chosen option to `structural.split.<plate>` itself (never copy an option by hand). Then run `size` again.
    - **The lid is over its limit.** Offer, in this order: lightening pockets on its platen face (keep at least 80% platen contact over the cavity footprint), a lift assist or a hinge, a two-person lift.
    - Never split a class A lid: the seam would cross the seal.
    - When the 0.05 × L minimum-plate rule is what pushes the lid over, say so: it is a handling rule, not a structural one, under support case A.
 5. **A check fails that sizing can't fix** (aluminium above its derated temperature, a span with t/b > 0.5, the press too small, a pour time over half the pot life): offer the choices the calculator lists (steel, more support, fewer cavities, a bigger press, two pour batches) and ask.
 6. **An advisory job** ends here. Merge the results and go to Phase 6 step 5.
 7. **Gate G3.**
-   - Preview the stack as translucent temporary boxes, labelled with each piece's thickness and mass.
-   - Summarize (12 bullets or fewer): pieces with grade, size and mass; floor, wall and lid thicknesses and what governs each; bolts and dowels; the recommended and maximum gauge; charge per cavity; the lid lifting index; the three lowest margins; anything waived.
+   - Preview the stack as translucent grey overlay boxes (`Overlay.Box(Mold.Frame(), ...)`, colour `#9E9E9E`), labelled with each piece's thickness and mass.
+   - Summarize (12 bullets or fewer): pieces with grade, size and mass; floor, wall and lid thicknesses and what governs each; bolts and dowels; the recommended and maximum gauge (the structure is sized at the higher of the user's setting and the recommended one; the maximum is what it was checked for - a higher setting needs `size` run again at that gauge); charge per cavity; the lid lifting index; the three lowest margins; anything waived.
    - Ask "Build this?" (`ask_user`: Build / Change something / Stop), unless `decisions` is "Decide everything".
    - Merge `status: "building"`.
 
@@ -403,7 +421,7 @@ Start with `mold_record read`.
 
 Every stage runs the same loop:
 
-1. Check the active document is the mold (rule 6). `mold_record read` (check the status and the stage list), then `checkpoint save` with the name `stage-4.x`.
+1. Check the active document is the mold (rule 6). `mold_record read` (check the status and the stage list), then `checkpoint save` with the name `stage-4.x`, and at once merge the stage as `{id, name, status: "running", checkpoint: <the name exactly as checkpoint save returned it, e.g. 20261019-201500-stage-4-1>}` so Recovery can find it.
 2. Build the stage in one or more `execute_csharp` cells.
 3. `rebuild`. Any new feature error: fix it before going on.
 4. Run the stage's own check, **by measurement in code**: volumes, boxes, distances, counts. Never by eye.
@@ -412,6 +430,7 @@ Every stage runs the same loop:
 
 **If a stage fails** and two fixes don't converge:
 - `checkpoint restore` to the stage's checkpoint;
+- **roll the record back with it** (a checkpoint holds only the SLDPRT): merge every stage from the restored one on as `status: "pending"`, `vents` (as built) and the agent's A-checks of those stages back to their planned state, and run `mold_bodies report` (it replaces `bodies[]` and its own checks);
 - append the lesson to the journal (what you did, what broke, why, what to do instead);
 - revise and continue.
 Don't undo in circles. Don't start over.
@@ -419,11 +438,11 @@ Don't undo in circles. Don't start over.
 | Stage | What gets built | Stage check |
 |---|---|---|
 | 4.1 Frame and reference | `MOLD CS`, `MOLD PL<n>`, Insert Part (if not done), `MOLD Shrink`, PART-REF, `MOLD Cavity copies` | A3; PL planes on the scaled silhouette within 0.01 mm; one copy per cavity at its origin within 0.01 mm |
-| 4.2 Plates | one `MOLD Plate <ID>` per piece, global variables, folders | each box = plan within 0.01 mm; mass = plan within 2% |
+| 4.2 Plates | one `MOLD Plate <ID>` per piece, folders, plate materials | each box = plan within 0.01 mm; mass = plan within 2% (`mold_bodies report` after the plate materials are set, or volume × the grade's density) |
 | 4.3 Cavities | `MOLD Cavity <ID>` per plate | A4 |
 | 4.4 Inserts | INS-* bodies, pockets with shoulders and corner reliefs, fits | interference = only the planned fits; reliefs present; shut-off heights (rule 10) |
 | 4.5 Alignment and fastening | dowels and bushings, bolt holes, keys or steps | engagement, edge distance, spacing, washer clearance (A13, A14) |
-| 4.6 Stops and lands | class B STOP-n pads and land relief; class A land notes | bearing area = plan within 5% |
+| 4.6 Stops and lands | class B STOP-n pads and land relief; class A land notes | bearing area = plan within 5%; merge it as `structural.asBuilt.bearingArea_mm2` |
 | 4.7 Handling | pry slots, lift notches or handles, hoist holes, jack screws, TC wells, knockouts or air poppets, clamp ledges, slide-in hardware | 0.25 in (6.35 mm) clear of the planned flash band; A16 |
 | 4.8 Flash system | class A lip, moat, runners; class B land, overflow, radial exits; vents, risers, sprue | A10, A11, A7 |
 | 4.9 Finish | fillets and chamfers per body, per-body materials, Garbage folder, custom properties | A1, A2 |
@@ -436,18 +455,17 @@ Don't undo in circles. Don't start over.
    - The plane through `MOLD CS` keeps its height.
    - Any other parting plane k moves with the scale: w_k' = w_CS + s_W × (w_k − w_CS). Use the scaled heights.
 5. Put the scaled body in "Mold - Reference" as PART-REF.
-6. `MOLD Cavity copies`: one copy of PART-REF per cavity at its layout origin and rotation (`Mold.CopyBody`). Copies are tool bodies: they are consumed in 4.3.
+6. Cavity copies: one copy of PART-REF per cavity, so that PART-REF's reference point (its U/V box centre at `plW`) lands on the cavity's layout origin (`Mold.CopyBody` with the offset origin − reference point; each call makes a feature `MOLD Copy <body>`, and `Mold.LastBodies` are the copies). Copies are tool bodies: they are consumed in 4.3.
 7. **Check:**
    - A3 (volume ratio);
    - every PL plane on the silhouette of the scaled part within 0.01 mm (sample the part's outline edges at that height);
-   - each copy's centroid = its layout origin + PART-REF's centroid offset, within 0.01 mm.
+   - each copy's reference point (U/V box centre at `plW`) = its layout origin within 0.01 mm.
 8. Then run hook **H1** (Phase 7).
 
 ### 4.2 Plates
-1. Create the global variables first.
-2. One `Mold.Plate(id, u0, v0, u1, v1, w0, w1)` per piece: sketched on the Top Plane, extruded with Merge off and a start offset.
-3. L and W are rounded up to 0.5 in, and T to stock (from `mold_calc`). Pieces of a split base follow the chosen split option, with its keys and steps.
-4. Put each body in its role folder.
+1. One `Mold.Plate(id, u0, v0, u1, v1, w0, w1)` per piece: sketched on the Top Plane, extruded with Merge off and a start offset, centred on U = V = 0 (the layout convention).
+2. L and W are rounded up to 0.5 in, and T to stock (from `mold_calc`). Pieces of a split base follow the chosen split option, with its keys and steps.
+3. Put each body in its role folder, and set each plate's material (`Mold.SetBodyMaterial`, as 4.9 step 2) so the stage check can weigh it.
 
 ### 4.3 Cavities
 1. Per plate: copy the cavity tool bodies that cross it (`Mold.CopyBody`, Mark 1).
@@ -488,7 +506,7 @@ Don't undo in circles. Don't start over.
   - relief outside the land so only the land and the pads bear;
   - folder "Mold - Stops".
 - **Class A:** the full parting face is the land. Nothing is built; the flatness and lapping call-outs go to the machining sheet in Phase 6.
-- **Check:** bearing area (measured on the faces that touch at closure) = plan within 5%.
+- **Check:** bearing area (measured on the faces that touch at closure) = plan within 5%. Merge the measured area as `structural.asBuilt.bearingArea_mm2`: `mold_calc check` uses it (class A otherwise keeps its estimate).
 
 ### 4.7 Handling
 Build these before the flash system, so the runners can avoid them.
@@ -496,7 +514,7 @@ Build these before the flash system, so the runners can avoid them.
 2. **Handles and lifting.**
    - Every piece above 5 kg gets 2 handles on opposite sides, on the line through its centre of gravity, bolted into steel thread inserts (rule 14).
    - The lid gets handles whenever it is lifted hot.
-   - Pieces over the one-person limit get tapped hoist-ring holes over the centre of gravity (DIN 580 ratings in mold-materials).
+   - Pieces over the one-person limit get tapped hoist-ring holes over the centre of gravity. `mold_calc` gives the thread and the working load limit each ring needs (`hardware.lift[].threads`, "WLL >= x kg"); pick a DIN 580 / ASME B30.26 swivel ring rated for it.
 3. **Jack screws** when chosen: 2-4 through the lid, symmetric, pushing on hardened pads in the base, into thread inserts.
 4. **TC wells:** one per piece (shop standard: 0.25 in diameter, 2.0 in deep), entering from a side face, ending 9 mm from the cavity at the thickest section, not in a lift or clamp zone. Ids TC-B1, TC-L1 ...
 5. **Knockout holes or air-poppet seats** when chosen: pins at least 6 mm diameter on elastomers; poppets flush, on a non-critical face.
@@ -520,6 +538,10 @@ Build these before the flash system, so the runners can avoid them.
    - no dead ends; runners leave only through the assembled outer edge and cross seams at 90 deg;
    - one fillet feature per body.
    If the moat can't clear a feature, stop and tell the user the measured distance (suggest a narrower groove).
+   **Hand-offs.** `FlashGrooves` hands some cases back to you with a message ("... Nothing was changed except removing earlier flash grooves"). These are not failed geometry self-checks: handle them, don't stop the run.
+   - **Cavities too close for separate moats** ("build ONE combined moat"): the shop's rule - one continuous moat around the whole group, with the space between neighbouring cavities, less a 0.125 in lip at each cavity, as groove; the outer moat 0.5 in wide at the standard 0.125 in lip; runners as wide as possible between the cavities and the standard runners outward. Sketch it on the parting face in a cell (offset the cavity edges by the lip and by lip + width, join the inner groove regions), cut 0.125 in deep as `MOLD Flash moat`, then runners and one fillet feature per body, and measure A10.
+   - **A multi-plate base, or plates whose seams don't line up:** ask which plates and face form the base (`ask_selection`), then run `FlashGrooves` on that face.
+   - **An outline that isn't straight-sided** (round, slot, freeform): convert the cavity edges and offset them by the lip and by lip + width by hand, then cut and fillet as above.
 2. **Class B:**
    - land width from the row (`flash.landWidthMm.typ`), checked ± 0.05 mm;
    - an overflow groove (semicircle, radius from `mold_calc process`), continuous unless a critical face forbids it;
@@ -531,13 +553,13 @@ Build these before the flash system, so the runners can avoid them.
    - exiting above the pour level;
    - never on a critical face.
    Risers (1-3 mm holes, or as the row says) at internal high points. A sprue only if the pour needs one.
-4. **Check:** A10, A11 and A7, measured.
+4. **Check:** A10, A11 and A7, measured (A7 with the recipe in Phase 5).
 
 ### 4.9 Finish
 1. **Fillets and chamfers:** one feature per body.
    - Shop chamfer 0.06 in x 45 deg on the base bottom outer edges and the lid top outer edges.
    - No fillet on seam edges or on the land edge.
-2. **Materials per body:** `Mold.SetBodyMaterial` with the grade's `swMaterial` name, read back. A grade with no library name gets "6061-T6 (SS)" or the nearest steel, and a note.
+2. **Materials per body:** `Mold.SetBodyMaterial` with the grade's `swMaterial` name, read back. A grade with no library name gets "6061-T6 (SS)" or the nearest steel, and a note. (`mold_bodies report` weighs each body with its grade's own density from the record, not the library material's.)
 3. **Leftovers:** every leftover tool body goes to "Garbage". Never delete bodies.
 4. **Custom properties:** the user's own `MoldNumber`, `Resin`, `CureTime_min`, `PressTemp_F`, plus `MoldMaterial`, `Shrink_pct`, `PlateSize_in`, `StackHeight_in`, `PlateThicknesses_in`, `Cavities`, `CycleLife`, `GaugeSetting_psi`, `ChargePerCavity_g`. Keep `Unify3D.MoldRecord` and `Unify3D.MoldId` as `init` set them.
 5. **Check:** A1 and A2.
@@ -546,13 +568,13 @@ Build these before the flash system, so the runners can avoid them.
 
 Start with `mold_record read`. Merge `status: "verifying"`.
 
-1. Run `mold_bodies report` (writes `bodies[]` with roles, masses, boxes, limits and interference).
-2. Run `mold_bodies clearance` for the pairs that matter: flash system against dowels, bolts, pry slots, TC wells and handles; vents against critical faces.
-3. Run `mold_part analyze` on the cavity faces of each half (draft and undercut, A8 and A9).
-4. Run `mold_calc check`: as-built thicknesses and walls against every load case.
+1. Run `mold_bodies report` (replaces `bodies[]` with roles, masses, boxes, limits and interference, and its own earlier checks).
+2. Run `mold_bodies clearance` for the pairs that matter, as body ids or feature names: the flash features (`MOLD Flash moat`, `MOLD Flash runners`) against `MOLD Dowels`, `MOLD Bolts <ID>`, `MOLD Pry slots`, `MOLD TC wells` and the handles. (Critical faces are checked by A7 below, not by `clearance`.)
+3. **Draft and undercuts as built (A8, A9).** The cavities are copies of PART-REF, so run `mold_part analyze` on `body: "PART-REF"` with `record: false` (never record: it would overwrite the molded part's data): `pull` +W for the base side and `pull` −W for the lid-side faces, plus each insert body that forms cavity faces. Read only the draft and undercut results (a plate's outer walls are not cavity faces).
+4. **As built.** Measure in a cell and merge `structural.asBuilt`: `walls.<id>` - the narrowest drawn steel of each wall in `structural.results.walls` (ids without the `W-`: `"V-B"`, `"U-B"`, `"V-L"`, `"U-L"`), measured from the cavity to the plate edge or the next cavity - and `bearingArea_mm2` (stage 4.6). The plate thicknesses (`baseThickness_mm`, `lidThickness_mm`) and the masses come from `bodies[]` unless you merge them. Then run `mold_calc check`: the as-built plates, walls, spans and bearing against every load case.
 5. Go through A1-A16 below, each measured. Record each as a `checks[]` entry with `source: "agent"` and, where a body or face is involved, a `location` (`bodyId`, `point`, `normal`).
-6. **A failing check** goes back to the stage that owns it (table in Phase 7), through `checkpoint restore` when the stage must be rebuilt. Only the user can waive a check.
-7. Run hook **H2** (Phase 7).
+   - **A7 recipe** (a critical face is on the original part; the plates carry scaled copies): for each `part.criticalFaces[]` point p, per cavity, map it as the cavity copy was made - scale about `MOLD CS` (p' = CS + s × (p − CS) per axis U, V, W), then add that cavity's copy offset; find the plate face at p' (`IModelDoc2.ClosestDistance` from a point, or a short ray along −normal, on the plate that has the cavity); then measure `ClosestDistance` from that face to every face of `MOLD Flash*`, `MOLD Vents`, risers and the sprue: each must be > 0 with no shared edge. Record A7 per cavity (`A7-C1`, ...).
+6. **A failing check** goes back to the stage that owns it (the stage table in Phase 4; A5 and A6 → 4.2-4.4, A8 and A9 → the plan (a part change, ask) or 4.4 inserts, A12 → Phase 3 then the stage that owns the failing piece), through `checkpoint restore` (and the record rollback in the stage loop) when the stage must be rebuilt. Only the user can waive a check.
 
 ## Phase 6 - Report, setup sheet, machining sheet, hardware
 
@@ -578,13 +600,14 @@ The sheets are filled by code from the record: `mold_record setup_sheet` derives
    - `release` and `cleaning` (one paragraph each);
    - `safety`: hot surfaces, pinch points, lifting (the material's hazards are added by the sheet).
    Write `[]` for a list that has nothing in it.
-   Also merge `views` with two images saved with `Model.SaveBMP(path, 1200, 900)` into `<record>\views\`: the assembled mold (isometric) and the cavity map (top view of the base, cavity numbers as labels).
+   Also merge `views` with two images saved into `<record>\views\` (`init` made the folder): `views.assembly` (the assembled mold, isometric) and `views.cavityMap` (top view of the base). `Model.SaveBMP(path, 1200, 900)` doesn't capture the overlay, so label the cavity numbers with temporary notes on the model (delete them after the capture), or use `capture_views` with `"current"` and save that image.
 5. **Report data.** Merge `report`: `lowestMargins[]` (the three lowest passing margins: `{id, type, margin, status}` from `checks`), `openItems[]` (defaults that need confirming, low-confidence data, checks not run, simulators not run), `summary`. The setup sheet prints them, so they go in before the sheets.
 6. **Sheets.** Run `mold_record setup_sheet`, then `mold_record machining_sheet`.
    - Unresolved placeholders print as "-"; each sheet action lists them ("Unresolved placeholders: ...").
    - A missing key you own (identity, setup, views, report, part.drawing): merge it and run the sheet again. A value that is unknown or doesn't apply is `null` (it prints "-" and is not reported), never an invented string.
    - A missing key in the derived rows (`sheet.*`, `machining.*`, a hole or piece row) is the add-in's: don't try to fix it by merging; add it to `report.openItems` and run the sheets once more.
-7. **Custom properties** as in 4.9, with the final numbers.
+7. **Custom properties** as in 4.9, with the final numbers. Save the mold.
+   - Then check **A15** (the exports, the sheets, the last merge reporting "valid") and run hook **H2** (Phase 7): its machining data is the written machining sheet.
 8. **Finish.**
    - Merge `status: "done"` **last**: it ends the tool's long-run settings.
    - Append the outcome to the journal.
@@ -606,11 +629,11 @@ Simulators are optional. Call one only when its alias is in your tool list. Othe
   - If `sim_process` is available, call it with the record path, the shrunk-part STEP, and the plan: `frame.w`, `partingLine`, `process.pour`, `vents`, the material row, the press temperature (`structural.inputs.tempC`).
   - Merge its reply: one `simulations[]` entry; its findings as `checks[]` with `source: "<server>/<tool>@<version>"`; a pressure field into `structural.loadCases.LC1.pressureField`.
   - Change vents, pour side or tilt where it finds traps or short fills, and re-run H1 at most twice.
-- **H2, after Phase 5** (as built):
-  - Call `sim_machinability` for each `exports\bodies\<ID>.step` with that body's machining data (the `machining` section of `MachiningSheet`, plus `bodies[].machining.notes`), the grade, its `machinability` data and hardness.
+- **H2, after Phase 6 step 7** (as built, once the sheets are written):
+  - Call `sim_machinability` for each `exports\bodies\<ID>.step` with that body's machining data (its rows of the written `machining-sheet.html`, plus `bodies[].machining.notes`), the grade, its `machinability` data and hardness.
   - Call `sim_process` on the as-built cavity with its vents and overflow.
   - Route each failing finding to its owning stage (table below), fix it, and re-run the hook once.
-- **H3, whenever a pressure field exists** (Phase 3 or Phase 5): run `mold_calc check`; it uses the field instead of the uniform pressure.
+- **H3, whenever a pressure field exists:** in Phase 3 run `mold_calc size` (nothing is built yet), in Phase 5 `mold_calc check`; both use the field instead of the uniform pressure.
   - The field is either (u, v, w, p) samples in the mold frame, or per-face samples {bodyId, point, normal, p}.
 
 **Finding locations are portable.** Each finding is located by `{bodyId, point, normal, stepFaceId?}`, never by SolidWorks persistent ids. Map one back to a face with `IModelDoc2.ClosestDistance` from the point, or a short ray along −normal, on the body with that id.
@@ -629,7 +652,7 @@ Simulators are optional. Call one only when its alias is in your tool list. Othe
 
 | Id | Check |
 |---|---|
-| A1 | After `ForceRebuild3`, no feature has `GetErrorCode2 != 0`, unless it is only a warning (and the warning is explained). |
+| A1 | After `rebuild` with `force: true` (`ForceRebuild3`), no feature has `GetErrorCode2 != 0`, unless it is only a warning (and the warning is explained). |
 | A2 | Every solid body is in exactly one "Mold - *" folder or in "Garbage". The record's `bodies[]` matches by count and role. |
 | A3 | PART-REF volume = original volume × sx·sy·sz within 0.1%. Every `MOLD PL` plane lies on the scaled part's silhouette within 0.01 mm. |
 | A4 | Each cavity's removed volume = the copies' volume inside that plate within 0.1%. Each cavity sits at its layout origin within 0.01 mm. Every insert pocket corner has its relief (rule 11). |
@@ -643,7 +666,7 @@ Simulators are optional. Call one only when its alias is in your tool list. Othe
 | A12 | `mold_calc check` (as built): every margin ≥ 0, including the LC1x joint, key and bolt checks, or waived with a reason. |
 | A13 | Dowel scheme as agreed: one round pin at the datum, the others slotted radially (or round + diamond, or the user's recorded 4-round choice), with the computed lid-to-base mismatch inside the slot or clearance. Pins engage at least 12 mm before the plug enters. Steel bushings in aluminium. |
 | A14 | Every tapped hole meets its engagement L_e/d, or has an insert. Hardened washers on aluminium faces, with counterbores sized for them. Tapped depth ≥ L_e + 0.5 d. The torque list is complete, with the preload band. |
-| A15 | One STEP per body plus the part. `mold.json` validates against `data/mold.schema.json`. Both sheets are written, and no placeholder you own is unresolved (a missing key is unresolved; a null value is deliberately empty and is not). Unresolved derived rows are listed as open items. The hardware list is complete. The custom properties are set. |
+| A15 | (Checked after Phase 6 step 7.) One STEP per body plus the part. The last `mold_record merge` reports "valid" (the add-in's validation of the record; `data/mold.schema.json` documents the keys). Both sheets are written, and no placeholder you own is unresolved (a missing key is unresolved; a null value is deliberately empty and is not). Unresolved derived rows are listed as open items. The hardware list is complete. The custom properties are set. |
 | A16 | Handles, lift lugs and clamp ledges sit outside the platen outline or wholly below the lid's platen face. Nothing stands proud of the base's underside. Plates and cavities keep the 25 mm cool-edge margin inside the heated platen (when `platen_size` is set). |
 
 ## Engineering rules (what the calculator and the stages assume)
@@ -706,9 +729,9 @@ Rows whose `shrinkBasisConfidence` is "estimate" (the hot-cast PU rows) have an 
 - The limit is the NIOSH recommended weight limit, unless the user set `max_lid_mass`:
   RWL = 23 kg × (25/H) × (1 − 0.003 × |V − 75|) × (0.82 + 4.5/D) × FM × CM, with H, V, D in cm.
   - At the slide-out table: H = the reach `lid_reach` (default 40 cm), V = 90 cm, D = 25 cm, CM = 1.0 (good handles).
-  - Inside the press: H = max(`lid_reach`, 55 cm), V = 100 cm, D = 25 cm, CM = 0.90 (gloved). Phase 0 step 5 raises a shorter reach to 550 mm in `inputs`.
+  - Inside the press: H = max(`lid_reach`, 55 cm), V = 100 cm, D = 25 cm, CM = 0.90 (gloved). The calculator applies the 55 cm floor itself; don't change `lid_reach`.
   - FM for an 8 h shift: up to 12 lifts/h 0.85; 30/h 0.81; 60/h 0.75; 120/h 0.65; 180/h 0.55; 240/h 0.45. Above 240/h, plan a hoist.
-  - "Not sure" where the lid comes off, after asking: 11 kg (25 lb), merged as `max_lid_mass` (Phase 0 step 5).
+  - "Not sure" where the lid comes off, after asking: the calculator's 11 kg (25 lb) fallback; leave `max_lid_mass` unset and record the default in `decisions[]` (Phase 0 step 5).
   Examples: 11.7 kg at the table, 7.4 kg inside the press.
 - The lifting index (lid mass / RWL) must be ≤ 1.0. `mold_calc size` writes it with the limit and its basis in `structural.results.lid`; check that the basis names the place the user gave. It goes on the setup sheet.
 - Plates lifted occasionally: 23 kg (`max_plate_mass`).
@@ -747,7 +770,8 @@ Rows whose `shrinkBasisConfidence` is "estimate" (the hot-cast PU rows) have an 
 - Stiffness governs. The parting-line gap that would let material flash decides most sizes. The allowable deflection is δ_allow from the gap budget.
 - Plates backed by the platens (support case A, the default) are in compression and don't bend. Their thickness comes from minimum rules: floor ≥ max(12 mm aluminium / 10 mm steel, 0.25 × cavity depth, TC well + 2 × 6 mm, hardware depth); lid ≥ max(0.05 × the longest side, 12/10 mm, hardware).
 - Spanning plates use thick-plate (Mindlin) coefficient tables made with a finite-element sweep, iterated because the coefficients depend on t/b: rails (case B) the Rails rows, an opening (C) the SS4 rows (C4 with an integral frame), pillars (E) the periodic Pillar rows with alpha × 1.2 (the 3D pillar-head factor; never a C4 panel - a pillar cell deflects about 2.8 × as much), an overhang (D) the cantilever strip. For B, C and E that is only the first guess: `size` then solves the planned base plate itself (cavities plus land under pressure, the rails, opening or pillars where they are; two meshes extrapolated) and sizes it to 99.5% of the gap and stress limits. The table alone is about 17% thick on rails and over openings, and too thin on pillar plates next to the plate edges. Give the supports with `overrides` (from the plate corner, mm): `rails_v_mm` [v1, v2] (rails along U) or `rails_u_mm`, else `rail_span_mm` centred; `opening_mm` [u1, v1, u2, v2], else `span_mm` × `span_length_mm` centred; `pillars_mm` {u: [...], v: [...]}, else a grid at most `span_mm` apart. They are kept in `structural.inputs`. The plate result is in `structural.results.plates.span` (`tTable_mm`, `t_mm`, `fe`); a support that does not hold the plate gives a `SPAN-FE` warning and the table thickness.
-- Cavity walls are clamped-free plates under the cavity pressure, times the wall-root factor 1 + 2.8 w/h for the floor's rotation (3D solid models of milled pockets; a constant 1.2 holds only for very thin walls). Long walls use the tabulated L/h rows up to 12, and the strip-with-shear closed form beyond.
+- Cavity walls are clamped-free plates under the cavity pressure, times the wall-root factor 1 + 2.8 w/h for the floor's rotation (3D solid models of milled pockets; a constant 1.2 holds only for very thin walls). Above w/h 0.53 (the calibrated range) the root's added bulge falls as h/w. A wall no width up to 3 h can carry fails (`WALL-NOSOLN`): steel, a keyed wall, a lower pressure or a looser width tolerance. Long walls use the tabulated L/h rows up to 12, and the strip-with-shear closed form beyond.
+- **Gauge.** Class B and every supported span are sized at the higher of the user's setting and the recommended gauge. The maximum gauge on the setup sheet is the lowest of the press rating, bearing, and every structural check whose load follows the press (class B walls, pins, keys, joint bolts; spans; class A abuse caps LC1x) - so the structure was checked at every setting up to it.
 - Aluminium uses long-term (10,000 h) strength at the press temperature. Fatigue uses Goodman at R = 0, with the notch factor from the cavity's corner radius. Static stress ≤ S_y,T / 2.
 - Bolts follow Shigley chapter 8, with the hot preload gain, torque scatter and hot proof strength. Keys carry separating forces; friction never does.
 - Everything is rounded to stock, then checked again as built.
@@ -769,7 +793,9 @@ Rows whose `shrinkBasisConfidence` is "estimate" (the hot-cast PU rows) have an 
 | `layout` | `mold_calc layout` | Phase 2 |
 | `materials.part`, `shrink`, `process` (charge, pour timing, cure, post-cure, gauge, press), `hardware` (bolts, dowels, dowel scheme, TC wells, lift, slide-in, stops), `structural` (inputs, load cases, results with pieces, lid lifting, partial loading, stack height), `checks` | `mold_calc` | Phase 3, Phase 5 |
 | `frame`, `stages`, `vents` (as built) | you | Phase 4 |
-| `bodies` (role, mass, box, limits) | `mold_bodies report` | Phase 5 |
+| `part.depthBase_mm`, `part.depthLid_mm`, `part.plugHeight_mm` | you, from the chosen parting-line candidate | Phase 2 |
+| `structural.asBuilt` (`walls.<id>`, `bearingArea_mm2`; optionally `baseThickness_mm`, `lidThickness_mm`, `baseMass_kg`, `lidMass_kg`) | you, measured | Phase 4.6, Phase 5 |
+| `bodies` (role, mass, box, limits) | `mold_bodies report` (replaces the list) | Phase 4 checks, Phase 5 |
 | `bodies[].machining.notes`, `hardware.bom` (items the calculator doesn't size), `setup`, `views`, `report` | you | Phase 6 |
 | `simulations`, simulator `checks` | you, from the simulator's reply | Phase 7 |
 | `setupSheet`, `machiningSheet`, `hardware-bom.csv` | `mold_record` | Phase 6 |
@@ -779,11 +805,11 @@ The sheets read the calculator's and `mold_bodies`' keys through the derived `sh
 ## Recovery
 
 - **Resuming** ("Continue", or a new message after a break):
-  - `mold_record read`, `rebuild_journal read`, `checkpoint list`;
-  - if the model is damaged (rebuild errors from an unfinished stage), `checkpoint restore` that stage's checkpoint by its exact name from `stages[]`;
-  - carry on from the first stage that isn't `done`;
+  - `mold_record init` (it continues the record and lists **PAGE CHANGED** values when this run's page differs from the record's `inputs`: ask the user whether to use them - they may invalidate finished stages - and merge the ones to keep), then `rebuild_journal read`, `checkpoint list`;
+  - continue by the record's `status`: `planning` → Phase 1-2 (whatever the record lacks), `sizing` → Phase 3, `building` → the first stage in `stages[]` that isn't `done` (4.1 when there is none), `verifying` → Phase 5, `done` → Phase 0 step 2;
+  - if the model is damaged (rebuild errors from an unfinished stage), `checkpoint restore` that stage's checkpoint by its exact name from `stages[]` (the `running` entry), and roll the record back as in the stage loop;
   - revise the plan where the journal's lessons say so.
-- **A cell throws:** read the message, fix the cause, and re-run that step only. A `Mold` self-check exception means the geometry is wrong: don't continue past it.
+- **A cell throws:** read the message, fix the cause, and re-run that step only. A `Mold` self-check exception means the geometry is wrong: don't continue past it. A hand-off (a message saying what to do yourself, such as `FlashGrooves`' combined moat) is not a self-check failure: do what it says (stage 4.8).
 - **SolidWorks needs the user** (a dialog, a missing reference, a file locked by another program): stop and ask; don't click through dialogs from code.
 - **Out of steps:** finish the stage, merge, journal, and tell the user to type "continue".
-- **The user changes their mind mid-build:** record the decision, restore to the stage it affects, and rebuild from there.
+- **The user changes their mind mid-build:** record the decision, restore to the stage it affects (rolling the record back as in the stage loop), and rebuild from there.

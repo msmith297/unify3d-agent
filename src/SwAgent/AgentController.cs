@@ -225,7 +225,17 @@ namespace SwAgent
                 var doc = DocumentFor((string)p["docKey"]);
                 var refs = (p["refs"] as JObject)?.Properties().ToDictionary(x => x.Name, x => (string)x.Value);
                 var ctx = new ToolContext(_app, doc, (string)p["threadId"], _tools, refs) { ToolUseId = (string)p["toolUseId"] };
-                var result = await _tools.InvokeAsync((string)p["name"], p["input"] as JObject, ctx);
+                // A tool that touches the model never runs while the user is in a command (a sketch edit, an open
+                // PropertyManager page, a rebuild): a geometry call then can crash SolidWorks (SwBusy, SceneOverlay). Wait for
+                // the command to end; the add-in's own tool page doesn't count.
+                var name = (string)p["name"];
+                if (!SwBusyGate.ModelFree(name) && _app.Sw != null)
+                {
+                    var waited = await SwBusyGate.WaitAsync(() => SwBusy.InCommand(_app.Sw) && !ToolPage.AnyOpen, SwBusyGate.Timeout);
+                    if (!waited)
+                        return (object)ToolResult.Error("SolidWorks is in a command (a sketch, a PropertyManager page or another edit) - ask the user to finish or close it, then try again. Nothing was run.").ToJson();
+                }
+                var result = await _tools.InvokeAsync(name, p["input"] as JObject, ctx);
                 return (object)result.ToJson();
             });
             // "Undo everything the agent did since this message" (offered when a message is edited or resent).

@@ -39,12 +39,15 @@ namespace SwAgent.ModelFiles
                 var opened = false;
                 if (model == null)
                 {
-                    model = Open(sw, path);
+                    // its own synchronous hidden open counts as busy: a synchronous Lock() re-entered from OpenDoc6's message
+                    // pump fails fast instead of opening a second hidden document in the middle of this one
+                    using (HiddenDocuments.SyncSection()) model = Open(sw, path);
                     opened = true;
                 }
                 try
                 {
-                    var facts = ReadFacts(model);
+                    SolidWorksFacts facts;
+                    using (HiddenDocuments.SyncSection()) facts = ReadFacts(model);
                     facts.How = opened ? "SolidWorks (opened hidden in the background, then closed - the user's documents and view were not touched)"
                         : "SolidWorks (the file is already open there - read in place, nothing changed)";
                     await slicer.TickAsync(ct);
@@ -53,7 +56,8 @@ namespace SwAgent.ModelFiles
                 }
                 finally
                 {
-                    if (opened) HiddenDocuments.Close(sw, model, openBefore, activeBefore);
+                    if (opened)
+                        using (HiddenDocuments.SyncSection()) HiddenDocuments.Close(sw, model, openBefore, activeBefore);
                 }
             }
         }
@@ -273,18 +277,48 @@ namespace SwAgent.ModelFiles
         public static async Task<IDisposable> LockAsync(CancellationToken ct)
         {
             await Gate.WaitAsync(ct);
+            try
+            {
+                // never start inside a synchronous hidden open's message pump (its own Lock() went ahead without the gate)
+                await WhileSyncBusyAsync(ct);
+            }
+            catch
+            {
+                Gate.Release();
+                throw;
+            }
             return new Releaser(() => Gate.Release());
         }
 
-        /// <summary>Synchronous holders inside Lock right now (UI thread only).</summary>
+        /// <summary>Synchronous hidden-document work on the stack right now (UI thread only): Lock holders and SyncSection.</summary>
         private static int _syncDepth;
 
+        /// <summary>True while synchronous hidden-document work is on the UI thread's stack (an async loader must not resume).</summary>
+        public static bool SyncBusy => _syncDepth > 0;
+
         /// <summary>
-        /// The gate for synchronous work. If an async load holds it, it is paused between two of its slices on this same
-        /// thread with visibility restored (Hidden is never held across an await), so synchronous work can't interleave with
-        /// its hidden window and goes ahead without owning the gate. If synchronous work holds it, this is a re-entry from a
-        /// message pump inside that work (OpenDoc6 or LoadFile4 of a big file pumps messages: a second drawing dropped
-        /// meanwhile): two hidden opens would interleave, so it fails fast with a "busy, try again" error instead.
+        /// Marks a synchronous section of an async holder (SwModelLoader's OpenDoc6/LoadFile4, its facts and its Close
+        /// sweep) as busy, so a synchronous Lock() re-entered from a message pump inside it fails fast with "busy".
+        /// </summary>
+        public static IDisposable SyncSection()
+        {
+            _syncDepth++;
+            return new Releaser(() => _syncDepth--);
+        }
+
+        /// <summary>Waits (yielding the UI thread) until no synchronous hidden-document work is on the stack.</summary>
+        public static async Task WhileSyncBusyAsync(CancellationToken ct)
+        {
+            while (SyncBusy) await Task.Delay(50, ct);
+        }
+
+        /// <summary>
+        /// The gate for synchronous work. If an async load holds it and is paused between two of its slices (visibility
+        /// restored, Hidden is never held across an await), synchronous work goes ahead without owning the gate: the loader
+        /// does not resume while it runs (Slicer waits on SyncBusy). If synchronous work is on the stack - a Lock holder,
+        /// or the loader's own synchronous open, facts or Close (SyncSection) - this is a re-entry from a message pump inside
+        /// it (OpenDoc6 or LoadFile4 of a big file pumps messages: a second drawing dropped meanwhile): two hidden opens
+        /// would interleave, so it fails fast with a "busy, try again" error instead.
         /// </summary>
         public static IDisposable Lock()
         {
@@ -400,6 +434,9 @@ namespace SwAgent.ModelFiles
             if (_watch.ElapsedMilliseconds < 30) return;
             // A timer continuation (not Task.Yield, which is posted ahead of input) lets mouse and keyboard through.
             await Task.Delay(1, ct);
+            // The continuation can be dispatched from a message pump inside synchronous hidden-document work (a drawing's
+            // OpenDoc6 / SaveAs3): don't resume - and never run the Close sweep - inside it.
+            await HiddenDocuments.WhileSyncBusyAsync(ct);
             _watch.Restart();
         }
     }

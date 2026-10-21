@@ -316,12 +316,24 @@ export function isAgentSelection(s: { selection: Record<string, SelectionItem[]>
  * the silently captured context - model, feature history, macro output, selections as [S1]... and the view.
  * Images and PDFs the user added go in as real attachments.
  */
+/** Raw bytes of files one tool run attaches (FileAttachments.MaxRunBytes in the add-in). */
+export const RUN_ATTACH_BYTES = 20_000_000;
+
 function stageToolPrompt(p: ToolRunPayload, label: string, refBase: number): { blocks: ContentBlockParam[]; refs: Record<string, string> } {
   const refs: Record<string, string> = {};
   const inputLines: string[] = [];
   const contextLines: string[] = [];
   const attachments: ContentBlockParam[] = [];
   let n = refBase;
+  // one attachment budget for the whole run (older add-ins check each file only against its own cap): 20 MB raw is
+  // 26.7 MB base64, under the API's 32 MB request cap with room for the view and text
+  let budget = RUN_ATTACH_BYTES;
+  const fits = (data: string) => {
+    const raw = Math.floor((data.length * 3) / 4);
+    if (raw > budget) return false;
+    budget -= raw;
+    return true;
+  };
   for (const i of p.inputs ?? []) {
     if (i.type === "selection") {
       const ids = (i.items ?? []).map((it) => {
@@ -334,7 +346,9 @@ function stageToolPrompt(p: ToolRunPayload, label: string, refBase: number): { b
     } else if (i.type === "files") {
       const names: string[] = [];
       for (const f of i.files ?? []) {
-        if (f.data && f.mediaType?.startsWith("image/")) {
+        if (f.data && !fits(f.data)) {
+          names.push(`${f.name} (not attached: over the run's attachment budget of ${RUN_ATTACH_BYTES / 1e6} MB - path only: ${f.path})`);
+        } else if (f.data && f.mediaType?.startsWith("image/")) {
           attachments.push({ type: "image", source: { type: "base64", media_type: f.mediaType as "image/png", data: f.data } });
           names.push(`${f.name} (attached image)`);
         } else if (f.data && f.mediaType === "application/pdf") {
@@ -356,9 +370,14 @@ function stageToolPrompt(p: ToolRunPayload, label: string, refBase: number): { b
   const c = p.context ?? {};
   if (c.handoff) contextLines.unshift(`${c.handoff.slice(0, 6000)}
 
-Finish this case yourself. If it is a case the macro should cover, extend the macro (edit_user_tool) afterwards.`);
+Finish this case yourself.${p.builtIn ? "" : " If it is a case the macro should cover, extend the macro (edit_user_tool) afterwards."}`);
   const toolName = p.title ?? p.tool;
-  if (c.failure) contextLines.unshift(`The macro in the "${toolName}" tool failed - finish the job, then fix the macro (edit_user_tool) so the next run works:\n${c.failure.slice(0, 4000)}`);
+  if (c.failure)
+    contextLines.unshift(
+      p.builtIn
+        ? `The macro in the built-in "${toolName}" tool failed - finish the job with the tools (built-in tools are read-only; don't try to edit it):\n${c.failure.slice(0, 4000)}`
+        : `The macro in the "${toolName}" tool failed - finish the job, then fix the macro (edit_user_tool) so the next run works:\n${c.failure.slice(0, 4000)}`,
+    );
   if (c.macroOutput) contextLines.unshift(`Output of the macro in the "${toolName}" tool (already run):\n${c.macroOutput.slice(0, 6000)}`);
   if (c.model) contextLines.push(`Model:\n${c.model}`);
   if (c.history) contextLines.push(`Feature history:\n${c.history}`);
@@ -1841,7 +1860,9 @@ export const useStore = create<State>((set, get) => {
         : `your code "${c.title ?? "a C# cell"}"`;
       const lines = [
         `SolidWorks closed unexpectedly (crashed) while running ${what}.${c.paused ? ` I paused the tool's ${c.paused} so it can't happen again until it's fixed.` : ""}`,
-        "Find the cause and fix it so this can't happen again. If you need more, ask me for SolidWorks' crash log (it lists the last API calls).",
+        c.builtIn
+          ? "It is a built-in Unify3D tool (read-only, so it was not paused and can't be edited): find the likely cause, tell me how to avoid it, and what to report to Unify3D. If you need more, ask me for SolidWorks' crash log (it lists the last API calls)."
+          : "Find the cause and fix it so this can't happen again. If you need more, ask me for SolidWorks' crash log (it lists the last API calls).",
         "",
         "<crash_report>",
         `what: ${c.kind}${c.tool ? ` of tool ${c.tool}` : ""}${c.title ? ` (${c.title})` : ""}`,

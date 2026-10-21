@@ -191,19 +191,31 @@ namespace SwAgent.Tools
             requested = (requested ?? "").Trim();
             if (requested.Length == 0) return null;
             var list = files.ToList();
-            var exact = list.FirstOrDefault(f => string.Equals(Path.GetFileNameWithoutExtension(f.Path), requested, StringComparison.OrdinalIgnoreCase));
-            if (exact.Path != null) return exact.Path;
+            // save turns '.' and other characters into '-' ("stage-4.1" is saved as "<stamp>-stage-4-1"): a stamped name written
+            // the way it was asked for ("20261019-201500-stage-4.1") still finds its file
             var clean = new string(requested.Select(c => char.IsLetterOrDigit(c) || c == '-' || c == '_' ? c : '-').ToArray()).Trim('-');
-            return list.Where(f => string.Equals(CheckpointName(Path.GetFileNameWithoutExtension(f.Path)), clean, StringComparison.OrdinalIgnoreCase))
+            var exact = list.FirstOrDefault(f => string.Equals(Path.GetFileNameWithoutExtension(f.Path), requested, StringComparison.OrdinalIgnoreCase)
+                                              || string.Equals(Path.GetFileNameWithoutExtension(f.Path), clean, StringComparison.OrdinalIgnoreCase));
+            if (exact.Path != null) return exact.Path;
+            var name = CheckpointName(clean);
+            return list.Where(f => string.Equals(CheckpointName(Path.GetFileNameWithoutExtension(f.Path)), name, StringComparison.OrdinalIgnoreCase))
                 .OrderByDescending(f => f.Time).Select(f => f.Path).FirstOrDefault();
         }
 
         private static List<(string Path, DateTime Time)> Files(string dir, string ext) =>
             Directory.GetFiles(dir, "*" + ext).Select(f => (f, File.GetLastWriteTimeUtc(f))).ToList();
 
-        /// <summary>Delete all but the newest `keep` checkpoints.</summary>
-        internal static List<string> Prune(IEnumerable<(string Path, DateTime Time)> files, int keep) =>
-            files.OrderByDescending(f => f.Time).Skip(keep).Select(f => f.Path).ToList();
+        /// <summary>Checkpoints that are never pruned (the newest of each): "intake" is where a mold's Start over goes back to.</summary>
+        internal static readonly string[] KeptNames = { "intake" };
+
+        /// <summary>Delete all but the newest `keep` checkpoints (the newest "intake" is always kept).</summary>
+        internal static List<string> Prune(IEnumerable<(string Path, DateTime Time)> files, int keep)
+        {
+            var ordered = files.OrderByDescending(f => f.Time).ToList();
+            var pinned = new HashSet<string>(KeptNames.Select(n => ordered.FirstOrDefault(f => string.Equals(CheckpointName(Path.GetFileNameWithoutExtension(f.Path)), n, StringComparison.OrdinalIgnoreCase)).Path)
+                .Where(x => x != null), StringComparer.OrdinalIgnoreCase);
+            return ordered.Skip(keep).Select(f => f.Path).Where(x => !pinned.Contains(x)).ToList();
+        }
 
         // ---------- analyze_design ----------
 
@@ -407,16 +419,48 @@ namespace SwAgent.Tools
                     var sw = ctx.Sw;
                     var type = model.GetType();
                     var title = model.GetTitle();
+                    // the file must be writable before anything is closed
+                    try
+                    {
+                        if (File.Exists(path) && (File.GetAttributes(path) & FileAttributes.ReadOnly) != 0)
+                            return ToolResult.Error($"The file is read-only, so it can't be restored: {path}. Nothing was changed.");
+                    }
+                    catch (Exception ex)
+                    {
+                        return ToolResult.Error("Couldn't check the file before restoring: " + ex.Message + ". Nothing was changed.");
+                    }
+                    // keep the state being replaced (unsaved changes included) as a checkpoint of its own, so a restore can be undone
+                    var before = $"{DateTime.Now:yyyyMMdd-HHmmss}-before-restore";
+                    {
+                        int se = 0, sw2 = 0;
+                        if (!model.Extension.SaveAs3(Path.Combine(dir, before + ext), (int)swSaveAsVersion_e.swSaveAsCurrentVersion,
+                                (int)(swSaveAsOptions_e.swSaveAsOptions_Copy | swSaveAsOptions_e.swSaveAsOptions_Silent), null, null, ref se, ref sw2))
+                            return ToolResult.Error($"Couldn't save the current state before restoring ({(swFileSaveError_e)se}). Nothing was changed.");
+                    }
+                    var tmp = path + ".restore-tmp";
                     sw.QuitDoc(title); // close without saving: the working copy goes back to the checkpoint
-                    File.Copy(match, path, true);
                     int errors = 0, warnings = 0;
+                    try
+                    {
+                        File.Copy(match, tmp, true);
+                        File.Replace(tmp, path, null);
+                    }
+                    catch (Exception ex)
+                    {
+                        try { if (File.Exists(tmp)) File.Delete(tmp); } catch (Exception) { }
+                        var again = sw.OpenDoc6(path, type, (int)swOpenDocOptions_e.swOpenDocOptions_Silent, "", ref errors, ref warnings);
+                        Log.Warn("Checkpoint restore: replacing the file failed: " + ex.Message);
+                        return ToolResult.Error($"Couldn't replace the file with the checkpoint ({ex.Message}) - is it open in another program or referenced by an open assembly or drawing? " +
+                                                (again != null ? "The document was reopened as last saved" : "Open " + path + " by hand") +
+                                                $"; the state before the restore (unsaved changes included) is checkpoint '{before}'.");
+                    }
                     var reopened = sw.OpenDoc6(path, type, (int)swOpenDocOptions_e.swOpenDocOptions_Silent, "", ref errors, ref warnings);
-                    if (reopened == null) return ToolResult.Error($"The checkpoint was copied back but SolidWorks couldn't open the file ({(swFileLoadError_e)errors}). Open {path} by hand.");
+                    if (reopened == null) return ToolResult.Error($"The checkpoint was copied back but SolidWorks couldn't open the file ({(swFileLoadError_e)errors}). Open {path} by hand. The state before the restore is checkpoint '{before}'.");
                     int activateErrors = 0;
                     sw.ActivateDoc3(reopened.GetTitle(), false, (int)swRebuildOnActivation_e.swRebuildActiveDoc, ref activateErrors);
-                    Log.Info($"Smart Rebuild: restored checkpoint {Path.GetFileName(match)} into {path}");
+                    Log.Info($"Smart Rebuild: restored checkpoint {Path.GetFileName(match)} into {path} (before: {before})");
                     return ToolResult.Ok($"Restored '{Path.GetFileNameWithoutExtension(match)}': the working file is back to that state and reopened; this conversation " +
-                                         "continues on it. Variables from earlier code cells refer to the closed document - get entities fresh.");
+                                         $"continues on it. Variables from earlier code cells refer to the closed document - get entities fresh. The state it replaced is checkpoint '{before}' (restore it to undo this).");
                 }
                 default:
                     return ToolResult.Error("action must be save, list or restore.");

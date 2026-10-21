@@ -149,6 +149,9 @@
       "properties": {
         "volume_mm3": { "type": "number" }, "area_mm2": { "type": "number" }, "box_mm": { "$ref": "#/$defs/numArray" },
         "projectedArea_mm2": { "type": "number" }, "perimeter_mm": { "type": "number" }, "mass_kg": { "type": "number" },
+        "depthBase_mm": { "type": "number", "description": "Cavity depth in the base half: the chosen parting-line candidate's baseDepth_mm (the agent, Phase 2)." },
+        "depthLid_mm": { "type": "number", "description": "Cavity depth in the lid half: the chosen candidate's lidDepth_mm (the agent, Phase 2)." },
+        "plugHeight_mm": { "type": "number", "description": "Height of a lid plug, when the lid has one (the agent, Phase 2)." },
         "draft": { "type": "object" },
         "undercuts": { "$ref": "#/$defs/idArray" },
         "fragile": { "$ref": "#/$defs/idArray" },
@@ -265,6 +268,15 @@
               "properties": { "p_MPa": { "type": "number" }, "pressureField": { "$ref": "#/$defs/pressureField" } }
             },
             "LC1x": { "type": [ "object", "null" ], "description": "class A abuse case F/A_proj; null for class B and C" }, "LC2": { "type": "object" }, "LC3": { "type": "object" }, "LC4": { "type": "object" }, "LC5": { "type": "object" }
+          }
+        },
+        "asBuilt": {
+          "type": "object",
+          "description": "Measured as built (the agent, stage 4.6 and Phase 5); mold_calc check reads it. Missing plate thicknesses and masses come from bodies[], everything else from the plan.",
+          "properties": {
+            "baseThickness_mm": { "type": "number" }, "lidThickness_mm": { "type": "number" }, "baseMass_kg": { "type": "number" }, "lidMass_kg": { "type": "number" },
+            "walls": { "type": "object", "description": "Narrowest drawn steel per wall: the ids of structural.results.walls without the W- prefix (\"V-B\", \"U-B\", \"V-L\", \"U-L\"), mm.", "additionalProperties": { "type": "number" } },
+            "bearingArea_mm2": { "type": "number", "description": "Bearing area measured on the faces that touch at closure (stage 4.6)." }
           }
         },
         "results": {

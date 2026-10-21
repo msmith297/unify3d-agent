@@ -250,6 +250,8 @@ export interface CrashInfo {
   logTail?: string;
   /** The part of the tool that was paused so it can't crash again. */
   paused?: string;
+  /** A built-in tool (read-only): nothing is paused and the agent can't edit it. */
+  builtIn?: boolean;
 }
 
 export interface ToolDef {
@@ -317,6 +319,8 @@ export interface ToolRunPayload {
   maxSteps?: number;
   /** A long, phased tool (front matter long_run): 1-hour prompt cache, settings kept for follow-ups. */
   longRun?: boolean;
+  /** A built-in Unify3D tool: read-only, so the agent is never told to fix its macro with edit_user_tool. */
+  builtIn?: boolean;
 }
 
 export interface UserToolInfo {

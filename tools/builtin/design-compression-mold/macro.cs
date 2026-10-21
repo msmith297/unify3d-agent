@@ -107,6 +107,31 @@ if (saved)
     var folder = string.IsNullOrWhiteSpace(recResolved) ? Path.ChangeExtension(path, null) + ".mold"
                : Path.IsPathRooted(recResolved) ? recResolved : Path.Combine(Path.GetDirectoryName(path) ?? "", recResolved);
     var json = Path.Combine(folder, "mold.json");
+    // the record's owner (the same rule as the tools' RecordOwner): a Save As copy carries the original's properties, but
+    // a record naming another part that still exists is that part's - this copy's own record is <name>.mold next to it
+    if (File.Exists(json) && !string.IsNullOrWhiteSpace(recResolved))
+    {
+        try
+        {
+            var owner = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(json)).SelectToken("files.moldPart");
+            var op = owner?.Type == Newtonsoft.Json.Linq.JTokenType.String ? (string)owner : (string)owner?["path"];
+            if (!string.IsNullOrWhiteSpace(op))
+            {
+                var parent = Path.GetDirectoryName(Path.GetFullPath(folder).TrimEnd('\\', '/'));
+                var full = Path.GetFullPath(Path.IsPathRooted(op) ? op : Path.Combine(parent ?? "", op));
+                var me = Path.GetFullPath(path);
+                var movedTogether = string.Equals(Path.GetFileName(full), Path.GetFileName(me), StringComparison.OrdinalIgnoreCase)
+                                    && !string.Equals(Path.GetDirectoryName(full), parent, StringComparison.OrdinalIgnoreCase);
+                if (!string.Equals(full, me, StringComparison.OrdinalIgnoreCase) && !movedTogether && File.Exists(full))
+                {
+                    Line($"Mold record: the properties point to {folder}, which belongs to {full} (this file is a copy of it)");
+                    folder = Path.ChangeExtension(path, null) + ".mold";
+                    json = Path.Combine(folder, "mold.json");
+                }
+            }
+        }
+        catch (Exception) { }
+    }
     if (File.Exists(json))
     {
         try

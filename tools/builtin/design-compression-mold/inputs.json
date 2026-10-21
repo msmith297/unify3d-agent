@@ -3,7 +3,7 @@
     "Tip": "The part to mold (SLDPRT, STEP, IGES, Parasolid). Leave empty if the part is already in this file, or if you only have its drawing (the agent then models the part from the drawing first). It is inserted as a linked Insert Part, so a revised part can be swapped later with Smart Rebuild. STL can't be used.",
     "Accept": [ "model" ], "Multiple": false, "Required": false },
   { "Id": "drawing", "Type": "files", "Label": "Engineering drawing", "Group": "Molded part",
-    "Tip": "PDF, image or SolidWorks drawing of the part: tolerances, critical or cosmetic surfaces, flash class, finish. Keep PDFs under 20 MB. DXF/DWG: export a PDF instead.",
+    "Tip": "PDF, image or SolidWorks drawing of the part: tolerances, critical or cosmetic surfaces, flash class, finish. Keep all the files of one run under 20 MB together (a file over that budget reaches the agent as its path only). DXF/DWG: export a PDF instead.",
     "Accept": [ "pdf", "image", "drawing" ], "Multiple": true, "Required": false },
   { "Id": "critical_faces", "Type": "selection", "Label": "Critical faces (no parting line)", "Group": "Molded part",
     "Tip": "If the part is already in this file: faces no parting line, flash, vent or sprue may touch. Otherwise the agent asks you to pick them after it inserts the part.",
@@ -113,9 +113,6 @@
     "Choices": [ "Flat on the platen", "On a carrier or rails" ], "Default": "Flat on the platen" },
 
   { "Id": "cavities", "Type": "integer", "Label": "Number of cavities", "Group": "Cavities & limits", "Min": 1, "Max": 64, "Default": "1" },
-  { "Id": "cycle_life", "Type": "integer", "Label": "Cycle life (parts per cavity)", "Group": "Cavities & limits", "Remember": true,
-    "Min": 1, "Max": 10000000, "Default": "5000",
-    "Tip": "Shots the mold must survive. Sets fatigue design, wear parts and thread inserts." },
   { "Id": "max_plate_mass", "Type": "number", "Unit": "mass", "Label": "Max weight per machined plate", "Group": "Cavities & limits",
     "Remember": true, "Optional": true, "Enabled": true, "Min": 1, "Max": 5000, "Default": "23",
     "Tip": "Default 23 kg (51 lb): the NIOSH load constant, for plates lifted now and then. Heavier pieces are split or get hoist holes." },
@@ -137,6 +134,9 @@
   { "Id": "lid_lifts_per_hour", "Type": "integer", "Label": "Lid lifts per hour", "Group": "Cavities & limits", "Remember": true,
     "Tip": "Roughly how many times an hour the lid is lifted (one per cycle, plus any extra handling).",
     "Min": 1, "Max": 600, "Default": "12" },
+  { "Id": "cycle_life", "Type": "integer", "Label": "Cycle life (parts per cavity)", "Group": "Cavities & limits", "Remember": true,
+    "Min": 1, "Max": 10000000, "Default": "5000",
+    "Tip": "Shots the mold must survive. Sets fatigue design, wear parts and thread inserts." },
 
   { "Id": "decisions", "Type": "options", "Label": "Big decisions", "Group": "Decisions & notes", "GroupExpanded": false, "Remember": true,
     "Tip": "Ask on big ones: decides routine calls, asks before anything that changes function, cost, the operator's work or the part. Ask about all: asks before every judgement call. Decide everything: makes the calls itself and reports each one.",

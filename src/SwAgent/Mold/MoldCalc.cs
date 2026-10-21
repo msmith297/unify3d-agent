@@ -160,7 +160,7 @@ namespace SwAgent.Mold
             AppendNotes(sb, r.Notes);
             var loadCases = new JObject
             {
-                ["LC1"] = new JObject { ["p_MPa"] = Si.R(p.PLC1, 5) },
+                ["LC1"] = new JObject { ["p_MPa"] = Si.R(p.PDesign, 5) },
                 ["LC1x"] = d.Class == ProcessClass.A_Pour ? new JObject { ["p_MPa"] = Si.R(p.PLC1x, 5) } : null,
                 ["LC2"] = new JObject { ["F_kN"] = Si.R(p.Force_N / 1000, 5) },
             };
@@ -312,10 +312,25 @@ namespace SwAgent.Mold
                 foreach (var p in o.Pieces) sb.AppendLine($"  {p.Id}: {u.Len(p.Box[0])} x {u.Len(p.Box[1])}, {u.Mass(p.Mass)} ({string.Join(" ", p.Cavities)})");
                 sb.AppendLine($"  keyed subplate {u.Len(o.SubplateT)} thick: {o.SubPieces.Count} piece(s), heaviest {u.Mass(o.SubPieces.Max(p => p.Mass))}{(o.SubplateOk ? "" : " - BREAKS THE LIMITS")}{(string.IsNullOrEmpty(o.Note) ? "" : " - " + o.Note)}");
             }
-            sb.AppendLine($"Merge the chosen option i (json.options[i]) as {{\"$replace\": [\"structural.split.{plate}\"], \"structural\": {{\"split\": {{\"{plate}\": <option>}}}}}}, then run size again (keys and bolts are sized for it). To drop a split, merge {{\"structural\": {{\"split\": {{\"{plate}\": null}}}}}}.");
             if (plate == "lid") sb.AppendLine("A split lid is still lifted as one bolted unit: WEIGHT-LID keeps the whole lid assembly; the split only helps the machining limits.");
             var json = new JObject { ["plate"] = plate, ["options"] = new JArray(opts.Select(o => o.ToJson())) };
-            return Done(sb, json, null, new List<JObject>());
+            // the chosen option is written by the calculator itself (query.option, 1-based), so a long option list is never
+            // copied by hand - and never cut
+            var chosen = Si.Num(q["option"]);
+            if (chosen != null)
+            {
+                var k1 = (int)Math.Round(chosen.Value);
+                if (k1 < 1 || k1 > opts.Count) throw new ArgumentException($"split option {k1} doesn't exist: there are {opts.Count} option(s) (1-based).");
+                var patch = new JObject
+                {
+                    [MoldRecord.ReplaceKey] = new JArray("structural.split." + plate),
+                    ["structural"] = new JObject { ["split"] = new JObject { [plate] = opts[k1 - 1].ToJson() } },
+                };
+                sb.AppendLine($"Option {k1} is merged as structural.split.{plate}: run size again (keys and bolts are sized for it). To drop a split, merge {{\"structural\": {{\"split\": {{\"{plate}\": null}}}}}}.");
+                return Done(sb, json, patch, new List<JObject>(), recorded: true, budget: SplitJsonBudget);
+            }
+            sb.AppendLine($"To use option i, run split again with query {{\"plate\": \"{plate}\", \"option\": i}}: it writes that option to structural.split.{plate} itself; then run size again (keys and bolts are sized for it). To drop a split, merge {{\"structural\": {{\"split\": {{\"{plate}\": null}}}}}}.");
+            return Done(sb, json, null, new List<JObject>(), recorded: false, budget: SplitJsonBudget);
         }
 
         // ------------------------------------------------------------------ text helpers
@@ -357,9 +372,14 @@ namespace SwAgent.Mold
             if (id.StartsWith("WEIGHT-LID")) return "lightening pockets on the lid's platen face (keep >= 80% platen contact), a lift assist or hinge, or a two-person lift; never a split lid for class A";
             if (id.StartsWith("BOX-LID") || id.StartsWith("WEIGHT-LID-")) return "fewer cavities or a smaller footprint, a larger machine; split the lid only for class B (a class A lid seam crosses the seal)";
             if (type == "weight" || type == "box") return "run mold_calc split and offer the options";
-            if (id.StartsWith("TEMP-")) return "switch to steel (P20) or lower the press temperature";
+            if (id.StartsWith("TEMP-"))
+            {
+                if (((string)c["method"] ?? "").Contains("no strength data")) return "lower the press temperature to 250 C or less, or load the supplier's hot data for this grade and do a hand check";
+                return id.StartsWith("TEMP-al_", StringComparison.Ordinal) ? "switch to steel (P20) or lower the press temperature" : "lower the press temperature or the stresses (wider walls, thicker plates)";
+            }
             if (id == "PRESS-CAPACITY") return "a larger press, fewer cavities, or a lower molding pressure";
-            if (id == "PRESS-FORCE") return "raise the gauge to the recommended setting";
+            if (id == "PRESS-FORCE") return "re-run mold_calc size with the gauge at the recommended setting (merge it into inputs first), so the structure is checked at it";
+            if (id == "PRESS-GAUGE-RATING" || id == "PRESS-FORCE-RATING") return "lower the setting to within the press rating, or use a larger press";
             if (id.StartsWith("PRESS-CENTRE")) return "re-centre the layout or add the locating stop (E4)";
             if (id.StartsWith("PRESS-PLATEN")) return "fewer cavities or a smaller footprint";
             if (id == "PRESS-DAYLIGHT") return "thinner plates or a press with more daylight";
@@ -383,17 +403,22 @@ namespace SwAgent.Mold
             foreach (var n in notes.Distinct()) sb.AppendLine("Note: " + n);
         }
 
-        private static CalcResult Done(StringBuilder sb, JObject json, JObject patch, List<JObject> checks)
+        /// <summary>split's options stay whole up to this many characters (they are not in the record until one is chosen).</summary>
+        public const int SplitJsonBudget = 16000;
+
+        private static CalcResult Done(StringBuilder sb, JObject json, JObject patch, List<JObject> checks, bool recorded = true, int budget = JsonBudget)
         {
             var compact = json.ToString(Formatting.None);
-            if (compact.Length > JsonBudget)
+            if (compact.Length > budget)
             {
-                // keep the key numbers inside the 4,000-character block: drop the bulkiest arrays first
+                // keep the key numbers inside the block: drop the bulkiest arrays first - and say "(in the record)" only for
+                // data that really is in the record
                 var trimmed = (JObject)json.DeepClone();
                 foreach (var key in new[] { "walls", "layout", "bolts", "pieces", "options" })
-                    if (trimmed.ToString(Formatting.None).Length > JsonBudget && trimmed[key] != null) trimmed[key] = "(in the record)";
+                    if (trimmed.ToString(Formatting.None).Length > budget && trimmed[key] != null)
+                        trimmed[key] = recorded ? "(in the record)" : "(too long to show - see the text above; split writes the chosen option itself with query.option)";
                 compact = trimmed.ToString(Formatting.None);
-                if (compact.Length > JsonBudget) compact = compact.Substring(0, JsonBudget - 3) + "...";
+                if (compact.Length > budget) compact = compact.Substring(0, budget - 3) + "...";
             }
             sb.AppendLine("```json");
             sb.AppendLine(compact);

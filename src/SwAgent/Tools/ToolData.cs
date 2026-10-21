@@ -286,13 +286,20 @@ namespace SwAgent.Tools
 
         private static bool HasIds(JArray a) => a.Count > 0 && a.All(x => x is JObject o && o["id"] != null);
 
+        private static bool SameId(JToken a, JToken b) =>
+            a != null && b != null && (a.Type == JTokenType.String && b.Type == JTokenType.String
+                ? string.Equals(((string)a).Trim(), ((string)b).Trim(), StringComparison.OrdinalIgnoreCase)
+                : JToken.DeepEquals(a, b));
+
         private static JArray MergeRows(JArray shipped, JArray over)
         {
             var result = new JArray(shipped.Select(x => x.DeepClone()));
             foreach (var row in over)
             {
                 var id = (row as JObject)?["id"];
-                var at = id == null ? -1 : result.Select((x, i) => (x, i)).Where(t => JToken.DeepEquals((t.x as JObject)?["id"], id)).Select(t => t.i).DefaultIfEmpty(-1).First();
+                // ids match ignoring case, the same rule as the calculator's MoldData.MergeInto (a hand-written override
+                // with "PU-TDI..." must not be ignored here and applied there)
+                var at = id == null ? -1 : result.Select((x, i) => (x, i)).Where(t => SameId((t.x as JObject)?["id"], id)).Select(t => t.i).DefaultIfEmpty(-1).First();
                 // a row with the same id merges key by key (like the calculator's MoldData.MergeRow): a partial override row
                 // such as {"id": "x", "shrinkPct": {"typ": 2.1}} keeps the shipped row's name, family and other values
                 if (at >= 0) result[at] = result[at] is JObject so && row is JObject ro ? MergeObject(so, ro) : row.DeepClone();
@@ -1138,6 +1145,12 @@ namespace SwAgent.Tools
                             meta.RowUnique = f.RowUnique;
                             meta.Display = Describe(f);
                         }
+                        else if (ChoiceEdited(f))
+                        {
+                            // a choice another input filled in (shrink_basis from the grade): the agent must see an edit
+                            meta.Edited = true;
+                            meta.Display = Describe(f);
+                        }
                         break;
                     case "text":
                         inputs.Set(f.Id, f.Value ?? "");
@@ -1148,6 +1161,10 @@ namespace SwAgent.Tools
                 inputs.SetMeta(f.Id, meta);
             }
         }
+
+        /// <summary>A filled-in choice the user changed from what the filling row gave (case-insensitive).</summary>
+        internal static bool ChoiceEdited(FormField f) =>
+            (f.Type == "choice" || f.Type == "options") && f.TableText != null && f.Value != null && !string.Equals(f.Value.Trim(), f.TableText.Trim(), StringComparison.OrdinalIgnoreCase);
 
         /// <summary>
         /// What the agent reads for an input: "2000 psi (13.79 MPa)", "1.8 % (table 1.5 % - edited by the user)", "not set",
@@ -1180,6 +1197,7 @@ namespace SwAgent.Tools
                 case "choice":
                 case "options":
                 {
+                    if (ChoiceEdited(f)) return $"{f.Value} (table {f.TableText} - edited by the user)";
                     if (!f.IsData || f.Value == null) return f.Value;
                     if (!f.RowUnique || f.Row == null) return f.Value;
                     var parts = new List<string>();

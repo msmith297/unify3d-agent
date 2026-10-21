@@ -47,6 +47,14 @@ namespace SwAgent.Mold
     {
         public double RamArea_mm2, Force_N, AProj_mm2, AProjForce_mm2;
         public double PLC1, PLC1x, PReq, FReq_N, GaugeNeeded_MPa, GaugeSet_MPa;
+        /// <summary>
+        /// The force the structure is sized for: the larger of the user's setting and the force needed (an operator
+        /// raises the gauge to the recommended setting), N. Class B cavity pressure at that force, and class A's
+        /// hydrostatic design pressure (it does not follow the press), MPa.
+        /// </summary>
+        public double ForceDesign_N, PDesign;
+        /// <summary>The gauge at the press rating (MPa): the rated gauge, or F_rated / A_ram when the ram is given instead.</summary>
+        public double RatingGauge_MPa;
         /// <summary>Gauge pressure (MPa) that gives the requested force on the part (for "On the part").</summary>
         public double GaugeForInput_MPa;
         public double LoadCentreU, LoadCentreV;
@@ -91,8 +99,6 @@ namespace SwAgent.Mold
             {
                 case PressMeaning.Gauge:
                     r.Force_N = i.Value * r.RamArea_mm2;
-                    if (i.RatedGauge_MPa > 0 && i.Value > i.RatedGauge_MPa * (1 + 1e-9))
-                        r.Checks.Add(new JCheck { Id = "PRESS-GAUGE-RATING", Type = "press", Demand = i.Value, Capacity = i.RatedGauge_MPa, Unit = "MPa", Method = "S3: gauge reading must not exceed the gauge at rated force" });
                     break;
                 case PressMeaning.OnPart:
                     r.Force_N = i.Value * r.AProjForce_mm2;
@@ -105,6 +111,13 @@ namespace SwAgent.Mold
                     throw new InvalidOperationException("The press pressure meaning is not known yet: ask the user (gauge reading, on the part or a force reading) before sizing.");
             }
             r.GaugeNeeded_MPa = r.Force_N / r.RamArea_mm2;
+            // the press rating, whatever the user's number means: the equivalent gauge F/A_ram against the gauge at the rated
+            // force, and the force itself against the nameplate (they differ when the ram is given by its bore)
+            r.RatingGauge_MPa = i.RatedGauge_MPa > 0 ? i.RatedGauge_MPa : i.RatedForce_kN * 1000.0 / r.RamArea_mm2;
+            if (r.GaugeNeeded_MPa > r.RatingGauge_MPa * (1 + 1e-9))
+                r.Checks.Add(new JCheck { Id = "PRESS-GAUGE-RATING", Type = "press", Demand = r.GaugeNeeded_MPa, Capacity = r.RatingGauge_MPa, Unit = "MPa", Method = "S3: the gauge your setting needs (F/A_ram) must not exceed the gauge at rated force" });
+            if (i.RamArea_mm2 != null && i.RatedGauge_MPa > 0 && r.Force_N / 1000.0 > i.RatedForce_kN * (1 + 1e-9))
+                r.Checks.Add(new JCheck { Id = "PRESS-FORCE-RATING", Type = "press", Demand = r.Force_N / 1000.0, Capacity = i.RatedForce_kN, Unit = "kN", Method = "S3: the press force at your setting must not exceed the rated force" });
 
             // (S4/S5) cavity pressure
             r.PLC1x = r.Force_N / r.AProj_mm2;
@@ -135,6 +148,11 @@ namespace SwAgent.Mold
 
             // (S7) recommended gauge and flags
             r.GaugeSet_MPa = r.FReq_N / r.RamArea_mm2;
+            // the structure is sized at the force the operator may use: the user's setting or the recommended one, whichever
+            // is higher (class B cavity pressure follows it; class A walls carry the hydrostatic load). The recommended gauge
+            // is printed rounded, so it gets 0.1% on top.
+            r.ForceDesign_N = Math.Max(r.Force_N, r.FReq_N * 1.001);
+            r.PDesign = i.Class == ProcessClass.A_Pour ? r.PLC1 : r.ForceDesign_N / r.AProj_mm2;
             var reserve = cfg.D("pressReserve", 1.25);
             r.Checks.Add(new JCheck { Id = "PRESS-CAPACITY", Type = "press", Demand = r.FReq_N * reserve / 1000.0, Capacity = i.RatedForce_kN, Unit = "kN", Method = "S7: F_req x " + reserve + " <= rated force" });
             r.Checks.Add(new JCheck { Id = "PRESS-FORCE", Type = "press", Demand = r.Force_N / 1000.0, Capacity = r.FReq_N / 1000.0, Unit = "kN", Lower = true, Method = "S6: the press force at this setting must reach the force needed" });

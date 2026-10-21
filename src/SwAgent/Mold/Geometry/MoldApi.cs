@@ -110,7 +110,7 @@ namespace SwAgent.Mold.Geometry
                 problem = $"the insert brought {added.Count} solid and {sheets} surface bodies; the cavity needs exactly one solid";
             else if (added[0].Check3 is IFaultEntity fault && fault.Count > 0)
                 problem = $"the inserted solid has {fault.Count} faulty face(s)/edge(s) (Check3)";
-            else if (sourceVolume > 0 && Math.Abs(SwGeo.Volume(added[0]) / sourceVolume - 1) > 0.005)
+            else if (sourceVolume > 0 && SwGeo.Off(SwGeo.Volume(added[0]) / sourceVolume - 1, 0.005))
                 problem = $"the inserted solid's volume {SwGeo.Volume(added[0]) / 1e-9:0.#} mm3 differs from the source's {sourceVolume / 1e-9:0.#} mm3 by more than 0.5%";
             if (problem != null)
             {
@@ -305,18 +305,30 @@ namespace SwAgent.Mold.Geometry
             }
         }
 
+        /// <summary>The one body not in `others` (signatures from before), found again after a deleted try rebuilt the part.</summary>
+        private static IBody2 Refind(IModelDoc2 model, IList<(double V, double X, double Y, double Z)> others, string what)
+        {
+            var now = SwGeo.NewBodies(model, others);
+            if (now.Count != 1)
+                throw new MoldApiException($"{what}: after removing a failed try the part body isn't found again ({now.Count} candidate bodies) - check the feature tree for a left-over feature.");
+            return now[0];
+        }
+
         /// <summary>Move/Copy with the body at Mark 1 (Mark 0 fails, v1). Checks the volume is kept. Returns the feature and the bodies it made or moved.</summary>
         private (IFeature Feature, List<IBody2> Bodies) MoveCopy(IBody2 body, double[] t, double[] r, bool copy, int n)
         {
             var model = Model;
             var v0 = SwGeo.Volume(body);
             var before = SwGeo.Solids(model).Where(x => copy || !SameBody(x, body)).Select(SwGeo.Signature).ToList();
+            var namesBefore = new HashSet<string>(SwGeo.Solids(model).Select(SwGeo.SafeName), StringComparer.Ordinal);
             model.ClearSelection2(true);
             SwGeo.SelectBody(model, body, false, 1);
             var f = model.FeatureManager.InsertMoveCopyBody2(t[0], t[1], t[2], 0, 0, 0, 0, r[0], r[1], r[2], copy, n);
             model.ClearSelection2(true);
             if (f == null) throw new MoldApiException($"Move/Copy of '{SwGeo.SafeName(body)}' failed (InsertMoveCopyBody2 returned nothing).");
-            var made = SwGeo.NewBodies(model, before);
+            // a copy in place has the original's volume and centroid: tell them apart by name (the original keeps its own)
+            var byName = copy ? SwGeo.Solids(model).Where(x => !namesBefore.Contains(SwGeo.SafeName(x))).ToList() : null;
+            var made = byName != null && byName.Count == n ? byName : SwGeo.NewBodies(model, before);
             var want = copy ? n : 1;
             if (made.Count != want)
             {
@@ -326,7 +338,7 @@ namespace SwAgent.Mold.Geometry
             foreach (var m in made)
             {
                 var v = SwGeo.Volume(m);
-                if (Math.Abs(v / v0 - 1) > 1e-4)
+                if (SwGeo.Off(v / v0 - 1, 1e-4))
                 {
                     SwGeo.DeleteFeatures(model, f);
                     throw new MoldApiException($"Move/Copy changed a body's volume ({v0 / 1e-9:0.#} -> {v / 1e-9:0.#} mm3); the feature was removed.");
@@ -400,6 +412,7 @@ namespace SwAgent.Mold.Geometry
             {
                 var v = SwGeo.Volume(scaled);
                 var ratio = v / v0 / (su * sv * sw);
+                if (!SwGeo.Finite(ratio)) return "the volume couldn't be measured (mass properties failed)";
                 if (Math.Abs(ratio - 1) > 0.001) return $"volume ratio {v / v0:0.######}, expected {su * sv * sw:0.######}";
                 var box = SwGeo.Box(scaled, frame);
                 var f = new[] { su, sv, sw };
@@ -420,6 +433,8 @@ namespace SwAgent.Mold.Geometry
             {
                 foreach (var (bodyMark, csMark) in new[] { (0, 0), (1, 2), (2, 1) })
                 {
+                    // a rejected try was deleted, which rebuilds the part: re-find the body (old references may be stale)
+                    if (tried.Count > 0) b = Refind(model, others, "ScaleForShrink");
                     model.ClearSelection2(true);
                     SwGeo.SelectBody(model, b, false, bodyMark);
                     if (!cs.Select2(true, csMark) || SwGeo.SelectedCount(model) != 2)
@@ -449,7 +464,8 @@ namespace SwAgent.Mold.Geometry
             else tried.Add("MOLD CS couldn't be created");
             Log.Warn("Mold: scale about MOLD CS failed (" + string.Join("; ", tried) + "); using origin + re-center");
 
-            // 2. Fallback: about the origin, then move the fixed point back.
+            // 2. Fallback: about the origin, then move the fixed point back (the body as it is now, after any undone tries).
+            if (tried.Count > 0) b = Refind(model, others, "ScaleForShrink");
             model.ClearSelection2(true);
             SwGeo.SelectBody(model, b, false, 0);
             if (SwGeo.SelectedCount(model) != 1) throw new MoldApiException("ScaleForShrink: couldn't select only the part body (Scale would scale every body).");
@@ -457,7 +473,7 @@ namespace SwAgent.Mold.Geometry
             model.ClearSelection2(true);
             if (fs == null) throw new MoldApiException("ScaleForShrink: SolidWorks made no Scale feature (" + string.Join("; ", tried) + ").");
             var afterScale = SwGeo.NewBodies(model, others);
-            if (afterScale.Count != 1 || Math.Abs(SwGeo.Volume(afterScale[0]) / v0 / (su * sv * sw) - 1) > 0.001)
+            if (afterScale.Count != 1 || SwGeo.Off(SwGeo.Volume(afterScale[0]) / v0 / (su * sv * sw) - 1, 0.001))
             {
                 SwGeo.DeleteFeatures(model, fs);
                 throw new MoldApiException("ScaleForShrink: the scale about the origin didn't give the expected volume; it was removed.");
@@ -591,14 +607,17 @@ namespace SwAgent.Mold.Geometry
             var model = Model;
             var sm = model.SketchManager;
             var mu = (IMathUtility)Sw.GetMathUtility();
+            // InsertSketch(true) is a toggle: inside an open sketch it would close that one instead
+            if (model.GetActiveSketch2() != null) throw new MoldApiException("A sketch is open for editing: exit it (or ask the user to finish it), then run again. Nothing was changed.");
             model.ClearSelection2(true);
             if (!SwGeo.TopPlane(model).Select2(false, 0)) throw new MoldApiException("Couldn't select the Top Plane to sketch on.");
             var adb = sm.AddToDB;
             sm.InsertSketch(true);
+            var sk = model.GetActiveSketch2() as ISketch ?? throw new MoldApiException("No sketch opened on the Top Plane.");
+            var feature = sk as IFeature;
             try
             {
                 sm.AddToDB = true;
-                var sk = model.GetActiveSketch2() as ISketch ?? throw new MoldApiException("No sketch opened on the Top Plane.");
                 var t = (IMathTransform)sk.ModelToSketchTransform;
                 double[] S(double u, double v)
                 {
@@ -612,9 +631,9 @@ namespace SwAgent.Mold.Geometry
             finally
             {
                 sm.AddToDB = adb;
-                sm.InsertSketch(true);
+                if (model.GetActiveSketch2() != null) sm.InsertSketch(true);
             }
-            return model.Extension.GetLastFeatureAdded() as IFeature ?? throw new MoldApiException("The rectangle sketch wasn't created.");
+            return feature ?? model.Extension.GetLastFeatureAdded() as IFeature ?? throw new MoldApiException("The rectangle sketch wasn't created.");
         }
 
         /// <summary>
