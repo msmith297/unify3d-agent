@@ -159,12 +159,17 @@ namespace SwAgent.Tools
                 using (selfGuarded ? null : Infrastructure.CrashGuard.Enter("tool", null, name, Truncate(input?.ToString(Newtonsoft.Json.Formatting.None), 4000)))
                 try
                 {
-                    var raw = entry.Method.Invoke(entry.Target, new[] { ctx, typedInput });
+                    // NativeFault: a fault inside a SolidWorks call becomes an error result instead of closing SolidWorks.
+                    var raw = Infrastructure.NativeFault.Run(name, () => entry.Method.Invoke(entry.Target, new[] { ctx, typedInput }));
                     result = raw is Task<ToolResult> task ? await task : (ToolResult)raw;
                 }
                 catch (ToolException expected)
                 {
                     return ToolResult.Error(expected.Message);
+                }
+                catch (Infrastructure.NativeFaultException fault)
+                {
+                    return ToolResult.Error(fault.Message);
                 }
                 Log.Info($"Tool {name} finished in {(DateTime.UtcNow - started).TotalMilliseconds:N0} ms{(result.IsError ? " (error)" : "")}");
                 return result;

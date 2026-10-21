@@ -1,5 +1,7 @@
 using System;
 using System.IO;
+using System.Runtime.ExceptionServices;
+using System.Security;
 using Newtonsoft.Json.Linq;
 
 namespace SwAgent.Infrastructure
@@ -11,6 +13,9 @@ namespace SwAgent.Infrastructure
     /// </summary>
     internal static class Safe
     {
+        // HandleProcessCorruptedStateExceptions: an access violation inside a SolidWorks call is caught here too (see
+        // NativeFault) instead of closing SolidWorks; it blocks the agent's model tools until a restart.
+        [HandleProcessCorruptedStateExceptions, SecurityCritical]
         public static void Run(string what, Action action)
         {
             try
@@ -19,7 +24,9 @@ namespace SwAgent.Infrastructure
             }
             catch (Exception ex)
             {
-                Log.Warn($"{what} failed (ignored): {ex.GetType().Name}: {ex.Message}");
+                var fault = NativeFault.Fault(ex);
+                if (fault != null) NativeFault.Record(what, fault);
+                else Log.Warn($"{what} failed (ignored): {ex.GetType().Name}: {ex.Message}");
             }
         }
 

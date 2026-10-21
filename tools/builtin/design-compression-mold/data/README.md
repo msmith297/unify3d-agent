@@ -112,8 +112,10 @@ tool, about 15 minutes). In short:
    translation.
 4. `PreSplitBody2` / `PostSplitBody2` selection marks (plane 1 / body 2, then 0 / 0); and `PostSplitBody2` returning null while still
    adding the split feature (`SplitByPlane` detects the added feature by name and uses or removes it).
-5. `RayIntersections` with ENTRY_EXIT | UNBLOCK returns every crossing with ENTER/EXIT flags (else `mold_part` falls back to the
-   envelope and says so in its notes); 20,000 rays in under 2 s.
+5. `mold_part` on a freshly inserted part, at `sample_mm` 0.3 and 1.0: it finishes and SolidWorks stays up. Its rays are cast in
+   managed code on the display tessellation (`MeshRayCaster`); `RayIntersections` crashed SolidWorks here on 2026-10-20 (an access
+   violation inside SolidWorks, 2,000-ray batch) and is no longer called anywhere. Check that the undercuts and air traps it draws
+   (`show: true`) sit where you expect on a part with a known undercut.
 6. Body folders: `InsertSubFolder` with bodies already in another folder moves them; membership survives later cuts.
 7. `IBody2.SetMaterialProperty` per body reads back with `GetMaterialPropertyName`.
 8. Export: `NewDocument` while `DocumentVisible(false)` gives a hidden part; `CreateFeatureFromBody3` of a `Copy2`; STEP AP 214 / 242.

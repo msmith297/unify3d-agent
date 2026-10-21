@@ -229,6 +229,9 @@ namespace SwAgent
                 // PropertyManager page, a rebuild): a geometry call then can crash SolidWorks (SwBusy, SceneOverlay). Wait for
                 // the command to end; the add-in's own tool page doesn't count.
                 var name = (string)p["name"];
+                // After a fault inside SolidWorks (NativeFault) its memory may be damaged: no more model work until a restart.
+                if (NativeFault.Tripped != null && !SwBusyGate.ModelFree(name))
+                    return (object)ToolResult.Error(NativeFault.RestartAdvice).ToJson();
                 if (!SwBusyGate.ModelFree(name) && _app.Sw != null)
                 {
                     var waited = await SwBusyGate.WaitAsync(() => SwBusy.InCommand(_app.Sw) && !ToolPage.AnyOpen, SwBusyGate.Timeout);

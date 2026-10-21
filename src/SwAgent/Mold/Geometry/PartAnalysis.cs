@@ -728,11 +728,18 @@ namespace SwAgent.Mold.Geometry
         string PersistRef(int face);
     }
 
-    /// <summary>A SolidWorks body as IPartGeometry: display tessellation, mass properties, extreme points, RayIntersections.</summary>
+    /// <summary>
+    /// A SolidWorks body as IPartGeometry: display tessellation, mass properties, extreme points. Rays are cast in managed
+    /// code on that same tessellation (MeshRayCaster), never with IModelDocExtension.RayIntersections, which crashed
+    /// SolidWorks on 2026-10-20 (see MeshRayCaster).
+    /// </summary>
     internal sealed class SwPartGeometry : IPartGeometry
     {
         private readonly IModelDoc2 _model;
         private readonly IBody2 _body;
+        private readonly Dictionary<int, float[]> _tris = new Dictionary<int, float[]>();
+        private readonly Dictionary<int, float[]> _norms = new Dictionary<int, float[]>();
+        private MeshRayCaster _caster;
 
         public SwPartGeometry(IModelDoc2 model, IBody2 body)
         {
@@ -744,8 +751,19 @@ namespace SwAgent.Mold.Geometry
         public List<IFace2> Faces { get; }
         public string Name => SwGeo.SafeName(_body);
         public int FaceCount => Faces.Count;
-        public float[] FaceTriangles(int face) => Faces[face].GetTessTriangles(true) as float[];
-        public float[] FaceNormals(int face) => Faces[face].GetTessNorms() as float[];
+
+        public float[] FaceTriangles(int face)
+        {
+            if (!_tris.TryGetValue(face, out var t)) _tris[face] = t = Faces[face].GetTessTriangles(true) as float[];
+            return t;
+        }
+
+        public float[] FaceNormals(int face)
+        {
+            if (!_norms.TryGetValue(face, out var n)) _norms[face] = n = Faces[face].GetTessNorms() as float[];
+            return n;
+        }
+
         public double Volume => SwGeo.Volume(_body);
         public double Area => Faces.Sum(f => f.GetArea());
         public double[] Box(MoldFrame frame) => SwGeo.Box(_body, frame);
@@ -753,16 +771,25 @@ namespace SwAgent.Mold.Geometry
 
         public List<RayHit> Cast(IList<double[]> pts, IList<double[]> dirs, int start, int n, int opts)
         {
-            var bp = new double[n * 3];
-            var dv = new double[n * 3];
-            for (var k = 0; k < n; k++)
+            if (_caster == null)
             {
-                Array.Copy(pts[start + k], 0, bp, k * 3, 3);
-                Array.Copy(dirs[start + k], 0, dv, k * 3, 3);
+                var tris = new List<double[]>();
+                var outward = new List<double[]>();
+                for (var fi = 0; fi < FaceCount; fi++)
+                {
+                    var t = FaceTriangles(fi);
+                    if (t == null) continue;
+                    var nv = FaceNormals(fi);
+                    var hasNorms = nv != null && nv.Length == t.Length;
+                    for (var k = 0; k + 8 < t.Length; k += 9)
+                    {
+                        tris.Add(new double[] { t[k], t[k + 1], t[k + 2], t[k + 3], t[k + 4], t[k + 5], t[k + 6], t[k + 7], t[k + 8] });
+                        outward.Add(hasNorms ? new double[] { nv[k] + nv[k + 3] + nv[k + 6], nv[k + 1] + nv[k + 4] + nv[k + 7], nv[k + 2] + nv[k + 5] + nv[k + 8] } : null);
+                    }
+                }
+                _caster = new MeshRayCaster(tris, outward);
             }
-            var count = _model.Extension.RayIntersections(new object[] { _body }, bp, dv, opts, 1e-7, 0, true);
-            if (count <= 0) return new List<RayHit>();
-            return Columns.Parse(_model.GetRayIntersectionsPoints() as double[], count, n, 1, (opts & (int)swRayPtsOpts_e.swRayPtsOptsNORMALS) != 0);
+            return _caster.Cast(pts, dirs, start, n, opts);
         }
     }
 }

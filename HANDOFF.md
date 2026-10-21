@@ -115,6 +115,13 @@ All commands run from the working folder.
 
 **Update 2026-10-20 (review pass):** the `compression-mold-review` findings (engineering, SolidWorks safety, page/panel, procedure) were applied in one commit on this branch, with regression tests (`tests/SwAgent.Tests/Mold/MoldReview2*Tests.cs`, `MoldStockyWallTests.cs`). Not re-run: the 2,000-mold Monte Carlo and the 3D sweep (`MOLD_SWEEP=1`), so `data/validation/montecarlo-summary.json` predates the stocky-wall and design-force changes. Nothing was tested in SolidWorks. Item 1 below is therefore done except for those runs.
 
+**Crash 2026-10-20 22:11 (first real run in SolidWorks):** the agent inserted the user's part, then the first `mold_part` closed SolidWorks. SolidWorks' crash dump (`%LOCALAPPDATA%\SolidWorks\CXPA\*.zip`, read with ClrMD) showed an `AccessViolationException` inside `IModelDocExtension.RayIntersections` (2,000-ray batch from `PartAnalysis.CastFirstHits`), which passed straight through ToolRegistry's catch blocks (.NET doesn't let ordinary catches see corrupted-state exceptions). Fixed:
+- `mold_part` casts its rays in managed code on the display tessellation (`Mold/Geometry/MeshRayCaster.cs`). `RayIntersections` is no longer called anywhere, and a test (`MeshRayCasterTests.No_production_code_calls_RayIntersections`) keeps it that way. The analysis gives identical results on the fixtures.
+- `Infrastructure/NativeFault.cs`: tool calls and `Safe.Run` catch an access violation inside SolidWorks (`HandleProcessCorruptedStateExceptions`), return an error, and block model tools until SolidWorks restarts, with "Save As under a new name, then restart" advice.
+- The agent's crash-safety prompt (`ui/src/agent/cad/solidworks.ts`) forbids `RayIntersections` in code cells.
+
+To read a future SolidWorks crash dump: unzip the newest `%LOCALAPPDATA%\SolidWorks\CXPA\*.zip` and walk the managed threads with Microsoft.Diagnostics.Runtime (`DataTarget.LoadDump`, `thread.CurrentException`).
+
 1. **The multi-angle review and fix pass** was stopped by the usage limit, so the integrated tool has had no independent review.
    - Run it again as the saved workflow `compression-mold-review` (`.claude\workflows\compression-mold-review.js`). It runs review, verify and fix, and points at this folder. The original script also had an integrate phase, already done, and pointed at the old folder and a scratch folder that no longer exists.
    - Or do the same by hand. There are four lenses, each with its findings verified (try to refute each one) before you fix it:
