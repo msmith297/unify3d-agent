@@ -19,6 +19,11 @@
     <PackageReference Include="JsonSchema.Net" Version="7.3.4" />
   </ItemGroup>
 
+  <!-- Fake plugin programs (a stdio MCP server, hook scripts) for the plugin runtime tests; they need node, else those tests skip. -->
+  <ItemGroup>
+    <None Include="..\fixtures\**\*" Link="fixtures\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\..\src\SwAgent\SwAgent.csproj" />
     <Reference Include="System.Drawing" />
