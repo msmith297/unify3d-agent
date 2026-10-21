@@ -26,6 +26,8 @@ namespace SwAgent.Mold
         public double SyT;
         /// <summary>Widest wall the sizing may return, as a multiple of h: above it there is no plate-theory answer (S21).</summary>
         public double WMaxOverH = Walls.MaxTau;
+        /// <summary>Floor under the cavity (mm) for the floor-stretch term (Walls.Stretch); 0 = the S26 minimum, 0.25 h.</summary>
+        public double Floor;
     }
 
     public sealed class WallResult
@@ -33,6 +35,8 @@ namespace SwAgent.Mold
         public string Id, Bc, Governs;
         public double WDefl, WStress, WStruct, WDrawn;
         public double Alpha, Beta, Sigma, SigmaAllow, Deflection;
+        /// <summary>The floor-stretch part of the bulge (mm), the same at every width (Walls.Stretch).</summary>
+        public double Stretch;
         public double LOverH, TauStruct;
         public bool StockyFlag;
         /// <summary>No width up to WMaxOverH x h keeps the bulge within delta_wall: WDefl is that cap and WALL-NOSOLN fails.</summary>
@@ -46,9 +50,11 @@ namespace SwAgent.Mold
     /// S20-S25 cavity walls. A plate of width w (thickness of the wall), loaded height h, length L: bottom clamped, top free,
     /// sides clamped or simply supported. alpha_w, beta_w from the coefficient table in (L/h, (w/h)²), with the strip
     /// above the last L/h row (critique A4).
-    /// (S21) w = [(1 + 2.8 w/h) alpha lambda p h⁴/(E delta)]^(1/3), fixed point from 0.3 h, bisection when it does not settle
-    ///       (the root factor from Track A2's 3D pocket models, calibrated up to w/h 0.53; above that the root's added bulge
-    ///       falls as h/w - see RootAt; the design's constant 1.2 is unsafe above w/h 0.07). No width up to 3 h: WALL-NOSOLN.
+    /// (S21) bulge = 1.06 (1 + 2.8 w/h) alpha lambda p h⁴/(E w³) + kappa(L/h) lambda p h b_perp/(2 E t_floor), solved for w by a
+    ///       fixed point from 0.3 h, bisection when it does not settle (the root factor from Track A2's 3D pocket models,
+    ///       calibrated up to w/h 0.53; above that the root's added bulge falls as h/w - see RootAt; the design's constant 1.2
+    ///       is unsafe above w/h 0.07). The 1.06 and the floor-stretch term come from the 3D pocket over the whole range (see
+    ///       OwnBulgeFactor). No width up to 3 h, or a floor whose stretch alone uses the budget: WALL-NOSOLN.
     /// (S22) sigma = beta lambda p h²/w² + p b_perp/(2w) (membrane from the perpendicular walls).
     /// (S23) if sigma exceeds min(static, fatigue) allowable, w grows until it does not.
     /// (S24) w/h > 0.5 is flagged; the class A abuse case LC1x uses beta p h²/w² + p b/(2w) (the strip upper bound 3 p h²/w²
@@ -72,6 +78,54 @@ namespace SwAgent.Mold
         /// <summary>Widest wall the S21 sizing returns, as a multiple of h (beyond it: WALL-NOSOLN, never the last iterate).</summary>
         public const double MaxTau = 3.0;
 
+        /// <summary>
+        /// Walls are sized this fraction inside delta_wall and the stress allowable (about 0.03% of the width). The record
+        /// stores the layout rounded (cavity origins to 0.001 mm), and a wall sized exactly to its limit then read back up to
+        /// that much narrower and failed its own check - at the printed maximum gauge, which is exactly the design force.
+        /// </summary>
+        public const double SizingHeadroom = 1e-3;
+
+        /// <summary>
+        /// The 3D recalibration (2026-10-21) on top of the root factor. The 2,000-mold Monte Carlo judged stocky walls against
+        /// the 3D pocket and found them bulging up to 7% past delta_wall; a sweep of the pocket (1,512 cases at h/8 and h/12,
+        /// extrapolated: L/h 0.5-12, cavity width 0.5-8 h, floor 0.25-1 h, w/h 0.3-3, nu 0.29 and 0.33, plus fine-mesh
+        /// checks at h/12-h/24) showed two effects the plate model misses:
+        /// - the floor between the walls stretches under the outward push, so a long wall slides out as a whole (up to 2.5x
+        ///   the plate bulge for a stocky wall on a 0.25 h floor across a 4-8 h cavity) - widening the wall does not help;
+        /// - long walls near w/h 0.3-0.5 bulge a few percent more than 1 + 2.8 w/h gives.
+        /// The fit: own bulge x 1.06 plus kappa(L/h) lambda p h b_perp / (2 E t_floor), kappa = min(1, 0.71 ((L/h - 4)/8)^0.7)
+        /// (0 up to L/h 4, where the end walls hold the long walls; 0.71 at 12; capped at the pure membrane stretch, 1). It covers
+        /// every case with 2% to spare (the largest 3D / calculator ratio is 0.976). Applied with the 3D root factor only
+        /// (RootSlope > 0); the design-as-written constant factor stays as written.
+        /// Short walls of narrow pockets are not clamped at their sides at all (SidesClampedFor): there the 3D pocket bulged up
+        /// to 2x the clamped-sides plate (L/h 0.5, cavity 0.25 h across, w/h 0.1; fine meshes h/12-h/24, 450 cases) and at most
+        /// 0.81x the simply supported one.
+        /// </summary>
+        public const double OwnBulgeFactor = 1.06;
+
+        /// <summary>
+        /// Are the wall's sides clamped (Wall-C) or only simply supported (Wall-S)? A short wall (L/h up to 3) whose cavity is no
+        /// wider across than the wall is long gets Wall-S: the short walls at its ends are pushed outward too, the corners
+        /// open, and the 3D pocket bulged up to 2x the clamped plate there (2026-10-21, see OwnBulgeFactor); with Wall-S it
+        /// stays at or below 0.81x. Longer walls (clamped is within 0.99x of 3D from L/h 3 and 0.97x from 3.33, fine meshes) and walls across a wider cavity
+        /// keep Wall-C.
+        /// </summary>
+        public static bool SidesClampedFor(double l, double bPerp, double h) => !(l <= 3 * h && bPerp <= l);
+
+        /// <summary>The floor-stretch coefficient kappa(L/h) (see OwnBulgeFactor).</summary>
+        public static double StretchKappa(double lOverH) => Math.Min(1.0, 0.71 * Math.Pow(Math.Max(0.0, (lOverH - 4) / 8), 0.7));
+
+        /// <summary>The floor-stretch part of the bulge (mm): kappa(L/h) lambda p h b_perp / (2 E t_floor); 0 without the 3D root factor.</summary>
+        public static double Stretch(WallInput i)
+        {
+            if (i.RootSlope == 0 || i.BPerp <= 0) return 0;
+            var floor = i.Floor > 0 ? i.Floor : 0.25 * i.H;
+            return StretchKappa(i.L / i.H) * i.Lambda * i.P * i.H * i.BPerp / (2 * i.E * floor);
+        }
+
+        /// <summary>The factor on the wall's own (plate) bulge: OwnBulgeFactor with the 3D root factor, else 1.</summary>
+        public static double OwnFactor(WallInput i) => i.RootSlope == 0 ? 1.0 : OwnBulgeFactor;
+
         /// <summary>The wall-root factor at width w (S21), as the multiplier on the plate bulge (see RootAt).</summary>
         public static double Root(WallInput i, double w) => RootAt(i.RootFactor, i.RootSlope, w / i.H, i.L / i.H, i.Nu, i.SidesClamped ? "Wall-C" : "Wall-S");
 
@@ -87,14 +141,17 @@ namespace SwAgent.Mold
             return rootBase + rootSlope * ac * tau * tau / (RootCalibratedTau * a);
         }
 
-        /// <summary>The factor as a formula for check methods: "(1 + 2.8 w/h)" or "1.2".</summary>
-        public static string RootText(WallInput i) => i.RootSlope == 0 ? Si.F(i.RootFactor) : "(" + Si.F(i.RootFactor) + " + " + Si.F(i.RootSlope) + " w/h; above w/h " + Si.F(RootCalibratedTau) + " an added bulge falling as h/w)";
+        /// <summary>The factor as a formula for check methods: "1.06 (1 + 2.8 w/h ...)" or "1.2".</summary>
+        public static string RootText(WallInput i) => i.RootSlope == 0 ? Si.F(i.RootFactor) : Si.F(OwnBulgeFactor) + " (" + Si.F(i.RootFactor) + " + " + Si.F(i.RootSlope) + " w/h; above w/h " + Si.F(RootCalibratedTau) + " an added bulge falling as h/w)";
 
-        /// <summary>The S21 bulge at width w (mm).</summary>
+        /// <summary>The floor-stretch term as text for check methods (empty without it).</summary>
+        public static string StretchText(WallInput i) => Stretch(i) > 0 ? " + kappa(L/h) p h b/(2 E t_floor) (floor stretch, kappa " + Si.F(StretchKappa(i.L / i.H)) + ")" : "";
+
+        /// <summary>The S21 bulge at width w (mm): the wall's own bulge plus the floor stretch.</summary>
         public static double Deflection(WallInput i, string bc, double w)
         {
             var a = Coefficients.Get(bc, i.L / i.H, w / i.H, i.Nu, 1.0).Alpha;
-            return Root(i, w) * a * i.Lambda * i.P * Math.Pow(i.H, 4) / (i.E * Math.Pow(w, 3));
+            return OwnFactor(i) * Root(i, w) * a * i.Lambda * i.P * Math.Pow(i.H, 4) / (i.E * Math.Pow(w, 3)) + Stretch(i);
         }
 
         public static WallResult Size(WallInput i, double tauMax = 0.5)
@@ -106,10 +163,16 @@ namespace SwAgent.Mold
             var wMax = i.WMaxOverH * i.H;
             var w = 0.3 * i.H;
             var converged = false;
-            for (var k = 0; k < 500 && w <= wMax; k++)
+            // sized SizingHeadroom inside the limits, so a record that stores the layout rounded never reads back a wall a hair
+            // too narrow for its own check
+            var budget = i.DeltaAllow * (1 - SizingHeadroom);
+            // the floor's stretch takes its share of the budget first, whatever the width; the wall's own bulge gets the rest
+            r.Stretch = Stretch(i);
+            var own = budget - r.Stretch;
+            for (var k = 0; k < 500 && w <= wMax && own > 0; k++)
             {
                 var a = Coefficients.Get(r.Bc, r.LOverH, w / i.H, i.Nu, 1.0).Alpha;
-                var wn = Math.Pow(Root(i, w) * a * i.Lambda * i.P * Math.Pow(i.H, 4) / (i.E * i.DeltaAllow), 1.0 / 3.0);
+                var wn = Math.Pow(OwnFactor(i) * Root(i, w) * a * i.Lambda * i.P * Math.Pow(i.H, 4) / (i.E * own), 1.0 / 3.0);
                 if (Math.Abs(wn - w) / w < 1e-10) { w = wn; converged = true; break; }
                 w = wn;
             }
@@ -126,7 +189,7 @@ namespace SwAgent.Mold
                     for (var k = 0; k < 200 && (hi - lo) > 1e-12 * hi; k++)
                     {
                         var m = 0.5 * (lo + hi);
-                        if (Deflection(i, r.Bc, m) > i.DeltaAllow) lo = m; else hi = m;
+                        if (Deflection(i, r.Bc, m) > budget) lo = m; else hi = m;
                     }
                     w = hi;
                 }
@@ -138,9 +201,10 @@ namespace SwAgent.Mold
             r.SigmaAllow = allow;
             double Sigma(double ww) => Coefficients.Get(r.Bc, r.LOverH, ww / i.H, i.Nu, 1.0).Beta * i.Lambda * i.P * i.H * i.H / (ww * ww) + i.P * i.BPerp / (2 * ww);
             var ws = w;
-            for (var k = 0; k < 200 && Sigma(ws) > allow * (1 + 1e-12); k++)
+            var allowSized = allow * (1 - SizingHeadroom);
+            for (var k = 0; k < 200 && Sigma(ws) > allowSized * (1 + 1e-12); k++)
             {
-                var wn = ws * Math.Sqrt(Sigma(ws) / allow);
+                var wn = ws * Math.Sqrt(Sigma(ws) / allowSized);
                 if (Math.Abs(wn - ws) / ws < 1e-12) break;
                 ws = wn;
             }
@@ -157,11 +221,13 @@ namespace SwAgent.Mold
             r.Alpha = co.Alpha;
             r.Beta = co.Beta;
             r.Sigma = Sigma(r.WDrawn);
-            r.Deflection = Root(i, r.WDrawn) * co.Alpha * i.Lambda * i.P * Math.Pow(i.H, 4) / (i.E * Math.Pow(r.WDrawn, 3));
-            r.Checks.Add(new JCheck { Id = "WALL-DEFL-" + i.Id, Type = "deflection", Demand = r.Deflection, Capacity = i.DeltaAllow, Unit = "mm", LoadCase = "LC1", Method = "S21: " + RootText(i) + " alpha p h^4/(E w^3) <= delta_wall (A11)" });
+            r.Deflection = Deflection(i, r.Bc, r.WDrawn);
+            r.Checks.Add(new JCheck { Id = "WALL-DEFL-" + i.Id, Type = "deflection", Demand = r.Deflection, Capacity = i.DeltaAllow, Unit = "mm", LoadCase = "LC1", Method = "S21: " + RootText(i) + " alpha p h^4/(E w^3)" + StretchText(i) + " <= delta_wall (A11)" });
             r.Checks.Add(new JCheck { Id = "WALL-STRESS-" + i.Id, Type = i.AllowFatigue < i.AllowStatic ? "fatigue" : "stress", Demand = r.Sigma, Capacity = allow, Unit = "MPa", LoadCase = "LC1", Method = "S22-S23: beta p h^2/w^2 + p b/(2w) <= min(Sy/2, fatigue)" });
             if (r.NoSolution)
-                r.Checks.Add(new JCheck { Id = "WALL-NOSOLN-" + i.Id, Type = "deflection", Demand = Deflection(i, r.Bc, wMax), Capacity = i.DeltaAllow, Unit = "mm", LoadCase = "LC1", Method = "S21: no wall up to " + Si.F(i.WMaxOverH) + " h keeps the bulge within delta_wall - use steel, a wall keyed into the base, a lower gauge (pressure) or a looser width tolerance" });
+                r.Checks.Add(new JCheck { Id = "WALL-NOSOLN-" + i.Id, Type = "deflection", Demand = Deflection(i, r.Bc, wMax), Capacity = i.DeltaAllow, Unit = "mm", LoadCase = "LC1", Method = r.Stretch >= i.DeltaAllow
+                    ? "S21: the floor under the cavity stretches " + Si.F(r.Stretch) + " mm under the outward push - more than delta_wall by itself, whatever the wall width: thicken the floor, use steel, key the walls into the base, or lower the gauge (pressure)"
+                    : "S21: no wall up to " + Si.F(i.WMaxOverH) + " h keeps the bulge within delta_wall - use steel, a wall keyed into the base, a thicker floor (its stretch is " + Si.F(r.Stretch) + " mm of it), a lower gauge (pressure) or a looser width tolerance" });
             if (r.StockyFlag)
                 r.Checks.Add(new JCheck { Id = "WALL-STOCKY-" + i.Id, Type = "stress", Demand = r.TauStruct, Capacity = tauMax, Unit = "w/h", Status = "warn", Method = "S24: w/h > 0.5 - plate theory no longer applies; prefer steel, a wall keyed into the base, or a 3D check" });
 

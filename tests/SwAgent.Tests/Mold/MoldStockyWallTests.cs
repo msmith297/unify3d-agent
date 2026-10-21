@@ -51,7 +51,7 @@ namespace SwAgent.Tests.Mold
                 var r = Walls.Size(Unit(3.33, deltaAllow: need));
                 Assert.False(r.NoSolution);
                 Assert.InRange(r.WDefl, 0.01, Walls.MaxTau);
-                Assert.Equal(need, Walls.Deflection(Unit(3.33, deltaAllow: need), "Wall-C", r.WDefl), 6);
+                Assert.Equal(need * (1 - Walls.SizingHeadroom), Walls.Deflection(Unit(3.33, deltaAllow: need), "Wall-C", r.WDefl), 6);
             }
         }
 
@@ -98,6 +98,93 @@ namespace SwAgent.Tests.Mold
             _out.WriteLine($"L/h {lOverH}, w/h {wOverH}: 3D {w1:F4} / {w2:F4} -> {solid:F4}; calculator {calc:F4} (ratio {calc / solid:F3})");
             Assert.True(calc >= solid, $"calculator {calc} below the 3D pocket {solid}");
             Assert.True(calc <= 3 * solid, $"calculator {calc} more than 3x the 3D pocket {solid}");
+        }
+
+        // ---- the 3D recalibration (2026-10-21): the Monte Carlo found stocky walls bulging up to 7% past delta_wall ----
+
+        [Theory]
+        [InlineData(12, 4, 3.0, 0.25)]   // the worst of the sweep before the fix: 2.47x the old calculator (floor stretch)
+        [InlineData(9, 4, 2.0, 0.25)]
+        [InlineData(6, 4, 1.5, 0.25)]
+        [InlineData(12, 8, 0.4, 1.0)]    // a plate-like long wall over a wide cavity: 1.066x before (fine mesh)
+        [InlineData(12, 2, 1.0, 0.5)]
+        [InlineData(1, 0.5, 0.5, 1.0)]   // the case that sets the 1.06
+        public void Walls_on_thin_floors_and_wide_cavities_stay_conservative_against_the_3d_pocket(double lOverH, double bOverH, double tau, double floor)
+        {
+            var (solid, ok) = StockyWallSweep.Solid(lOverH, bOverH, tau, floor, 0.33);
+            var calc = StockyWallSweep.Calculator(lOverH, bOverH, tau, floor, 0.33);
+            _out.WriteLine($"L/h {lOverH}, B/h {bOverH}, w/h {tau}, floor {floor}: 3D {solid:F3}, calculator {calc:F3} (ratio {solid / calc:F3})");
+            Assert.True(ok);
+            Assert.True(solid * StockyWallSweep.Margin <= calc, $"3D {solid} is not {StockyWallSweep.Margin}x below the calculator's {calc}");
+        }
+
+        [Theory]
+        [InlineData(0.5, 0.25, 0.1, 0.25)] // the worst for clamped sides: 2.0x (fine meshes)
+        [InlineData(1, 0.5, 0.1, 0.5)]
+        [InlineData(1.5, 0.5, 0.2, 1.0)]
+        [InlineData(2, 1, 0.1, 0.5)]
+        public void Short_walls_of_narrow_pockets_are_sized_with_simply_supported_sides(double lOverH, double bOverH, double tau, double floor)
+        {
+            Assert.False(Walls.SidesClampedFor(lOverH, bOverH, 1));
+            var (solid, ok) = StockyWallSweep.SolidFine(lOverH, bOverH, tau, floor, 0.33);
+            var calc = StockyWallSweep.Calculator(lOverH, bOverH, tau, floor, 0.33);
+            _out.WriteLine($"L/h {lOverH}, B/h {bOverH}, w/h {tau}, floor {floor}: 3D {solid:F3}, calculator (Wall-S) {calc:F3} (ratio {solid / calc:F3})");
+            Assert.True(ok);
+            Assert.True(solid * StockyWallSweep.Margin <= calc, $"3D {solid} is not {StockyWallSweep.Margin}x below the calculator's {calc}");
+        }
+
+        [Fact]
+        public void Long_walls_and_walls_across_wide_cavities_keep_clamped_sides()
+        {
+            Assert.True(Walls.SidesClampedFor(100, 50, 25));   // L/h 4
+            Assert.True(Walls.SidesClampedFor(50, 60, 25));    // L/h 2, but the cavity across is wider than the wall is long
+            Assert.False(Walls.SidesClampedFor(50, 40, 25));   // L/h 2 across a narrower cavity
+            Assert.False(Walls.SidesClampedFor(75, 75, 25));   // L/h 3, square
+        }
+
+        [Fact]
+        public void The_floor_stretch_grows_with_wall_length_and_is_none_for_short_walls()
+        {
+            Assert.Equal(0, Walls.StretchKappa(2), 12);
+            Assert.Equal(0, Walls.StretchKappa(4), 12);
+            Assert.InRange(Walls.StretchKappa(6), 0.26, 0.28);
+            Assert.InRange(Walls.StretchKappa(12), 0.70, 0.72);
+            Assert.Equal(1.0, Walls.StretchKappa(40), 12); // capped at the pure membrane stretch
+            // p h b / (2 E t_floor) x kappa, only with the 3D root factor and a perpendicular cavity
+            var i = new WallInput { P = 2, H = 10, L = 120, BPerp = 40, E = 70000, Floor = 5, RootSlope = Walls.DefaultRootSlope };
+            Assert.Equal(Walls.StretchKappa(12) * 2 * 10 * 40 / (2 * 70000 * 5.0), Walls.Stretch(i), 12);
+            i.RootSlope = 0;
+            Assert.Equal(0, Walls.Stretch(i));
+        }
+
+        [Fact]
+        public void A_floor_that_stretches_past_the_budget_fails_whatever_the_width_and_says_thicken_the_floor()
+        {
+            // L/h 12 over a 20 h cavity on a 0.25 h floor: kappa 0.71 x 40 = 28 p h/E of stretch against a 10 p h/E budget
+            var r = Walls.Size(new WallInput { Id = "T", P = 1, H = 1, L = 12, BPerp = 20, E = 1, DeltaAllow = 10, Floor = 0.25, RootSlope = Walls.DefaultRootSlope, AllowStatic = 1e12, AllowFatigue = 1e12 });
+            Assert.True(r.NoSolution);
+            Assert.True(r.Stretch > 10);
+            Assert.Contains("thicken the floor", r.Checks.Single(c => c.Id == "WALL-NOSOLN-T").Method);
+        }
+
+        [Fact]
+        public void The_sizing_meets_the_budget_with_the_stretch_included()
+        {
+            var i = new WallInput { Id = "T", P = 1, H = 1, L = 9, BPerp = 4, E = 1, DeltaAllow = 12, Floor = 0.5, RootSlope = Walls.DefaultRootSlope, AllowStatic = 1e12, AllowFatigue = 1e12 };
+            var r = Walls.Size(i);
+            Assert.False(r.NoSolution);
+            Assert.True(r.Stretch > 0);
+            Assert.Equal(12 * (1 - Walls.SizingHeadroom), Walls.Deflection(i, "Wall-C", r.WDefl), 6);
+        }
+
+        [SweepFact, Trait("Category", "Sweep")]
+        public void Sweep4_the_wall_sizing_covers_the_3d_pocket_everywhere()
+        {
+            var cases = StockyWallSweep.Run(_out.WriteLine);
+            var failures = StockyWallSweep.Failures(cases);
+            foreach (var f in failures) _out.WriteLine("FAIL " + f);
+            _out.WriteLine($"{cases.Count} pockets, max 3D / calculator {cases.Max(c => c.Ratio):F4}");
+            Assert.Empty(failures);
         }
     }
 }

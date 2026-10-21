@@ -337,9 +337,21 @@ namespace SwAgent.Mold
             var pv = d.PartV * sx.Sv;
             // S21 wall-root factor base + c w/h (Track A2's 3D pocket models: 1 + 2.8 w/h); a plain number is a constant factor
             var (rootBase, rootSlope) = RootFactor(cfg);
-            var rootText = rootSlope == 0 ? Si.F(rootBase) : Si.F(rootBase) + " + " + Si.F(rootSlope) + " w/h (above w/h " + Si.F(Walls.RootCalibratedTau) + ": an added bulge falling as h/w)";
+            var rootText = rootSlope == 0 ? Si.F(rootBase) : Si.F(Walls.OwnBulgeFactor) + " (" + Si.F(rootBase) + " + " + Si.F(rootSlope) + " w/h; above w/h " + Si.F(Walls.RootCalibratedTau) + ": an added bulge falling as h/w)";
             var tauMax = cfg.D("tauMax", 0.5);
             var kf = cfg.ParamNum("kf");
+            // the required floor under each half's cavity (S26): the walls' floor-stretch term needs it (Walls.Stretch), and it
+            // does not depend on the walls
+            var al = g.IsAluminium;
+            var tc = data.ShopMm("thermocouple.diameter", 6.35);
+            double FloorUnder(double h) => h > 0 ? Plates.Floor(al, h, tc, cfg) : 0;
+
+            // the wall as S21-S24 see it (the stress allowables and drawn widths are added per pass)
+            WallInput WallIn(string id, double L, double bPerp, double h) => new WallInput
+            {
+                Id = id, P = pLC1 * cfg.D("lateralPressureFactor", 1.0), H = h, L = L, BPerp = bPerp, E = g.E, Nu = g.Nu,
+                DeltaAllow = r.Gap.DeltaWall, SidesClamped = Walls.SidesClampedFor(L, bPerp, h), RootFactor = rootBase, RootSlope = rootSlope, Floor = FloorUnder(h),
+            };
 
             WallResult SizeWall(string id, double L, double bPerp, double h, double wGeom, double wMin)
             {
@@ -350,12 +362,14 @@ namespace SwAgent.Mold
                 for (var pass = 0; pass < 10; pass++)
                 {
                     var fa = kf != null ? Fatigue.AllowablesKf(g, d.Cycles, kf.Value, cfg) : Fatigue.Allowables(g, d.Cycles, kt, cfg);
-                    wr = Walls.Size(new WallInput
-                    {
-                        Id = id, P = pLC1 * cfg.D("lateralPressureFactor", 1.0), H = h, L = L, BPerp = bPerp, E = g.E, Nu = g.Nu,
-                        DeltaAllow = r.Gap.DeltaWall, SidesClamped = true, RootFactor = rootBase, RootSlope = rootSlope, AllowStatic = fa.AllowStatic, AllowFatigue = fa.AllowFatigue,
-                        WGeom = wGeom, WMin = wMin, PAbuse = pAbuse > 0 ? pAbuse : (double?)null, SyT = g.Sy,
-                    }, tauMax);
+                    var wi = WallIn(id, L, bPerp, h);
+                    wi.AllowStatic = fa.AllowStatic;
+                    wi.AllowFatigue = fa.AllowFatigue;
+                    wi.WGeom = wGeom;
+                    wi.WMin = wMin;
+                    wi.PAbuse = pAbuse > 0 ? pAbuse : (double?)null;
+                    wi.SyT = g.Sy;
+                    wr = Walls.Size(wi, tauMax);
                     var ktAt = Fatigue.Kt(d.CornerRadius / wr.WStruct, cfg);
                     if (kf != null || ktAt <= kt) break;
                     kt = ktAt;
@@ -381,8 +395,6 @@ namespace SwAgent.Mold
             r.Checks.RemoveAll(c => ((string)c["id"]).StartsWith("PRESS-"));
 
             // plates (S26-S28 case A; S29-S32 other supports)
-            var al = g.IsAluminium;
-            var tc = data.ShopMm("thermocouple.diameter", 6.35);
             var tFloor = Plates.Floor(al, hBase, tc, cfg);
             var longest = Math.Max(lay.FootprintL, lay.FootprintW);
             var baseReq = hBase > 0 ? Plates.PocketPlate(al, tFloor, hBase, longest, cfg) : Plates.Lid(al, longest, cfg);
@@ -413,6 +425,9 @@ namespace SwAgent.Mold
                 if (hBase > 0)
                     r.Checks.Add(ToJson(new JCheck { Id = "PLATE-BASE-T", Type = "deflection", Demand = tBase, Capacity = hBase + tFloor, Unit = "mm", Lower = true, Method = "S26-S27 (as built): base thickness >= cavity depth + required floor" + (support == Support.A ? "" : " (the span is checked at this thickness)") }, "size", "BASE-1"));
             }
+            // the lid's own cavity half has a floor too (the walls' floor stretch reads it): the same rule at the as-built thickness
+            if (tLidBuilt != null && hLid > 0)
+                r.Checks.Add(ToJson(new JCheck { Id = "PLATE-LID-T", Type = "deflection", Demand = tLid, Capacity = hLid + FloorUnder(hLid), Unit = "mm", Lower = true, Method = "S26-S27 (as built): lid thickness >= its cavity depth + required floor" }, "size", "LID-1"));
 
             // masses and boxes (S71-S73), lid limit (A2)
             var cavVolBase = d.PartVolume * sx.Su * sx.Sv * sx.Sw * (d.PartH > 0 ? hBase / (d.PartH * sx.Sw) : 1);
@@ -546,12 +561,17 @@ namespace SwAgent.Mold
                 // the same sideways pressure (lambda x p_LC1) that SizeWall used
                 var pLat = pLC1 * cfg.D("lateralPressureFactor", 1.0);
                 wr.Sigma = co.Beta * pLat * h * h / (drawn * drawn) + pLat * (isU ? pu : pv) / (2 * drawn);
-                wr.Deflection = Walls.RootAt(rootBase, rootSlope, drawn / h, wr.LOverH, g.Nu) * co.Alpha * pLat * Math.Pow(h, 4) / (g.E * Math.Pow(drawn, 3));
+                var wallIn = WallIn(w.Id, isU ? pv : pu, isU ? pu : pv, h);
+                // the floor that is there (plate minus cavity depth) when it is thinner than the required one - an as-built
+                // plate can be (PLATE-BASE-T / PLATE-LID-T fail it, and its walls' floor stretch must say so too)
+                var actualFloor = (w.Id.EndsWith("-B") ? tBase - hBase : tLid - hLid);
+                if (actualFloor > 0 && actualFloor < wallIn.Floor) wallIn.Floor = actualFloor;
+                wr.Deflection = Walls.Deflection(wallIn, wr.Bc, drawn);
                 wr.SigmaAllow = fa.Allow;
                 var noSoln = wr.Checks.FirstOrDefault(c => c.Id.StartsWith("WALL-NOSOLN-", StringComparison.Ordinal));
                 wr.Checks.Clear();
                 if (noSoln != null) wr.Checks.Add(noSoln);
-                wr.Checks.Add(new JCheck { Id = "WALL-DEFL-" + w.Id, Type = "deflection", Demand = wr.Deflection, Capacity = r.Gap.DeltaWall, Unit = "mm", LoadCase = "LC1", Method = "S21 + A11: (" + rootText + ") alpha p h^4/(E w^3) <= 0.25 x width tolerance" });
+                wr.Checks.Add(new JCheck { Id = "WALL-DEFL-" + w.Id, Type = "deflection", Demand = wr.Deflection, Capacity = r.Gap.DeltaWall, Unit = "mm", LoadCase = "LC1", Method = "S21 + A11: " + rootText + " alpha p h^4/(E w^3)" + Walls.StretchText(wallIn) + " <= 0.25 x width tolerance" });
                 wr.Checks.Add(new JCheck { Id = "WALL-STRESS-" + w.Id, Type = fa.AllowFatigue < fa.AllowStatic ? "fatigue" : "stress", Demand = wr.Sigma, Capacity = fa.Allow, Unit = "MPa", LoadCase = "LC1", Method = "S22-S23: beta p h^2/w^2 + p b/(2w) <= min(Sy/2, fatigue), K_f " + Si.F(fa.Kf) });
                 if (wr.StockyFlag)
                     wr.Checks.Add(new JCheck { Id = "WALL-STOCKY-" + w.Id, Type = "stress", Demand = wr.TauStruct, Capacity = tauMax, Unit = "w/h", Status = "warn", Method = "S24: w/h > 0.5 - plate theory no longer applies; prefer steel, a keyed wall, or a 3D check" });
@@ -574,7 +594,7 @@ namespace SwAgent.Mold
                     ["w_defl_mm"] = Si.R(w.WDefl, 5), ["w_stress_mm"] = Si.R(w.WStress, 5), ["w_struct_mm"] = Si.R(w.WStruct, 5),
                     ["w_drawn_mm"] = Si.R(drawn, 6), ["alpha"] = Si.R(co.Alpha, 5), ["beta"] = Si.R(co.Beta, 5),
                     ["sigma_MPa"] = Si.R(wr.Sigma, 5), ["allow_MPa"] = Si.R(fa.Allow, 5), ["Kf"] = Si.R(fa.Kf, 4), ["Sa_MPa"] = Si.R(fa.Sa, 5), ["sigmaMaxR0_MPa"] = Si.R(fa.SigmaMaxR0, 5),
-                    ["deflection_mm"] = Si.R(wr.Deflection, 5), ["governs"] = drawn > w.WStruct + 1e-9 ? (d.Class == ProcessClass.A_Pour ? "flash system and dowels" : "flash band, hardware and class B minimum") : (w.WStress > w.WDefl ? "stress" : "deflection"),
+                    ["deflection_mm"] = Si.R(wr.Deflection, 5), ["floorStretch_mm"] = Si.R(Walls.Stretch(wallIn), 5), ["floor_mm"] = Si.R(wallIn.Floor, 5), ["governs"] = drawn > w.WStruct + 1e-9 ? (d.Class == ProcessClass.A_Pour ? "flash system and dowels" : "flash band, hardware and class B minimum") : (w.WStress > w.WDefl ? "stress" : "deflection"),
                     ["stocky"] = wr.StockyFlag, ["noSolution"] = w.NoSolution, ["sigmaAbuse_MPa"] = wr.SigmaAbuse == null ? null : (JToken)Si.R(wr.SigmaAbuse.Value, 5),
                 });
             }

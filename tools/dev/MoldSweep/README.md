@@ -18,6 +18,7 @@ dotnet build <scratch>/tools/dev/MoldSweep/MoldSweep.csproj -c Release
 | `coefficients [--elements 48]` | `src/SwAgent/Mold/Structural/coefficients.csv` (Sweep 1, 11,328 rows) with its gates, the allowance and the 3D factors in the header | 2 min |
 | `table` | `.../data/validation/sizing-table.csv` (thickness vs pressure, span or cavity depth, material, deflection limit) | 1 s |
 | `montecarlo [--n 2000] [--seed 1]` | `.../data/validation/montecarlo-summary.json` and `results/montecarlo.csv` (Sweep 2: the recommended sizing, plus the table-only and design-as-written sizings of the same molds for comparison) | 20 min |
+| `stockywalls` | `.../data/validation/stocky-walls.csv` (Sweep 4: the wall sizing - side condition, root factor x 1.06 plus the floor-stretch term - against the 3D pocket: 1,920 cases at h/8 and h/12, L/h 0.5-12, cavity width 0.5-8 h, w/h 0.3-3, floor 0.25-1 h, nu 0.29 and 0.33; plus 630 short narrow pockets on fine meshes, L/h 0.5-3.33, cavity 0.25-1.5 h, w/h 0.1-0.5; fails when a case bulges more than the calculator / 1.02) | 10 min |
 | `all` | the four above, in that order (`coefficients` reads the 3D factors, `table` and `montecarlo` read the coefficients and the 3D factors) | 30 min |
 
 The exit code is 1 when a gate fails; the failing gates are printed and written into the outputs.

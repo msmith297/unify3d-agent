@@ -20,6 +20,7 @@ namespace MoldSweep
     ///                 the same molds for comparison. The calculator reads the coefficient table embedded at build time: after
     ///                 `coefficients` rewrites the CSV, rebuild before `montecarlo`.
     ///   solid3d       3D solid cross-check: wall-root factor, thick plates, bolted-joint member stiffness -> solid3d-summary.json.
+    ///   stockywalls   Sweep 4: the wall sizing against the 3D pocket over the sizing's range -> data/validation/stocky-walls.csv.
     ///   all           solid3d, coefficients, table, montecarlo.
     /// Options: --root DIR (repository root; found from the working directory by default), --elements N, --n N, --seed N, --quick.
     /// Exit code 1 when a gate fails.
@@ -30,7 +31,7 @@ namespace MoldSweep
         {
             CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
             Thread.CurrentThread.CurrentCulture = CultureInfo.InvariantCulture;
-            if (args.Length == 0) { Console.WriteLine("usage: MoldSweep coefficients|table|montecarlo|solid3d|all [--root DIR] [--elements N] [--n N] [--seed N] [--quick]"); return 2; }
+            if (args.Length == 0) { Console.WriteLine("usage: MoldSweep coefficients|table|montecarlo|solid3d|stockywalls|all [--root DIR] [--elements N] [--n N] [--seed N] [--quick]"); return 2; }
             var opts = Options(args.Skip(1));
             var root = opts.TryGetValue("root", out var r) ? r : FindRoot();
             if (root == null) { Console.Error.WriteLine("Repository root not found; pass --root."); return 2; }
@@ -42,6 +43,7 @@ namespace MoldSweep
                 case "table": ok = Table(paths); break;
                 case "montecarlo": ok = MonteCarlo(paths, opts); break;
                 case "solid3d": ok = Solid3d(paths, opts); break;
+                case "stockywalls": ok = StockyWalls(paths); break;
                 case "all":
                     ok = Solid3d(paths, opts);
                     ok &= Coefficients(paths, opts);
@@ -180,11 +182,29 @@ namespace MoldSweep
             Console.WriteLine($"  wrote {p.Solid3dSummary}");
             return (bool?)summary["passed"] ?? false;
         }
+
+        static bool StockyWalls(SweepPaths p)
+        {
+            Console.WriteLine("Sweep 4: the wall sizing against the 3D pocket...");
+            var cases = StockyWallSweep.Run(Console.WriteLine);
+            var failures = StockyWallSweep.Failures(cases);
+            var lines = new List<string>
+            {
+                "# Sweep 4 (StockyWallSweep): wall-top bulge, 3D pocket (h/8 and h/12, first-order extrapolation) vs the calculator (Walls.Deflection), p = h = E = 1",
+                "# max ratio: " + cases.Max(c => c.Ratio).ToString("F4", CultureInfo.InvariantCulture) + "; margin " + StockyWallSweep.Margin.ToString(CultureInfo.InvariantCulture) + "; gates passed: " + (failures.Count == 0 ? "yes" : "no"),
+                StockyWallSweep.CsvHeader,
+            };
+            lines.AddRange(cases.Select(c => c.Csv()));
+            File.WriteAllLines(p.StockyWalls, lines, new UTF8Encoding(false));
+            foreach (var f in failures) Console.WriteLine("FAIL " + f);
+            Console.WriteLine($"  {cases.Count} pockets, max 3D / calculator {cases.Max(c => c.Ratio):F4}; wrote {p.StockyWalls}");
+            return failures.Count == 0;
+        }
     }
 
     sealed class SweepPaths
     {
-        public readonly string Coefficients, SizingTable, MonteCarloCsv, MonteCarloSummary, Solid3dSummary, ToolDir;
+        public readonly string Coefficients, SizingTable, MonteCarloCsv, MonteCarloSummary, Solid3dSummary, StockyWalls, ToolDir;
         public SweepPaths(string root)
         {
             ToolDir = Path.Combine(root, "tools", "builtin", "design-compression-mold");
@@ -198,6 +218,7 @@ namespace MoldSweep
             MonteCarloCsv = Path.Combine(results, "montecarlo.csv");
             MonteCarloSummary = Path.Combine(v, "montecarlo-summary.json");
             Solid3dSummary = Path.Combine(v, "solid3d-summary.json");
+            StockyWalls = Path.Combine(v, "stocky-walls.csv");
         }
     }
 }

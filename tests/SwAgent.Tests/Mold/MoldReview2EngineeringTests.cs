@@ -200,6 +200,9 @@ namespace SwAgent.Tests.Mold
             var bad = Run("check", thin, over);
             Assert.Contains(bad.Checks, c => (string)c["id"] == "SPAN-DEFL" && (string)c["status"] == "fail");
             Assert.Contains(bad.Checks, c => (string)c["id"] == "PLATE-BASE-T" && (string)c["status"] == "fail");
+            // the walls' floor stretch reads the 6 mm floor that is there, not the required one
+            Assert.All(bad.Json["walls"].Where(w => (string)w["half"] == "base"), w => Assert.Equal(6, (double)w["floor_mm"], 3));
+            Assert.All(ok.Json["walls"].Where(w => (string)w["half"] == "base"), w => Assert.True((double)w["floor_mm"] > 6));
             // the base piece and its stock follow the as-built thickness
             var piece = ((JArray)bad.RecordPatch.SelectToken("structural.results.pieces")).OfType<JObject>().Single(x => (string)x["id"] == "BASE-1");
             Assert.Equal(h + 6, (double)piece["t_mm"], 3);

@@ -135,10 +135,22 @@ def root_factor(w, h, slope=ROOT_SLOPE, base=1.0, L=None, nu=0.33):
     if slope == 0 or t <= ROOT_TAU or L is None: return base + slope * t
     ac = coef("Wall-C", L / h, ROOT_TAU, nu)[0]; a = coef("Wall-C", L / h, t, nu)[0]
     return base + slope * ac * t * t / (ROOT_TAU * a)
-def wall(p, h, L, b, E, delta, allow, slope=ROOT_SLOPE, base=1.0, nu=0.33):
+# 3D recalibration (2026-10-21, Walls.OwnBulgeFactor): the wall's own bulge x 1.06, plus the floor's stretch under the outward
+# push, kappa(L/h) p h b / (2 E t_floor), kappa = min(1, 0.71 ((L/h - 4)/8)^0.7) - both only with the 3D root factor (slope > 0)
+OWN_FACTOR = 1.06
+def kappa(lh): return min(1.0, 0.71 * max(0.0, (lh - 4) / 8) ** 0.7)
+def own_factor(slope): return OWN_FACTOR if slope else 1.0
+def stretch(p, h, L, b, E, floor, slope=ROOT_SLOPE):
+    if not slope or b <= 0: return 0.0
+    return kappa(L / h) * p * h * b / (2 * E * (floor if floor else 0.25 * h))
+def wall(p, h, L, b, E, delta, allow, slope=ROOT_SLOPE, base=1.0, nu=0.33, floor=None):
+    # Walls.SidesClampedFor: a short wall (L/h <= 3) across a cavity no wider than it is long gets simply supported sides;
+    # every wall in these examples is clamped (Wall-C), and this mirror only has that branch
+    assert not (L <= 3 * h and b <= L), "short narrow pocket: Wall-S is not mirrored here"
     w = 0.3 * h
+    own = delta - stretch(p, h, L, b, E, floor, slope)
     for _ in range(200):
-        wn = (root_factor(w, h, slope, base, L, nu) * coef("Wall-C", L / h, w / h, nu)[0] * p * h ** 4 / (E * delta)) ** (1 / 3)
+        wn = (own_factor(slope) * root_factor(w, h, slope, base, L, nu) * coef("Wall-C", L / h, w / h, nu)[0] * p * h ** 4 / (E * own)) ** (1 / 3)
         if abs(wn - w) / w < 1e-10: w = wn; break
         w = wn
     sig = lambda x: coef("Wall-C", L / h, x / h, nu)[1] * p * h * h / x ** 2 + p * b / (2 * x)
@@ -197,12 +209,12 @@ rr = R + clr + dowel / 2; c0 = lip + W - R
 aa = (key + math.sqrt(2 * rr * rr - key * key)) / 2
 edge = max(lip + W + clr, aa + inset + c0)
 gap = 1.5 * IN
-wV = wall(pLC1, h, pu, pv, a6["E"], dwall, allow, nu=a6["nu"])    # walls facing +-V (long, L/h ~ 6)
-wU = wall(pLC1, h, pv, pu, a6["E"], dwall, allow, nu=a6["nu"])    # walls facing +-U
+tfloor = max(12, 0.25 * h, 0.25 * IN + 12)
+wV = wall(pLC1, h, pu, pv, a6["E"], dwall, allow, nu=a6["nu"], floor=tfloor)    # walls facing +-V (long, L/h ~ 6)
+wU = wall(pLC1, h, pv, pu, a6["E"], dwall, allow, nu=a6["nu"], floor=tfloor)    # walls facing +-U
 L = ceil_step(2 * pu + max(gap, max(wU[0], wU[1])) + 2 * max(edge, max(wU[0], wU[1])), 0.5 * IN)
 Wd = ceil_step(pv + 2 * max(edge, max(wV[0], wV[1])), 0.5 * IN)
 edgeU = (L - (2 * pu + gap)) / 2; edgeV = (Wd - pv) / 2
-tfloor = max(12, 0.25 * h, 0.25 * IN + 12)
 tbase = ceil_step(max(tfloor + h, 0.05 * max(L, Wd), 12), 0.125 * IN)
 tlid = ceil_step(max(0.05 * max(L, Wd), 12, 0.25 * IN + 12), 0.125 * IN)   # S28 + the lid's own TC well
 rho = 2700e-9
@@ -211,7 +223,7 @@ mlid = L * Wd * tlid * rho
 drawnU, drawnV = min(edgeU, gap), edgeV
 def at_drawn(Lw, b, w):
     al, be = coef("Wall-C", Lw / h, w / h, a6["nu"])
-    return be * pLC1 * h * h / w ** 2 + pLC1 * b / (2 * w), root_factor(w, h, L=Lw, nu=a6["nu"]) * al * pLC1 * h ** 4 / (a6["E"] * w ** 3)
+    return be * pLC1 * h * h / w ** 2 + pLC1 * b / (2 * w), OWN_FACTOR * root_factor(w, h, L=Lw, nu=a6["nu"]) * al * pLC1 * h ** 4 / (a6["E"] * w ** 3) + stretch(pLC1, h, Lw, b, a6["E"], tfloor)
 sigV, defV = at_drawn(pu, pv, drawnV)
 sigU, defU = at_drawn(pv, pu, drawnU)
 # S24 abuse (LC1x): beta for a plate-like wall, the strip 3 h^2/w^2 only for a stocky one (w/h > 0.5)
@@ -279,7 +291,7 @@ examples.append({"id": "E3", "title": "Class B wall: p = 10.3 MPa, h = 25 mm, L 
                  "P20.wDefl_mm": wp, "P20.sigmaAtDefl_MPa": coef("Wall-C", 6, wp / 25, p20["nu"])[1] * 10.3 * 625 / wp ** 2,
                  "P20.allow1e5_MPa": min(pa["fat"], pa["static"]), "P20.wStruct1e5_mm": max(wp, wsp), "P20.allow1e6_MPa": min(pb["fat"], pb["static"]), "P20.wStruct1e6_mm": max(wp6, wsp6)},
     "flags": {"Al.stocky": max(w1, ws1) / 25 > 0.5},
-    "notes": "Re-derived for the L/h = 6 row (critique A4). Before: the L/h = 4 row gave 13.3 / 16.9 mm (Al) and 8.65 mm at 232 MPa against 231 MPa (P20, critique H1: fails by 0.4% -> 8.66 mm). The wall-root factor is Track A2's 3D 1 + 2.8 w/h (the design's constant 1.2 holds only below w/h 0.07), so the walls come out thicker than with 1.2. The aluminium wall is still stocky (w/h > 0.5): prefer P20 or a 3D check. Above w/h 0.53 the root's added bulge falls as h/w (review finding: the old product with alpha had no bounded answer for stocky walls), 23.4 -> 25.2 mm here; the 3D pocket at this L/h and w/h is about 1.4x below it (MoldStockyWallTests).",
+    "notes": "Re-derived for the L/h = 6 row (critique A4). Before: the L/h = 4 row gave 13.3 / 16.9 mm (Al) and 8.65 mm at 232 MPa against 231 MPa (P20, critique H1: fails by 0.4% -> 8.66 mm). The wall-root factor is Track A2's 3D 1 + 2.8 w/h (the design's constant 1.2 holds only below w/h 0.07), so the walls come out thicker than with 1.2. The aluminium wall is still stocky (w/h > 0.5): prefer P20 or a 3D check. Above w/h 0.53 the root's added bulge falls as h/w (review finding: the old product with alpha had no bounded answer for stocky walls), 23.4 -> 25.2 mm here. The 3D recalibration (2026-10-21: the wall's own bulge x 1.06, plus the floor's stretch - none here, b_perp is 0) gives 26.5 mm (P20 11.7 -> 12.0 mm); the 3D pocket stays below the calculator (MoldStockyWallTests).",
     "tolerancePct": 1.0, "tableDependentTolerancePct": 2.0})
 
 # ---------------------------------------------------------------- E4 bolted frame corner (critique A1: scatter + hot proof)
