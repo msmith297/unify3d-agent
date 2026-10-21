@@ -62,6 +62,8 @@ Source: "redist\MicrosoftEdgeWebview2Setup.exe"; DestDir: "{tmp}"; Flags: delete
 Type: filesandordirs; Name: "{app}\wwwroot"
 ; Built-in tools are replaced as a whole (a tool removed from the add-in must not linger).
 Type: filesandordirs; Name: "{app}\builtin-tools"
+; The built-in plugin marketplace likewise (installed plugins live in %APPDATA%\SwAgent\plugins, not here).
+Type: filesandordirs; Name: "{app}\builtin-plugins"
 
 [Registry]
 ; Load at SolidWorks start-up by default for every user (RegAsm adds the add-in entry itself).

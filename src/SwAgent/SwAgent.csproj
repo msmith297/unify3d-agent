@@ -65,6 +65,12 @@
     <None Include="..\..\tools\builtin\**\*" Link="builtin-tools\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <!-- The built-in plugin marketplace "unify3d" (plugins/: .claude-plugin/marketplace.json and any plugin folders) ships next to
+       the dll as builtin-plugins, read-only; see PluginManager.BuiltInRoot. -->
+  <ItemGroup>
+    <None Include="..\..\plugins\**\*" Link="builtin-plugins\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <!-- The built React UI (ui/dist) ships next to the dll as wwwroot. -->
   <ItemGroup>
     <None Include="..\..\ui\dist\**\*" Link="wwwroot\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" Condition="Exists('..\..\ui\dist\index.html')" />
