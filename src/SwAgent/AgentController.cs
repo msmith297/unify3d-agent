@@ -53,6 +53,12 @@ namespace SwAgent
         private ChatDocumentHandler _selectionSource;
         private WebBridge _bridge;
         private JObject _settings = SettingsStore.LoadSettings();
+
+        /// <summary>The panel's settings as last saved (read before the panel loads, too).</summary>
+        internal JObject Settings => _settings;
+
+        /// <summary>Tool inputs as a form in the chat panel (ToolRunner opens them here unless the user chose the page).</summary>
+        private readonly ToolFormBridge _forms;
         private readonly VoiceController _voice;
         private WatchRecorder _watch;
 
@@ -68,6 +74,7 @@ namespace SwAgent
             _app = app;
             _tools = tools;
             _scripts = scripts;
+            _forms = new ToolFormBridge(app, scripts);
             // Push-to-talk voice messages and the markup pen.
             _voice = new VoiceController(app, () => _settings, ChatKeyOf);
             _selectionTimer.Tick += Safe.Tick("Selection update", () =>
@@ -167,6 +174,7 @@ namespace SwAgent
                 _ = RunToolAsync((string)p["name"], null);
                 return null;
             });
+            _forms.Attach(bridge);
             bridge.Register("update.status", p => Updates.ToJson());
             bridge.RegisterAsync("update.check", async p =>
             {
@@ -420,6 +428,7 @@ namespace SwAgent
             _docs.Remove(handler.Chat.Key);
             _closedDocIds[handler.Chat.Key] = handler.Chat.DocId;
             if (_selectionSource == handler) _selectionSource = null;
+            _forms.DocumentClosed(handler.Chat.Doc?.Model);
             if (_watch?.DocKey == handler.Chat.Key)
             {
                 StopWatch();
@@ -462,7 +471,7 @@ namespace SwAgent
 
         /// <summary>Run one of the user's Tools (ribbon button / hotkey); see ToolRunner.</summary>
         public Task RunToolAsync(string name, Action showPane) =>
-            (_toolRunner ?? (_toolRunner = new ToolRunner(_app, _tools, _scripts, SendCommand, Status))).RunAsync(name, showPane);
+            (_toolRunner ?? (_toolRunner = new ToolRunner(_app, _tools, _scripts, SendCommand, Status, _forms, () => _settings))).RunAsync(name, showPane);
 
         private ToolRunner _toolRunner;
 
@@ -841,6 +850,7 @@ namespace SwAgent
         public void Dispose()
         {
             Safe.Run("Clear the overlay", UI.SceneOverlay.ClearAll);
+            Safe.Run("Close the tool form", () => _forms.CancelPending("SolidWorks is closing."));
             StopWatch();
             Safe.Run("Stop voice", _voice.Dispose);
             Safe.Run("Save chats", _workspace.Flush);

@@ -21,8 +21,9 @@ namespace SwAgent.Tools
 {
     /// <summary>
     /// Runs one of the user's Tools (ribbon button or hotkey), the way a native command runs:
-    ///   1. Its PropertyManager page opens at once (skipped when everything required is already selected), with a live
-    ///      holographic preview if the tool has one.
+    ///   1. Its inputs open at once (skipped when everything required is already selected): as a form in the chat panel
+    ///      (ToolFormBridge; setting "toolInputs": "panel", the default) or its PropertyManager page ("page", and whenever the
+    ///      panel isn't loaded), with a live holographic preview if the tool has one.
     ///   2. Meanwhile, for tools with an agent in the loop, context is captured quietly in small steps - model data and
     ///      feature history while the page is open, the view and selection when the user presses OK. Nothing moves:
     ///      the camera, the view and the model are left exactly as they are.
@@ -72,20 +73,48 @@ namespace SwAgent.Tools
         private readonly ScriptHost _scripts;
         private readonly Action<string, object> _send;
         private readonly Action<string> _status;
+        private readonly ToolFormBridge _forms;
+        private readonly Func<JObject> _settings;
         private bool _busy;
 
-        public ToolRunner(ISwApplication app, ToolRegistry tools, ScriptHost scripts, Action<string, object> send, Action<string> status)
+        /// <summary>The run is waiting on its form in the panel (another tool may take its place, as a new command would).</summary>
+        private bool _inPanelForm;
+        private Task _current;
+
+        public ToolRunner(ISwApplication app, ToolRegistry tools, ScriptHost scripts, Action<string, object> send, Action<string> status,
+            ToolFormBridge forms = null, Func<JObject> settings = null)
         {
             _app = app;
             _tools = tools;
             _scripts = scripts;
             _send = send;
             _status = status;
+            _forms = forms;
+            _settings = settings;
         }
+
+        /// <summary>Tool inputs show in the chat panel unless the user chose the PropertyManager page ("toolInputs": "page").</summary>
+        internal static bool InputsInPanel(JObject settings) =>
+            !string.Equals(((settings?["toolInputs"] as JValue)?.Value as string)?.Trim(), "page", StringComparison.OrdinalIgnoreCase);
 
         public async Task RunAsync(string name, Action showPane)
         {
-            if (_busy) return; // one tool at a time, like native commands
+            if (_busy)
+            {
+                // One tool at a time, like native commands; a form waiting in the panel gives way to the new tool.
+                if (!_inPanelForm || _forms == null) return;
+                _forms.CancelPending("Another tool was started.");
+                var previous = _current;
+                if (previous != null) await previous;
+                if (_busy) return;
+            }
+            var run = RunCoreAsync(name, showPane);
+            _current = run;
+            await run;
+        }
+
+        private async Task RunCoreAsync(string name, Action showPane)
+        {
             var spec = ToolSpec.Load(name);
             if (spec == null) return;
             // A tool written for newer agent tools (requires: in TOOL.md) can't do its job with an older add-in.
@@ -113,8 +142,7 @@ namespace SwAgent.Tools
                 var inputs = spec.Inputs.Count == 0 ? new ToolInputs() : ToolPage.TryFromSelection(spec, model, preselected);
                 if (inputs == null)
                 {
-                    var page = new ToolPage(_app.Sw, model, spec, preselected);
-                    page.TierChanged += tier =>
+                    void TierChanged(string tier)
                     {
                         spec.Intelligence = tier;
                         try
@@ -125,11 +153,31 @@ namespace SwAgent.Tools
                         {
                             Log.Warn("Saving the tool's intelligence failed: " + ex.Message);
                         }
-                    };
-                    var pageTask = page.ShowAsync(_scripts);
-                    // 2a. While the user fills the page in: what doesn't depend on their inputs (hybrid tools: only if needed, below).
-                    if (spec.Agent && !spec.AgentFallback) await CaptureModelContextAsync(spec, ctx, context);
-                    inputs = await pageTask;
+                    }
+                    Task<ToolInputs> pageTask;
+                    if (_forms != null && _forms.CanShow && InputsInPanel(_settings?.Invoke()))
+                    {
+                        // The form in the chat panel: the same form logic, OK continues here exactly as the page's does.
+                        pageTask = _forms.ShowAsync(spec, model, preselected, TierChanged);
+                        _inPanelForm = true;
+                        showPane?.Invoke();
+                    }
+                    else
+                    {
+                        var page = new ToolPage(_app.Sw, model, spec, preselected);
+                        page.TierChanged += TierChanged;
+                        pageTask = page.ShowAsync(_scripts);
+                    }
+                    try
+                    {
+                        // 2a. While the user fills the form in: what doesn't depend on their inputs (hybrid tools: only if needed, below).
+                        if (spec.Agent && !spec.AgentFallback) await CaptureModelContextAsync(spec, ctx, context);
+                        inputs = await pageTask;
+                    }
+                    finally
+                    {
+                        _inPanelForm = false;
+                    }
                     if (inputs == null)
                     {
                         _status($"Unify3D ▸ {spec.Title}: cancelled");
