@@ -66,7 +66,7 @@ Everything except `.claude-plugin/plugin.json` is optional.
   | `category` | The store group. Each tool keeps its own `category` for the ribbon and the Workflows menu. |
   | `icon` | A tool icon name (`macro`, `part`, `assembly`, `drawing`, `tree`, `select`, `camera`, `rebuild`, `gear`, `book`, `markup`, `shield`) or a path in the plugin, e.g. `./icon.png` (128 x 128, transparent). |
   | `tools` | Where the Unify3D tools are, default `./tools`. |
-  | `minAddInVersion` | The oldest add-in that can run the plugin; older add-ins refuse to enable it. |
+  | `minAddInVersion` | The oldest Unify3D Agent version the plugin needs, e.g. `0.2.0`. |
   | `env` | Extra environment variables for this plugin's own hooks and MCP servers (section 5). |
 
 ## 2. Claude Code compatibility
@@ -251,7 +251,7 @@ JSON on stdout (exit 0):
 - `decision: "block"` with `reason`: `Stop` continues the turn with the reason; `PostToolUse` adds the reason after
   the tool result.
 - `PreToolUse`: `hookSpecificOutput.permissionDecision` `allow`, `deny` or `ask`, with `permissionDecisionReason`.
-  `ask` shows Unify3D's approval card even for a tool that normally needs none.
+  `ask` shows Unify3D's approval card for that call.
 - `continue: false` with `stopReason`: the run stops.
 - `systemMessage`: shown to the user as a notice.
 
