@@ -10,6 +10,7 @@ using SolidWorks.Interop.swconst;
 using SwAgent.Chat;
 using SwAgent.Infrastructure;
 using SwAgent.ModelFiles;
+using SwAgent.Plugins.Hooks;
 using SwAgent.Scripting;
 using SwAgent.Tools;
 using SwAgent.UI;
@@ -49,6 +50,12 @@ namespace SwAgent
 
         /// <summary>Auto-update: on unless the user turned it off (null = not asked yet, treated as off).</summary>
         internal bool AutoUpdate => (bool?)_settings["autoUpdate"] == true;
+
+        /// <summary>The panel's settings (settings.json), also before the panel has loaded.</summary>
+        internal JObject Settings => _settings;
+
+        /// <summary>Plugin hooks and MCP servers (Plugins/Hooks, Mcp); its plugins come from the plugin core (UseSource).</summary>
+        internal RuntimeHost Runtime { get; }
         private string _lastActiveKey;
         private ChatDocumentHandler _selectionSource;
         private WebBridge _bridge;
@@ -68,6 +75,8 @@ namespace SwAgent
             _app = app;
             _tools = tools;
             _scripts = scripts;
+            Runtime = new RuntimeHost(RuntimeHost.NoPlugins, Plugins.Hooks.Session.Open(), (name, data) => _bridge?.Emit(name, data));
+            Runtime.ApplySettings(_settings);
             // Push-to-talk voice messages and the markup pen.
             _voice = new VoiceController(app, () => _settings, ChatKeyOf);
             _selectionTimer.Tick += Safe.Tick("Selection update", () =>
@@ -153,6 +162,7 @@ namespace SwAgent
                 _settings = (JObject)p;
                 SettingsStore.SaveSettings(_settings);
                 _voice.ApplySettings();
+                Runtime.ApplySettings(_settings);
                 return null;
             });
             bridge.Register("crash.dismiss", p =>
@@ -198,6 +208,7 @@ namespace SwAgent
             });
             bridge.Register("chat.save", p =>
             {
+                Runtime.OnChatSaved(p["data"] as JObject); // the transcript hooks read
                 if ((string)p["docKey"] == WorkspaceChats.Key)
                 {
                     _workspace.Update((JObject)p["data"]);
@@ -219,9 +230,12 @@ namespace SwAgent
                 return new JObject { ["revision"] = chat.Revision };
             });
 
-            bridge.Register("tools.list", p => _tools.Definitions());
+            bridge.Register("tools.list", p => Runtime.MergeTools(_tools.Definitions()));
             bridge.RegisterAsync("tools.run", async p =>
             {
+                // MCP tools run in their server's process, never in SolidWorks: no busy gate, overlay or fault check.
+                if (RuntimeHost.IsMcp((string)p["name"]))
+                    return (object)await Runtime.CallAsync((string)p["name"], p["input"] as JObject, (string)p["threadId"], (string)p["toolUseId"]);
                 var doc = DocumentFor((string)p["docKey"]);
                 var refs = (p["refs"] as JObject)?.Properties().ToDictionary(x => x.Name, x => (string)x.Value);
                 var ctx = new ToolContext(_app, doc, (string)p["threadId"], _tools, refs) { ToolUseId = (string)p["toolUseId"] };
@@ -272,6 +286,7 @@ namespace SwAgent
             bridge.Register("tools.cancel", p =>
             {
                 _scripts.Cancel((string)p["threadId"]);
+                Runtime.Cancel((string)p["threadId"]);
                 return null;
             });
             bridge.Register("session.reset", p =>
@@ -297,6 +312,7 @@ namespace SwAgent
                 return snap;
             });
             _voice.AttachBridge(bridge);
+            Runtime.Attach(bridge); // hooks.fire, session.*, mcp.*; starts the MCP servers the first time
             bridge.Register("agent.activity", p =>
             {
                 // The UI reports when a run starts and ends; silence SolidWorks' rebuild-error beeps in between.
@@ -848,6 +864,7 @@ namespace SwAgent
             _activeTimer.Dispose();
             _updateTimer.Dispose();
             _selectionTimer.Dispose();
+            Safe.Run("End the plugin session", Runtime.Dispose); // SessionEnd, then every plugin process is stopped
         }
     }
 }
