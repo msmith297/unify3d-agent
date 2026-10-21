@@ -269,7 +269,7 @@ namespace SwAgent.Tools
             if (kinds.Count == 0) return "it";
             // "faces", "vertices", "an edge", "a face or an edge"
             var plural = f.Spec.Multiple != false;
-            var names = kinds.Distinct().Select(k => plural ? (k.EndsWith("x") ? k.Substring(0, k.Length - 1) + "ces" : k + "s") : ("aeiou".IndexOf(k[0]) >= 0 ? "an " : "a ") + k).ToList();
+            var names = kinds.Distinct().Select(k => plural ? (k.EndsWith("ex") ? k.Substring(0, k.Length - 2) + "ices" : k + "s") : ("aeiou".IndexOf(k[0]) >= 0 ? "an " : "a ") + k).ToList();
             return names.Count == 1 ? names[0] : string.Join(", ", names.Take(names.Count - 1)) + " or " + names.Last();
         }
 
