@@ -1,18 +1,18 @@
 {
   "schema": "unify3d.mold-montecarlo/2",
   "generator": "MoldSweep montecarlo, SwAgent.Mold.Structural.Fe.Sweep.MonteCarloHarness a2-2",
-  "date": "2026-10-20",
+  "date": "2026-10-21",
   "sizing": "MoldCalc.Run(\"size\") 1.0.0 through MoldCalcSizing (walls: coefficient table + fixed point, root factor 1 + c w/h, +1% interpolation allowance; plates B, C, E: table first guess - Pillar rows x the pillar-head factor for E - finished by the layout plate FE at 24 and 48 elements, extrapolated; coefficients a2-2)",
   "samples": 2000,
   "seed": 1,
   "checks": 19628,
-  "live": 14369,
-  "skipped": 5259,
+  "live": 18809,
+  "skipped": 819,
   "errors": 0,
   "truth": "MITC4 plate of the exact layout (64 elements on the short side, pillar heads 8 elements wide; cavities plus land as pressure patches; rails as line supports; pillars as rigid heads 0.2 x the short spacing, holding w for the deflection (times the 3D pillar-head factor 1.20) and clamped for the hogging on the head faces; an opening as SS4; platen as a stiff tensionless foundation); walls as Wall-C plates (64 elements) times the 3D root factor 1 + c w/h; r_w at the land nodes. The truth never uses a mesh the sizing used.",
-  "max_r_w": 0.9976,
-  "max_r_s": 0.9988,
-  "median_r_w_deflection_governed": 0.9908,
+  "max_r_w": 0.9955,
+  "max_r_s": 0.9979,
+  "median_r_w_deflection_governed": 0.9311,
   "acceptance": "max r_w <= 1.00 and max r_s <= 1.00; no sizing or truth errors; per group (plates on A, B, C, E; walls) at least 10 live checks and coverage (live / drawn) at least 50 %; per group with at least 10 deflection-governed checks, median r_w at least 0.75",
   "accepted": true,
   "acceptance_failures": [],
@@ -50,13 +50,13 @@
       "skipped_out_of_range": 65,
       "errors": 0,
       "coverage": 0.868,
-      "max_r_w": 0.9958,
+      "max_r_w": 0.9949,
       "max_r_s": 0.9923,
-      "deflection_governed": 375,
+      "deflection_governed": 377,
       "median_r_w_deflection_governed": 0.9936,
       "governs": {
-        "deflection": 375,
-        "minimum": 49,
+        "deflection": 377,
+        "minimum": 47,
         "stress": 2
       },
       "histogram_r_w_deflection_governed": {
@@ -65,9 +65,9 @@
         "0.5-0.6": 0,
         "0.6-0.7": 0,
         "0.7-0.8": 0,
-        "0.8-0.9": 0,
-        "0.9-0.95": 0,
-        "0.95-1": 375,
+        "0.8-0.9": 31,
+        "0.9-0.95": 11,
+        "0.95-1": 335,
         "1-1.05": 0,
         ">1.05": 0
       }
@@ -79,12 +79,12 @@
       "errors": 0,
       "coverage": 0.917,
       "max_r_w": 0.9952,
-      "max_r_s": 0.9927,
-      "deflection_governed": 419,
+      "max_r_s": 0.8891,
+      "deflection_governed": 421,
       "median_r_w_deflection_governed": 0.994,
       "governs": {
-        "deflection": 419,
-        "minimum": 55,
+        "deflection": 421,
+        "minimum": 53,
         "stress": 1
       },
       "histogram_r_w_deflection_governed": {
@@ -93,9 +93,9 @@
         "0.5-0.6": 0,
         "0.6-0.7": 0,
         "0.7-0.8": 0,
-        "0.8-0.9": 0,
-        "0.9-0.95": 0,
-        "0.95-1": 419,
+        "0.8-0.9": 11,
+        "0.9-0.95": 11,
+        "0.95-1": 399,
         "1-1.05": 0,
         ">1.05": 0
       }
@@ -107,9 +107,9 @@
       "errors": 0,
       "coverage": 0.791,
       "max_r_w": 0.9955,
-      "max_r_s": 0.9826,
+      "max_r_s": 0.9759,
       "deflection_governed": 300,
-      "median_r_w_deflection_governed": 0.9931,
+      "median_r_w_deflection_governed": 0.993,
       "governs": {
         "deflection": 300,
         "minimum": 87,
@@ -121,54 +121,55 @@
         "0.5-0.6": 0,
         "0.6-0.7": 0,
         "0.7-0.8": 0,
-        "0.8-0.9": 0,
-        "0.9-0.95": 0,
-        "0.95-1": 300,
+        "0.8-0.9": 18,
+        "0.9-0.95": 4,
+        "0.95-1": 278,
         "1-1.05": 0,
         ">1.05": 0
       }
     },
     "walls": {
       "checks": 17628,
-      "live": 12580,
-      "skipped_out_of_range": 5048,
+      "live": 17020,
+      "skipped_out_of_range": 608,
       "errors": 0,
-      "coverage": 0.714,
-      "max_r_w": 0.9976,
-      "max_r_s": 0.9988,
-      "deflection_governed": 11734,
-      "median_r_w_deflection_governed": 0.9906,
+      "coverage": 0.966,
+      "max_r_w": 0.9764,
+      "max_r_s": 0.9979,
+      "deflection_governed": 10935,
+      "median_r_w_deflection_governed": 0.9302,
       "governs": {
-        "deflection": 11734,
-        "stress": 846
+        "deflection": 10935,
+        "out of range": 5348,
+        "stress": 737
       },
       "histogram_r_w_deflection_governed": {
-        "0-0.25": 16,
-        "0.25-0.5": 35,
-        "0.5-0.6": 24,
-        "0.6-0.7": 19,
-        "0.7-0.8": 14,
-        "0.8-0.9": 19,
-        "0.9-0.95": 5,
-        "0.95-1": 11602,
+        "0-0.25": 44,
+        "0.25-0.5": 557,
+        "0.5-0.6": 374,
+        "0.6-0.7": 497,
+        "0.7-0.8": 404,
+        "0.8-0.9": 289,
+        "0.9-0.95": 8770,
+        "0.95-1": 0,
         "1-1.05": 0,
         ">1.05": 0
       }
     }
   },
-  "elapsed_s": 742.0,
+  "elapsed_s": 4738.0,
   "compare_table_only": {
     "sizing": "StubSizing, table only (root factor 1 + c w/h; +1% interpolation allowance; centred-patch loaded fraction; case E by the Pillar rows x the 3D pillar-head factor)",
-    "max_r_w": 1.3066,
+    "max_r_w": 10.452,
     "max_r_s": 0.998,
     "median_r_w_deflection_governed": 0.9908,
     "accepted": false,
     "acceptance_failures": [
-      "max r_w 1.3066 > 1",
+      "max r_w 10.4520 > 1",
       "plate, support B: median r_w 0.592 where deflection governs (at least 0.75): wasteful",
       "plate, support C: median r_w 0.646 where deflection governs (at least 0.75): wasteful"
     ],
-    "failures_count": 43,
+    "failures_count": 1681,
     "by_group": {
       "plate, support A": {
         "checks": 497,
@@ -281,17 +282,18 @@
       },
       "walls": {
         "checks": 17628,
-        "live": 11033,
-        "skipped_out_of_range": 6595,
+        "live": 17628,
+        "skipped_out_of_range": 0,
         "errors": 0,
-        "coverage": 0.626,
-        "max_r_w": 0.9972,
+        "coverage": 1.0,
+        "max_r_w": 10.452,
         "max_r_s": 0.998,
         "deflection_governed": 5154,
         "median_r_w_deflection_governed": 0.9912,
         "governs": {
           "deflection": 5154,
           "minimum": 5833,
+          "out of range": 6595,
           "stress": 46
         },
         "histogram_r_w_deflection_governed": {
@@ -321,7 +323,7 @@
       "plate, support B: median r_w 0.598 where deflection governs (at least 0.75): wasteful",
       "plate, support C: median r_w 0.652 where deflection governs (at least 0.75): wasteful"
     ],
-    "failures_count": 6994,
+    "failures_count": 9467,
     "by_group": {
       "plate, support A": {
         "checks": 497,
@@ -434,17 +436,18 @@
       },
       "walls": {
         "checks": 17628,
-        "live": 12525,
-        "skipped_out_of_range": 5103,
+        "live": 17628,
+        "skipped_out_of_range": 0,
         "errors": 0,
-        "coverage": 0.711,
-        "max_r_w": 2.0108,
+        "coverage": 1.0,
+        "max_r_w": 14.43,
         "max_r_s": 1.0039,
         "deflection_governed": 3533,
         "median_r_w_deflection_governed": 1.617,
         "governs": {
           "deflection": 3533,
           "minimum": 8864,
+          "out of range": 5103,
           "stress": 128
         },
         "histogram_r_w_deflection_governed": {
