@@ -26,7 +26,9 @@ export function CrashNotice() {
       <span className="flex-1">
         <span className="font-semibold">SolidWorks closed unexpectedly while running {what}.</span>{" "}
         <span className="text-text-2">
-          {crash.paused ? `I paused that ${crash.paused} so it can't happen again. ` : ""}Unify3D can find the cause and fix it.
+          {crash.paused ? `I paused that ${crash.paused} so it can't happen again. ` : ""}
+          {crash.helpersDisabled?.length ? `The agent's helper ${crash.helpersDisabled.map((h) => h.name).join(", ")} was involved in two crashes, so it is switched off. ` : ""}
+          Unify3D can find the cause and fix it.
         </span>
         <span className="mt-1 flex gap-1.5">
           <button className="sw-btn sw-btn-primary !h-[22px]" onClick={() => void askAboutCrash()}>

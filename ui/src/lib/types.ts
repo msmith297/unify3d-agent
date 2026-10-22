@@ -439,6 +439,19 @@ export interface CrashInfo {
   paused?: string;
   /** A built-in tool (read-only): nothing is paused and the agent can't edit it. */
   builtIn?: boolean;
+  /** The agent's helpers the code called ("Name", or "plugin:x/Name" for a plugin's). */
+  helpers?: string[];
+  /** Helpers disabled now: involved in two crashes. */
+  helpersDisabled?: { name: string; reason: string }[];
+}
+
+/** knowledge.index: the helpers cells can call and the most used API notes, for the system prompt (capped by the add-in). */
+export interface KnowledgeIndex {
+  helpers: { name: string; source: string; signature?: string | null; summary?: string | null; line: string }[];
+  disabled: { name: string; source: string; reason?: string | null }[];
+  notes: { id: string; topic: string; right: string; wrong?: string | null; apis: string[]; hits: number; line: string }[];
+  /** How many did not fit the budget (list_helpers / list_api_notes show them). */
+  omitted: { helpers: number; notes: number };
 }
 
 export interface ToolDef {

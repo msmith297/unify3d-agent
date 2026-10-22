@@ -17,6 +17,7 @@ namespace SwAgent.Infrastructure
     {
         private static string FilePath => Path.Combine(Paths.LocalDir, "crash-guard.json");
         private static int _depth;
+        private static JObject _note;
 
         /// <summary>
         /// About to run something risky. kind: "preview", "macro" or "cell". tool: the user tool's name (null for chat
@@ -26,22 +27,44 @@ namespace SwAgent.Infrastructure
         {
             // Nested steps (a tool macro runs through the C# cell runner) keep the outermost description.
             if (_depth++ > 0) return new Exit();
+            _note = new JObject
+            {
+                ["kind"] = kind,
+                ["tool"] = tool,
+                ["title"] = title,
+                ["code"] = code?.Length > 20000 ? code.Substring(0, 20000) : code,
+                ["at"] = DateTime.Now.ToString("o"),
+            };
             try
             {
-                File.WriteAllText(FilePath, new JObject
-                {
-                    ["kind"] = kind,
-                    ["tool"] = tool,
-                    ["title"] = title,
-                    ["code"] = code?.Length > 20000 ? code.Substring(0, 20000) : code,
-                    ["at"] = DateTime.Now.ToString("o"),
-                }.ToString());
+                File.WriteAllText(FilePath, _note.ToString());
             }
             catch
             {
                 // The guard must never stop the work it guards.
             }
             return new Exit();
+        }
+
+        /// <summary>
+        /// Add to what is running now (outermost step included), e.g. the helpers a cell calls: a crash record then names them.
+        /// Values are merged into a list under key. Nothing happens when no step is running.
+        /// </summary>
+        public static void Annotate(string key, System.Collections.Generic.IEnumerable<string> values)
+        {
+            if (_depth <= 0 || _note == null) return;
+            try
+            {
+                var list = _note[key] as JArray ?? new JArray();
+                foreach (var v in values ?? Enumerable.Empty<string>())
+                    if (!list.Any(x => (string)x == v)) list.Add(v);
+                _note[key] = list;
+                File.WriteAllText(FilePath, _note.ToString());
+            }
+            catch
+            {
+                // The guard must never stop the work it guards.
+            }
         }
 
         private sealed class Exit : IDisposable
@@ -53,6 +76,7 @@ namespace SwAgent.Infrastructure
                 if (_done) return;
                 _done = true;
                 if (--_depth > 0) return;
+                _note = null;
                 try
                 {
                     File.Delete(FilePath);
@@ -76,6 +100,8 @@ namespace SwAgent.Infrastructure
                 var note = JObject.Parse(File.ReadAllText(FilePath));
                 File.Delete(FilePath);
                 note["logTail"] = LogTail(40);
+                // The agent's helpers that code called: count the crash, and disable a helper involved in two.
+                Scripting.HelperCrashes.Record(note);
                 Log.Warn($"SolidWorks closed while running {note["kind"]} of {(string)note["tool"] ?? "a chat"}: {note["title"]}");
                 return note;
             }

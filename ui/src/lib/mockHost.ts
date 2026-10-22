@@ -9,6 +9,7 @@ import type {
   FileEntry,
   HookResult,
   HostState,
+  KnowledgeIndex,
   MarketplaceInfo,
   McpServerStatus,
   PluginActionResult,
@@ -38,7 +39,36 @@ const TOOLS: ToolDef[] = [
   tool("search_sw_api", "Search the SolidWorks API.", { query: { type: "string" } }, ["query"]),
   // The mold tool's record (Track D): writes print `record_status: <status>`, which ends a long run's follow-ups at done.
   tool("mold_record", "For the design-compression-mold tool: the mold's design record.", { action: { type: "string" }, data: { type: "object" } }, ["action"]),
+  // The self-improving loop (Scripting/KnowledgeTools.cs): API notes and the agent's own helpers.
+  tool("save_api_note", "Save a lesson about the SolidWorks API.", { topic: { type: "string" }, wrong: { type: "string" }, right: { type: "string" }, apis: { type: "array", items: { type: "string" } } }, ["topic", "right"]),
+  tool("list_api_notes", "The saved API notes.", { query: { type: "string" } }),
+  tool("save_helper", "Save a C# helper every cell can call.", { name: { type: "string" }, code: { type: "string" }, summary: { type: "string" }, wraps: { type: "array", items: { type: "string" } } }, ["name", "code", "summary"]),
+  tool("read_helper", "A helper's code.", { name: { type: "string" } }, ["name"]),
+  tool("list_helpers", "Every helper cells can call.", { query: { type: "string" } }),
+  tool("delete_helper", "Delete one of your helpers.", { name: { type: "string" } }, ["name"]),
+  tool("test_helper", "Test a saved helper with a cell.", { name: { type: "string" }, code: { type: "string" } }, ["name", "code"]),
 ];
+
+/** knowledge.index in the mock: a built-in helper, a plugin's, two of the agent's own (one disabled) and its API notes. */
+const mockKnowledge = (): KnowledgeIndex => {
+  const saved = store.get<{ name: string; summary: string }[]>("helpers", []);
+  const notes = store.get<{ topic: string; right: string; wrong?: string }[]>("notes", [
+    { topic: "FeatureByName is on IPartDoc", right: "((IPartDoc)Model).FeatureByName(name) as IFeature (assemblies: IAssemblyDoc)", wrong: "Model.FeatureByName(name) -> CS1061" },
+    { topic: "SelectData", right: "Model.SelectionManager.CreateSelectData() as SelectData", wrong: "ISelectData passed where SelectData is expected -> CS1503" },
+  ]);
+  const helper = (name: string, source: string, signature: string, summary: string) => ({ name, source, signature, summary, line: `${signature} - ${summary}` });
+  return {
+    helpers: [
+      helper("Bodies.Rotate", "built-in", "Bodies.Rotate(IBody2 body, double[] axis, double deg): IBody2", "rotate a body about an axis (right-hand rule), checked by its box"),
+      helper("PocketCorners", "plugin:mold-extras", "PocketCorners.Relieve(IFace2 floor, double r): int", "dog-bone reliefs in a pocket's corners"),
+      helper("FeatureLookup", "user", "IModelDoc2.FeatureByName(string name): IFeature", "FeatureByName for parts and assemblies"),
+      ...saved.map((h) => helper(h.name, "user", `${h.name}.Run(...)`, h.summary)),
+    ],
+    disabled: [{ name: "ShellAll", source: "user", reason: "SolidWorks closed (crashed) 2 times while a cell that called it ran." }],
+    notes: notes.map((n, i) => ({ id: `n${i + 1}`, topic: n.topic, right: n.right, wrong: n.wrong ?? null, apis: [], hits: notes.length - i, line: `${n.topic}: ${n.right}${n.wrong ? ` (not: ${n.wrong})` : ""}` })),
+    omitted: { helpers: 0, notes: 0 },
+  };
+};
 
 /** The mock mold record's status (mold_record). */
 let mockRecordStatus = "planning";
@@ -311,6 +341,10 @@ export async function mockRpc(method: string, params: any): Promise<unknown> {
       await new Promise((r) => setTimeout(r, 800));
       return { ok: true };
 
+    // ---- the agent's helpers and API notes (Scripting/KnowledgeTools.cs) ----
+    case "knowledge.index":
+      return mockKnowledge();
+
     default:
       return null;
   }
@@ -528,6 +562,22 @@ async function runTool(name: string, input: any): Promise<ToolRunResult> {
       return { isError: false, content: [{ type: "text", text: `Sent to ${input.to ?? "the peer"} (message 41).` }] };
     case "use_skill":
       return { isError: false, content: [{ type: "text", text: `---\nname: ${input.name}\n---\n(mock) The skill's SKILL.md.\n\nOther files in the skill folder: reference.md` }] };
+    case "save_api_note": {
+      const notes = store.get<{ topic: string; right: string; wrong?: string }[]>("notes", []);
+      store.set("notes", [...notes.filter((n) => n.topic.toLowerCase() !== String(input.topic).toLowerCase()), { topic: input.topic, right: input.right, wrong: input.wrong }]);
+      emitLocal("knowledge.changed", {});
+      return { isError: false, content: [{ type: "text", text: `Saved API note n${notes.length + 1}: ${input.topic}.` }] };
+    }
+    case "save_helper": {
+      if (!/namespace\s+SwAgent\.UserHelpers/.test(input.code ?? ""))
+        return { isError: true, content: [{ type: "text", text: `Not saved: ${input.name} put exactly one namespace in the file: namespace SwAgent.UserHelpers { public static class ${input.name} { ... } }` }] };
+      const saved = store.get<{ name: string; summary: string }[]>("helpers", []);
+      store.set("helpers", [...saved.filter((h) => h.name !== input.name), { name: input.name, summary: input.summary }]);
+      emitLocal("knowledge.changed", {});
+      return { isError: false, content: [{ type: "text", text: `Saved helper ${input.name} v1: ${input.name}.Run(...). Every execute_csharp cell can call it from the next cell on, in every chat. Now test it: test_helper with a short cell that calls it on this model and checks the result.` }] };
+    }
+    case "test_helper":
+      return { isError: false, content: [{ type: "text", text: "OK (compile 120 ms, run 15 ms)\n--- return value ---\nfine" }] };
     default:
       return { isError: false, content: [{ type: "text", text: `(mock) ${name} ${JSON.stringify(input)}` }] };
   }

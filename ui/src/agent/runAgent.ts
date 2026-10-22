@@ -15,6 +15,7 @@ import type {
   ToolRunResult,
   Usage,
   FormSpec,
+  KnowledgeIndex,
   SelectionAsk,
 } from "../lib/types";
 import { clampSteps } from "../lib/toolRun";
@@ -23,7 +24,7 @@ import { clampSteps } from "../lib/toolRun";
  * Tools that change the model; gated by the approval setting. run_tool_macro runs a tool's macro.cs (or C# the agent
  * passes as `code`) inside SolidWorks, so it is gated like execute_csharp.
  */
-export const WRITE_TOOLS = new Set(["execute_csharp", "undo", "rebuild", "run_tool_macro"]);
+export const WRITE_TOOLS = new Set(["execute_csharp", "undo", "rebuild", "run_tool_macro", "test_helper"]);
 
 /** Handled in the UI: a questionnaire card in the chat; the answers come back as JSON. */
 export const ASK_FORM_TOOL: ToolDef = {
@@ -232,6 +233,8 @@ export interface AgentRunOptions {
   agents?: AgentInfo[];
   mcpInstructions?: { server: string; text: string }[];
   sessionContext?: string[];
+  /** The helpers cells can call and the saved API notes (knowledge.index), for the system prompt. */
+  knowledge?: KnowledgeIndex | null;
   /** A sub-agent run: its own system prompt and no local tools. */
   system?: string;
   localTools?: ToolDef[];
@@ -248,8 +251,9 @@ export interface AgentRunResult {
  * Server-side context editing: once a request passes TRIGGER tokens, the oldest tool calls and their results
  * (inputs included - execute_csharp cells are the bulk) are replaced by a placeholder, keeping the last KEEP.
  * clear_at_least makes each clearing large enough to be worth the prompt-cache rewrite it causes.
- * The user's answers (ask_user, ask_form, ask_selection with its [S#] refs) and read_user_tool (instructions being
- * followed) are never cleared.
+ * The user's answers (ask_user, ask_form, ask_selection with its [S#] refs), read_user_tool (instructions being
+ * followed) and the helpers the agent saved or read (save_helper, read_helper: the code it calls from now on) are never
+ * cleared.
  */
 const CLEAR_OLD_TOOL_USES = {
   type: "clear_tool_uses_20250919" as const,
@@ -257,7 +261,7 @@ const CLEAR_OLD_TOOL_USES = {
   keep: { type: "tool_uses" as const, value: 6 },
   clear_at_least: { type: "input_tokens" as const, value: 12000 },
   clear_tool_inputs: true,
-  exclude_tools: ["ask_user", "ask_form", "ask_selection", "offer_restart", "read_user_tool", "use_skill"],
+  exclude_tools: ["ask_user", "ask_form", "ask_selection", "offer_restart", "read_user_tool", "use_skill", "save_helper", "read_helper"],
 };
 
 /** No bytes at all (not even keep-alive pings) for this long means the connection is dead, not thinking. */
@@ -319,6 +323,7 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
       agents: opts.agents,
       mcpInstructions: opts.mcpInstructions,
       sessionContext: opts.sessionContext,
+      knowledge: opts.knowledge,
     });
   let malformedRetries = 0;
   let stallRetries = 0;

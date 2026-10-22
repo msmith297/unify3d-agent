@@ -59,6 +59,7 @@ namespace SwAgent
             tools.RegisterAll(new RebuildTools());
             tools.RegisterAll(new MoldTools());
             tools.RegisterAll(new Plugins.PluginTools());
+            tools.RegisterAll(new KnowledgeTools(scripts));
             return tools;
         }
 

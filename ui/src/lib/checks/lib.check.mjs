@@ -21,6 +21,7 @@ import { modelFromAlias } from "../models.ts";
 import { formatNumber, parseNumber, stepNumber, visibleGroups, chipText, takesText, acceptText, tableHint } from "../toolFormLogic.ts";
 import { mockOpenToolForm, mockToolForm } from "../toolFormMock.ts";
 import { questionTimerStep } from "../questionTimeout.ts";
+import { knowledgeSection } from "../knowledge.ts";
 
 let n = 0;
 const t = (name, fn) => {
@@ -578,6 +579,29 @@ t("an unanswered question times out; typing or Keep waiting holds it", () => {
   assert.deepEqual(questionTimerStep({ toolUseId: "tu1" }, "tu1", "", 99_000, 60_000), { kind: "stop" }); // Keep waiting
   assert.deepEqual(questionTimerStep(null, "tu1", "", 99_000, 60_000), { kind: "stop" }); // answered or stopped
   assert.deepEqual(questionTimerStep({ toolUseId: "tu2", deadline: 1 }, "tu1", "", 99_000, 60_000), { kind: "stop" }); // a newer question
+});
+
+// ---- the agent's helpers and API notes in the system prompt (knowledge.index) ----
+t("knowledgeSection lists helpers, disabled ones and notes, and says what was left out", () => {
+  const index = {
+    helpers: [
+      { name: "Bodies.Rotate", source: "built-in", line: "Bodies.Rotate(IBody2 body, double[] axis, double deg): IBody2 - rotate a body" },
+      { name: "FeatureLookup", source: "user", line: "IModelDoc2.FeatureByName(string name): IFeature - parts and   assemblies" },
+      { name: "PlugMath", source: "plugin:mathy", line: "PlugMath.Add(int a, int b): int - adds" },
+    ],
+    disabled: [{ name: "ShellAll", source: "user", reason: "crashed twice" }],
+    notes: [{ id: "n1", topic: "FeatureByName", right: "IPartDoc", wrong: "IModelDoc2", apis: [], hits: 3, line: "FeatureByName: IPartDoc (not: IModelDoc2)" }],
+    omitted: { helpers: 0, notes: 4 },
+  };
+  const text = knowledgeSection(index);
+  assert.ok(text.startsWith("\n\n# Helpers (call them in code cells, before writing raw API calls)\n- Bodies.Rotate("));
+  assert.ok(text.includes("- IModelDoc2.FeatureByName(string name): IFeature - parts and assemblies\n")); // one line; built-in and user unmarked
+  assert.ok(text.includes("- PlugMath.Add(int a, int b): int - adds [plugin:mathy]"));
+  assert.ok(text.includes("Disabled, don't call: ShellAll (crashed twice)"));
+  assert.ok(text.includes("# API notes (lessons you saved: apply them)\n- FeatureByName: IPartDoc (not: IModelDoc2)"));
+  assert.ok(text.includes("(4 more: list_api_notes with a query)"));
+  // An older add-in (no index) or nothing saved yet: the heading stays, no notes section.
+  assert.equal(knowledgeSection(null), "\n\n# Helpers (call them in code cells, before writing raw API calls)\n(none yet)");
 });
 
 console.log(`${n} checks passed`);

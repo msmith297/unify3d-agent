@@ -4,6 +4,7 @@ using Xunit;
 namespace SwAgent.Tests
 {
     /// <summary>The crash guard's note survives a "crash" (no dispose), keeps the outermost step, and is gone after a normal run.</summary>
+    [Collection("Cells")]
     public class CrashGuardTests
     {
         [Fact]

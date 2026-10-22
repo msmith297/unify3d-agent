@@ -1,5 +1,7 @@
 import type { CadProfile } from "./cad/types";
 import { SOLIDWORKS } from "./cad/solidworks";
+import { knowledgeSection } from "../lib/knowledge";
+import type { KnowledgeIndex } from "../lib/types";
 
 /**
  * The system prompt = a CAD-neutral core + the CAD profile of the application the agent runs in (agent/cad/*).
@@ -182,6 +184,8 @@ export function buildSystemPrompt(opts: {
   mcpInstructions?: { server: string; text: string }[];
   /** What the plugins' SessionStart hooks added (session.info sessionContext). */
   sessionContext?: string[];
+  /** The helpers cells can call and the saved API notes (knowledge.index); last, as it changes most often. */
+  knowledge?: KnowledgeIndex | null;
   cad?: CadProfile;
 }): string {
   const C = opts.cad ?? CAD;
@@ -190,12 +194,28 @@ export function buildSystemPrompt(opts: {
     REPLIES[opts.verbosity ?? "medium"] +
     (opts.realisticAppearance ? appearanceOn(C) : APPEARANCE_OFF) +
     PLUGINS +
+    learning(C) +
     toolIndex(opts.userTools) +
     pluginIndex(opts.skills ?? [], opts.agents ?? []) +
     mcpSection(opts.mcpInstructions ?? []) +
-    sessionSection(opts.sessionContext ?? [])
+    sessionSection(opts.sessionContext ?? []) +
+    knowledgeSection(opts.knowledge)
   );
 }
+
+/**
+ * The self-improving loop: helpers first, and what the agent saves when it learned something (save_api_note, save_helper,
+ * test_helper). The indexes themselves are at the end of the prompt (knowledgeSection).
+ */
+const learning = (C: CadProfile) => `
+
+# Helpers and API notes: learn once, never repeat a mistake
+What you learn about the ${C.name} API is kept across chats as API notes and helpers (indexes at the end of this prompt).
+- Helpers first: before you write raw API calls, look for a helper in the index (built-in, plugins', yours). One helper call replaces a long raw call and gets the selection marks, signs, array casts and interfaces right. read_helper shows exactly what one does.
+- When a ${C.code.tool} result says "That worked after N failed tries", you just learned something: make it permanent before you go on. save_api_note(topic, wrong, right, apis): what was wrong, what works, generalised to the API. If the pattern can recur, also save_helper with a robust helper that does it right every time; an extension method can even make the failing form work (e.g. IModelDoc2.FeatureByName that asks IPartDoc or IAssemblyDoc). Then test_helper on the current model before you rely on it.
+- Save only real, reusable lessons: an API fact, a call sequence, a cast or sign that tripped you, verified by a cell that worked. Not facts about this part or this request, not guesses, not duplicates: saving the same topic updates a note, saving a helper again makes a new version.
+- A helper is one public static class named like the helper, in namespace SwAgent.UserHelpers, with the cells' usings, self-contained (it doesn't call your other helpers). Make it robust: null checks, the alternatives the API needs, a check by measurement, and an exception with the measured numbers when it can't do its job. Never write a helper that changes the model in surprising ways: it does exactly what its name and summary say (no saving or closing files, no hidden deletes, no swallowed errors).
+- A result line "Helper: X does this in one call" means a helper covers the raw call you wrote: use it from now on. An "API note" line next to an error is a lesson you saved earlier: apply it.`;
 
 /** How the agent treats what plugins and the composer put into messages (docs/plugins/design.md 4.2-4.8). */
 const PLUGINS = `

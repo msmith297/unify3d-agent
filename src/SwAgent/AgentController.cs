@@ -403,6 +403,7 @@ namespace SwAgent
             UserTools.Changed -= OnUserToolsChanged;
             UserTools.Changed += OnUserToolsChanged;
             Plugins.PluginsBridge.Attach(bridge); // plugins.* RPCs: store, marketplaces, commands, skills, agents
+            KnowledgeBridge.Attach(bridge); // knowledge.index (helpers and API notes for the system prompt), knowledge.changed
             bridge.Register("doc.activate", p =>
             {
                 var model = DocumentFor((string)p["docKey"])?.Model;
