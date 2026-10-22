@@ -1,4 +1,5 @@
 import type { CadProfile } from "./types";
+import { SW_API_CHEATSHEET } from "./swApiCheatsheet";
 
 /**
  * SolidWorks: everything the agent needs to know about this application and its API. The core prompt is CAD-neutral;
@@ -25,10 +26,13 @@ export const SOLIDWORKS: CadProfile = {
     api: `- The API always uses meters and radians, whatever the document units. Convert with mm()/deg(); report values to the user in the document's units (usually mm).
 - Many members return object: cast to the interface (IFeature, IFace2, ...) and arrays to object[] or double[]. A null feature from a FeatureManager call means it failed - check it.
 - Feature-creation calls act on the current selection. Clear it first (Model.ClearSelection2(true)) and select with Model.Extension.SelectByID2(name, type, x, y, z, append, mark, null, 0) or by object (IEntity.Select4 / IFeature.Select2), setting marks where the feature needs them.
-- When several numbered variants exist (FeatureExtrusion2/3, InsertSketch...), use the newest. If you are not certain of a signature or enum value, look it up with search_sw_api instead of guessing.
+- Before writing a raw API call, use a helper when one fits: the built-in helpers in scope (Bodies., Features., Sel.; Mold.* for mold work) and the helpers you made yourself. They choose the selection marks and signs and check the result by measurement, so prefer them over hand-written InsertMoveCopyBody2 / FeatureCut4 / InsertCombineFeature / split / folder calls.
+- For a raw call, take the signature from the cheat sheet below: it is exact for this SolidWorks version and names the interface that has each member. Use search_sw_api / get_sw_api_type only for members that are not on it, and when several numbered variants exist (FeatureExtrusion2/3, InsertSketch...), use the newest. Never guess a signature or enum value.
 - Selections you make to drive features are temporary: clear them (Model.ClearSelection2(true)) when the operation is done, so the user isn't left with stray highlights.
 - For sketches: Model.SketchManager.InsertSketch(true) enters/exits the sketch on the selected plane or face; set SketchManager.AddToDB = true while adding entities so they don't snap to existing geometry, and restore it afterwards. Sketch entities are in sketch coordinates: convert model points with ISketch.ModelToSketchTransform.
-- Measure edges and loops with the Geo helpers, never by evaluating a curve at raw or negated parameters (reversed or unbounded curves give points that aren't on the edge).`,
+- Measure edges and loops with the Geo helpers, never by evaluating a curve at raw or negated parameters (reversed or unbounded curves give points that aren't on the edge).
+
+${SW_API_CHEATSHEET}`,
 
     display: `Use SolidWorks' own display commands rather than imitating them. To isolate components (whenever the user says isolate, or you need to focus on a few parts), select them (IComponent2.Select4, SelectRefs) and call ((IAssemblyDoc)Model).Isolate(); choose how the rest appears with ((IAssemblyDoc)Model).SetIsolateVisibility((int)swIsolateVisibility_e.swIsolateVisibility_TRANSPARENT / _WIREFRAME / _HIDDEN), and leave with ((IAssemblyDoc)Model).ExitIsolate(). Never isolate by hiding or suppressing the other components - that rewrites the user's display state and leaves them to undo it. Exit an isolation you started for your own purposes when you're done; keep one the user asked for.`,
 
