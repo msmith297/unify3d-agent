@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
 using SwAgent.Infrastructure;
 
 namespace SwAgent.Scripting
@@ -53,9 +52,9 @@ namespace SwAgent.Scripting
     }
 
     /// <summary>
-    /// Where the built-in helpers come from. By default the static HelperCatalog (SwAgent.Scripting.HelperCatalog, track A),
-    /// found by reflection: its first public static IEnumerable&lt;HelperInfo&gt; field or property. Empty when the add-in has
-    /// none. Tests (or start-up code) can set another index.
+    /// Where helpers come from, merged in one order everywhere (the prompt index, list_helpers, the compile advisor, the
+    /// "Helper: X does this in one call" hints): the agent's own first, then the plugins', then the built-in catalog
+    /// (HelperCatalog: Bodies.*, Features.*, Sel.* and the SwAgent.Scripting.Extensions methods). Tests can set BuiltIn.
     /// </summary>
     public static class HelperIndex
     {
@@ -63,9 +62,41 @@ namespace SwAgent.Scripting
 
         public static IHelperIndex BuiltIn
         {
-            get => _builtIn ?? (_builtIn = new CatalogIndex());
+            get => _builtIn ?? Helpers.HelperCatalog.Index;
             set => _builtIn = value;
         }
+
+        /// <summary>The agent's own and the plugins' helpers (in that order), then the built-in ones; one entry per name.</summary>
+        public static List<HelperInfo> Merge(IEnumerable<HelperInfo> extra)
+        {
+            List<HelperInfo> builtIn;
+            try
+            {
+                builtIn = (BuiltIn.All() ?? Enumerable.Empty<HelperInfo>()).ToList();
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("Reading the built-in helper catalog failed: " + ex.Message);
+                builtIn = new List<HelperInfo>();
+            }
+            var own = (extra ?? Enumerable.Empty<HelperInfo>()).Where(h => h != null).OrderBy(h => h.Source == "user" ? 0 : 1);
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            return own.Concat(builtIn).Where(h => !string.IsNullOrWhiteSpace(h?.Name) && seen.Add(h.Name)).ToList();
+        }
+
+        /// <summary>
+        /// The class name a built-in helper takes from the names cells can use: "Bodies" for "Bodies.Rotate", "Model" for
+        /// "Model.FeatureByName"; null for an extension shown on a placeholder receiver ("body.Volume", "x.AsDoubles").
+        /// </summary>
+        public static string ReservedName(HelperInfo h)
+        {
+            var first = (h?.Name ?? "").Split('.')[0];
+            return first.Length > 0 && char.IsUpper(first[0]) ? first : null;
+        }
+
+        /// <summary>The built-in helpers called `name` or under the class `name` ("Bodies"): empty when the name is free.</summary>
+        public static List<HelperInfo> BuiltInNamed(string name) =>
+            string.IsNullOrEmpty(name) ? new List<HelperInfo>() : BuiltIn.All().Where(h => h.Name == name || ReservedName(h) == name).ToList();
 
         /// <summary>An index over a fixed list (tests, plugins).</summary>
         public sealed class Fixed : IHelperIndex
@@ -78,37 +109,6 @@ namespace SwAgent.Scripting
             }
 
             public IEnumerable<HelperInfo> All() => _list;
-        }
-
-        private sealed class CatalogIndex : IHelperIndex
-        {
-            private Func<IEnumerable<HelperInfo>> _read;
-
-            public IEnumerable<HelperInfo> All()
-            {
-                if (_read == null) _read = Find();
-                try
-                {
-                    return (_read() ?? Enumerable.Empty<HelperInfo>()).Where(h => h != null && !string.IsNullOrWhiteSpace(h.Name)).ToList();
-                }
-                catch (Exception ex)
-                {
-                    Log.Warn("Reading the built-in helper catalog failed: " + ex.Message);
-                    return Enumerable.Empty<HelperInfo>();
-                }
-            }
-
-            private static Func<IEnumerable<HelperInfo>> Find()
-            {
-                var type = typeof(HelperInfo).Assembly.GetType("SwAgent.Scripting.HelperCatalog", false);
-                if (type == null) return () => Enumerable.Empty<HelperInfo>();
-                const BindingFlags flags = BindingFlags.Public | BindingFlags.Static;
-                foreach (var p in type.GetProperties(flags).Where(p => typeof(IEnumerable<HelperInfo>).IsAssignableFrom(p.PropertyType) && p.GetIndexParameters().Length == 0))
-                    return () => (IEnumerable<HelperInfo>)p.GetValue(null);
-                foreach (var f in type.GetFields(flags).Where(f => typeof(IEnumerable<HelperInfo>).IsAssignableFrom(f.FieldType)))
-                    return () => (IEnumerable<HelperInfo>)f.GetValue(null);
-                return () => Enumerable.Empty<HelperInfo>();
-            }
         }
     }
 }

@@ -19,7 +19,7 @@ namespace SwAgent.Scripting
     /// The helpers the agent wrote itself (save_helper) and the ones enabled plugins ship (helpers/*.cs), compiled into one
     /// assembly that every execute_csharp cell references and imports (namespace SwAgent.UserHelpers). A helper is a public
     /// static class named like the helper; it may hold extension methods, which is how a helper makes a wrong-interface call
-    /// (Model.FeatureByName on IModelDoc2) compile and work.
+    /// (e.g. Model.GetComponentByName on IModelDoc2) compile and work, beside the built-in ones in SwAgent.Scripting.Extensions.
     ///
     /// Each helper is first compiled alone, so one bad helper never breaks the others: it is skipped and its record says why
     /// (lastError). The good ones are compiled together into %LOCALAPPDATA%\SwAgent\helpers-bin\helpers-&lt;hash&gt;.dll; the hash
@@ -105,6 +105,18 @@ namespace SwAgent.Scripting
             public Dictionary<string, string> Skipped = new Dictionary<string, string>(StringComparer.Ordinal);
 
             public Built Find(string name) => Helpers.FirstOrDefault(h => h.Name == name);
+        }
+
+        /// <summary>
+        /// The add-in's own and plugin helpers as of the last build, without compiling (empty before the first cell): what
+        /// CompileAdvisor.Extra reads, so a compile error anywhere can point at a helper the agent saved.
+        /// </summary>
+        public static IHelperIndex LastBuild { get; } = new LastBuildIndex();
+
+        private sealed class LastBuildIndex : IHelperIndex
+        {
+            public IEnumerable<HelperInfo> All() =>
+                _instance?._current?.Helpers.Select(h => h.Info()).ToList() ?? (IEnumerable<HelperInfo>)new HelperInfo[0];
         }
 
         /// <summary>The current build; compiles when helpers or plugins changed (call off the UI thread: the first compile takes seconds).</summary>
@@ -459,8 +471,8 @@ namespace SwAgent.Scripting
             foreach (var m in typeof(ScriptGlobals).GetMembers(BindingFlags.Public | BindingFlags.Instance)) names[m.Name] = "the cells' " + m.Name;
             foreach (var h in HelperIndex.BuiltIn.All())
             {
-                var first = h.Name.Split('.')[0];
-                if (first.Length > 0) names[first] = "the built-in helper " + h.Name;
+                var first = HelperIndex.ReservedName(h);
+                if (first != null) names[first] = "the built-in helper " + h.Name;
             }
             return names;
         }

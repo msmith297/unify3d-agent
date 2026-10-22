@@ -103,7 +103,7 @@ namespace SwAgent.Scripting
                        "document), App/Doc (xCAD wrappers), Agent (await Agent.CallToolAsync(name, input)), Print(obj), " +
                        "mm(x)/inch(x)/deg(x) unit helpers, Ref(\"S1\")/SelectRefs(\"S1\",\"S2\") for the user's referenced selections, ShowWork()/Focus(...)/Refresh() to keep the work in view, Ct (CancellationToken), WorkDir. Namespaces already imported: System, " +
                        "System.Linq, System.Collections.Generic, System.IO, System.Text, SolidWorks.Interop.sldworks, " +
-                       "SolidWorks.Interop.swconst.", Required = true)]
+                       "SolidWorks.Interop.swconst, the interop extensions and your saved helpers (SwAgent.UserHelpers).", Required = true)]
             public string Code { get; set; }
 
             [ToolParam("Capture an isometric screenshot after running (default false).")]
@@ -117,9 +117,12 @@ namespace SwAgent.Scripting
             "radians (use mm()/deg()). Each call is recorded as one undo step. Measuring helpers: Geo.EdgePoints(edge), " +
             "Geo.LoopPoints(loop), Geo.Frame(planarFace) -> u/v/n frame (ToUV, ToModel, Height), Geo.LoopUV(loop, frame), " +
             "Geo.Distance(point or loop, edge/edges/loop), Geo.Inside(uv, polygon), Geo.Box(uv) - use them instead of hand-written " +
-            "edge sampling. Mold.* (design-compression-mold building blocks: Frame, InsertPart, ScaleForShrink, Plate, Subtract, Folder, " +
-            "FlashGrooves... each checked by measurement). Returns console output, the last expression's value, compile errors with line " +
-            "numbers, or the exception.")]
+            "edge sampling. Checked helpers (one feature each, verified by measurement, meters and degrees): Bodies.Move/Rotate/Copy/" +
+            "Combine/Subtract/Intersect/Split/ToFolder, Features.Extrude/Cut/Revolve/RevolveCut/Fillet/ByName, Sel.Select/Data/Get/Clear; " +
+            "interop extensions: Model.FeatureByName, Model.Bodies(), Model.Features(), x.AsDoubles()/AsObjects<T>(), body.Box()/Volume(); " +
+            "plus the helpers you saved (save_helper) and plugins' helpers, all listed in the Helpers index. Mold.* (design-compression-mold " +
+            "building blocks: Frame, InsertPart, ScaleForShrink, Plate, Subtract, Folder, FlashGrooves... each checked by measurement). " +
+            "Returns console output, the last expression's value, compile errors with line numbers and fix hints, or the exception.")]
         public Task<ToolResult> Execute(ToolContext ctx, ExecuteInput input) => ExecuteAsync(ctx, input, learn: true);
 
         /// <summary>
@@ -165,12 +168,14 @@ namespace SwAgent.Scripting
             var (rawCalls, usedHelpers) = await Task.Run(() => Inspect(script, helpers));
             if (errors.Count > 0)
             {
-                // Fix hints (reflection over the interop only, no SolidWorks calls): off the UI thread.
-                var hints = await Task.Run(() => CompileAdvisor.Advise(errors, script.GetCompilation()));
+                // Fix hints (reflection over the interop and the helpers' Wraps only, no SolidWorks calls): off the UI thread. The
+                // agent's own and the plugins' helpers rank before the built-in ones.
+                var hints = await Task.Run(() => CompileAdvisor.Advise(errors, script.GetCompilation(), AllHelpers(helpers)));
                 var failed = "Compilation failed (nothing ran):\n" + string.Join("\n", errors.Take(30).Select(FormatDiagnostic)) + hints;
                 if (learn)
                 {
-                    notes.AddRange(Advice(input.Code, rawCalls, helpers, failed: true));
+                    // The advisor already named the helpers that wrap the failing calls: don't name them twice.
+                    notes.AddRange(Advice(threadKey, input.Code, rawCalls, helpers, failed: true).Where(l => !NamedIn(hints, l)));
                     _coach.Record(threadKey, false, CellCoach.FailureKind(failed));
                 }
                 return ToolResult.Error(failed + Tail(notes));
@@ -219,7 +224,7 @@ namespace SwAgent.Scripting
             if (learn)
             {
                 var ok = state.Exception == null;
-                notes.AddRange(Advice(input.Code, rawCalls, helpers, failed: !ok));
+                notes.AddRange(Advice(threadKey, input.Code, rawCalls, helpers, failed: !ok));
                 var nudge = _coach.Record(threadKey, ok, ok ? null : CellCoach.FailureKind(report));
                 if (nudge != null) notes.Add(nudge);
             }
@@ -304,13 +309,15 @@ namespace SwAgent.Scripting
         /// Lines for an agent cell's result: helpers that wrap the raw calls it made, and (when it failed) the API notes about
         /// those calls and the disabled helpers it tried to use.
         /// </summary>
-        private IEnumerable<string> Advice(string code, HashSet<string> rawCalls, UserHelpers.Build helpers, bool failed)
+        private IEnumerable<string> Advice(string threadKey, string code, HashSet<string> rawCalls, UserHelpers.Build helpers, bool failed)
         {
             var lines = new List<string>();
             try
             {
-                var index = HelperIndex.BuiltIn.All().Concat(helpers.Helpers.Select(h => h.Info()));
-                lines.AddRange(CellCoach.Hints(rawCalls, index).Select(h => "Helper: " + h));
+                // A cell that worked hears about each helper once per chat; a failing one always does.
+                var hints = CellCoach.Hints(rawCalls, AllHelpers(helpers), max: 3, skip: failed ? null : _coach.Hinted(threadKey));
+                _coach.MarkHinted(threadKey, hints.Select(h => h.Helper));
+                lines.AddRange(hints.Select(h => "Helper: " + h.Line));
                 if (!failed) return lines;
                 var store = Helpers.Store;
                 var shown = store.NotesForMembers(rawCalls).Take(2).ToList();
@@ -325,6 +332,17 @@ namespace SwAgent.Scripting
                 Log.Warn("Building a cell's advice failed: " + ex.Message);
             }
             return lines;
+        }
+
+        /// <summary>Every helper a cell can call with this build: the agent's own, the plugins', then the built-in ones.</summary>
+        internal static List<HelperInfo> AllHelpers(UserHelpers.Build helpers) => HelperIndex.Merge(helpers?.Helpers.Select(h => h.Info()));
+
+        /// <summary>Whether a "Helper: X does this..." line names a helper the compile advisor's hints already named.</summary>
+        private static bool NamedIn(string hints, string line)
+        {
+            if (string.IsNullOrEmpty(hints) || !line.StartsWith("Helper: ", StringComparison.Ordinal)) return false;
+            var name = line.Substring("Helper: ".Length).Split(' ')[0];
+            return hints.Contains("- " + name + " does this");
         }
 
         private static string Tail(List<string> lines) => lines.Count == 0 ? "" : string.Concat(lines.Where(l => !string.IsNullOrEmpty(l)).Select(l => "\n--- " + l));

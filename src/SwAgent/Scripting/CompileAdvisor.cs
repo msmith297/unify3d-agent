@@ -29,12 +29,16 @@ namespace SwAgent.Scripting
         /// <summary>More helpers to point at (plugins, the agent's own): set by whoever keeps them. They come before the built-in ones.</summary>
         public static IHelperIndex Extra { get; set; }
 
-        /// <summary>"\n--- hints ---\n- ..." for the errors, or "" when there is nothing useful to say.</summary>
-        public static string Advise(IEnumerable<Diagnostic> errors, Compilation compilation)
+        /// <summary>
+        /// "\n--- hints ---\n- ..." for the errors, or "" when there is nothing useful to say. `helpers`: every helper a cell can
+        /// call now, in rank order (ScriptHost passes HelperIndex.Merge of the agent's own, the plugins' and the built-in ones);
+        /// null means Extra's, then the built-in catalog.
+        /// </summary>
+        public static string Advise(IEnumerable<Diagnostic> errors, Compilation compilation, IEnumerable<HelperInfo> helpers = null)
         {
             try
             {
-                var hints = Hints(errors, compilation);
+                var hints = Hints(errors, compilation, helpers);
                 return hints.Count == 0 ? "" : "\n--- hints ---\n" + string.Join("\n", hints.Select(h => "- " + h));
             }
             catch (Exception ex)
@@ -61,7 +65,7 @@ namespace SwAgent.Scripting
                     Log.Warn("CompileAdvisor: reading the extra helpers: " + ex.Message);
                     extra = new List<HelperInfo>();
                 }
-                all = extra.Concat(HelperCatalog.All).ToList();
+                all = HelperIndex.Merge(extra);
             }
             var result = new List<string>();
             foreach (var d in (errors ?? Enumerable.Empty<Diagnostic>()).Where(e => e.Severity == DiagnosticSeverity.Error).Take(12))

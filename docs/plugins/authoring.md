@@ -150,8 +150,10 @@ agent's code cells can call, compiled together with the helpers the agent writes
 
 - One file per helper: `namespace SwAgent.UserHelpers { public static class <ClassName> { ... } }`, the class named
   like the file. Extension methods are allowed (that is how a helper makes a wrong-interface call such as
-  `Model.FeatureByName(...)` work). Other types go inside the class. The cells' usings apply (System, Linq,
-  SolidWorks.Interop.sldworks / swconst, ...).
+  `Model.GetComponentByName(...)` work); one that a built-in extension already defines (`Model.FeatureByName`,
+  `x.AsDoubles()`, ...) is refused. Other types go inside the class. The cells' usings apply (System, Linq,
+  SolidWorks.Interop.sldworks / swconst, the built-in `SwAgent.Scripting.Extensions`, ...). The built-in helpers
+  (`Bodies.*`, `Features.*`, `Sel.*`) reserve those class names.
 - Optional header lines: `// summary: <one line for the agent's helper index>` (else the class's XML summary) and
   `// wraps: IModelDocExtension.InsertMoveCopyBody2, ...` (a cell that calls one of these raw is told to use the helper).
 - Helpers are code that runs inside SolidWorks: they count as tool code for trust (section 8), so they run only once

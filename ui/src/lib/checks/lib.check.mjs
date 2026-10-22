@@ -596,7 +596,8 @@ t("knowledgeSection lists helpers, disabled ones and notes, and says what was le
   };
   const text = knowledgeSection(index);
   assert.ok(text.startsWith("\n\n# Helpers (call them in code cells, before writing raw API calls)\n- Bodies.Rotate("));
-  assert.ok(text.includes("- IModelDoc2.FeatureByName(string name): IFeature - parts and assemblies\n")); // one line; built-in and user unmarked
+  assert.ok(text.includes("- IModelDoc2.FeatureByName(string name): IFeature - parts and assemblies [yours]\n")); // one line; the agent's own marked
+  assert.ok(text.includes("- Bodies.Rotate(IBody2 body, double[] axis, double deg): IBody2 - rotate a body\n")); // built-in unmarked
   assert.ok(text.includes("- PlugMath.Add(int a, int b): int - adds [plugin:mathy]"));
   assert.ok(text.includes("Disabled, don't call: ShellAll (crashed twice)"));
   assert.ok(text.includes("# API notes (lessons you saved: apply them)\n- FeatureByName: IPartDoc (not: IModelDoc2)"));

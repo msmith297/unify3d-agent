@@ -52,7 +52,9 @@ namespace SwAgent.Scripting
         /// <summary>Forget a chat's cells (new chat / reset).</summary>
         public void Reset(string thread)
         {
-            if (thread != null) _history.TryRemove(thread, out _);
+            if (thread == null) return;
+            _history.TryRemove(thread, out _);
+            _hinted.TryRemove(thread, out _);
         }
 
         internal static string Nudge(int failures, IEnumerable<string> what)
@@ -65,23 +67,40 @@ namespace SwAgent.Scripting
 
         /// <summary>
         /// One line per helper that wraps a member the cell calls raw, e.g. "Bodies.Rotate does this in one call (instead of
-        /// InsertMoveCopyBody2): Bodies.Rotate(IBody2 body, ...)". At most max lines; helpers in the given order (built-in first).
+        /// InsertMoveCopyBody2): Bodies.Rotate(IBody2 body, ...)". At most max lines; helpers in the given order (HelperIndex.Merge:
+        /// the agent's own, the plugins', the built-in ones); helpers named in skip are left out.
         /// </summary>
-        public static List<string> Hints(ISet<string> rawCalls, IEnumerable<HelperInfo> helpers, int max = 3)
+        public static List<(string Helper, string Line)> Hints(ISet<string> rawCalls, IEnumerable<HelperInfo> helpers, int max = 3, ICollection<string> skip = null)
         {
-            var lines = new List<string>();
+            var lines = new List<(string, string)>();
             if (rawCalls == null || rawCalls.Count == 0) return lines;
             var seen = new HashSet<string>(StringComparer.Ordinal);
             foreach (var h in helpers ?? Enumerable.Empty<HelperInfo>())
             {
-                if (h?.Name == null || !seen.Add(h.Name)) continue;
+                if (h?.Name == null || !seen.Add(h.Name) || (skip != null && skip.Contains(h.Name))) continue;
                 var members = h.WrappedMembers().Where(rawCalls.Contains).Distinct().ToList();
                 if (members.Count == 0) continue;
                 var sig = string.IsNullOrWhiteSpace(h.Signature) ? "" : ": " + h.Signature.Trim();
-                lines.Add($"{h.Name} does this in one call (instead of {string.Join(", ", members)}){sig}");
+                var source = string.IsNullOrEmpty(h.Source) || h.Source == "built-in" ? "" : $" [{h.Source}]";
+                lines.Add((h.Name, $"{h.Name}{source} does this in one call (instead of {string.Join(", ", members)}){sig}"));
                 if (lines.Count >= max) break;
             }
             return lines;
+        }
+
+        private readonly ConcurrentDictionary<string, HashSet<string>> _hinted = new ConcurrentDictionary<string, HashSet<string>>();
+
+        /// <summary>The helpers this chat's results already named (a cell that worked isn't told about them again).</summary>
+        public ICollection<string> Hinted(string thread)
+        {
+            var set = _hinted.GetOrAdd(thread ?? "default", _ => new HashSet<string>(StringComparer.Ordinal));
+            lock (set) return set.ToList();
+        }
+
+        public void MarkHinted(string thread, IEnumerable<string> helpers)
+        {
+            var set = _hinted.GetOrAdd(thread ?? "default", _ => new HashSet<string>(StringComparer.Ordinal));
+            lock (set) foreach (var h in helpers ?? Enumerable.Empty<string>()) set.Add(h);
         }
 
         /// <summary>What went wrong, short: the compiler error ids, or the exception type.</summary>

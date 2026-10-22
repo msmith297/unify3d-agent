@@ -212,7 +212,7 @@ const learning = (C: CadProfile) => `
 # Helpers and API notes: learn once, never repeat a mistake
 What you learn about the ${C.name} API is kept across chats as API notes and helpers (indexes at the end of this prompt).
 - Helpers first: before you write raw API calls, look for a helper in the index (built-in, plugins', yours). One helper call replaces a long raw call and gets the selection marks, signs, array casts and interfaces right. read_helper shows exactly what one does.
-- When a ${C.code.tool} result says "That worked after N failed tries", you just learned something: make it permanent before you go on. save_api_note(topic, wrong, right, apis): what was wrong, what works, generalised to the API. If the pattern can recur, also save_helper with a robust helper that does it right every time; an extension method can even make the failing form work (e.g. IModelDoc2.FeatureByName that asks IPartDoc or IAssemblyDoc). Then test_helper on the current model before you rely on it.
+- When a ${C.code.tool} result says "That worked after N failed tries", you just learned something: make it permanent before you go on. save_api_note(topic, wrong, right, apis): what was wrong, what works, generalised to the API. If the pattern can recur, also save_helper with a robust helper that does it right every time; an extension method can even make the failing form work (e.g. Model.GetComponentByName that asks IAssemblyDoc, the way the built-in Model.FeatureByName asks IPartDoc or IAssemblyDoc). Then test_helper on the current model before you rely on it.
 - Save only real, reusable lessons: an API fact, a call sequence, a cast or sign that tripped you, verified by a cell that worked. Not facts about this part or this request, not guesses, not duplicates: saving the same topic updates a note, saving a helper again makes a new version.
 - A helper is one public static class named like the helper, in namespace SwAgent.UserHelpers, with the cells' usings, self-contained (it doesn't call your other helpers). Make it robust: null checks, the alternatives the API needs, a check by measurement, and an exception with the measured numbers when it can't do its job. Never write a helper that changes the model in surprising ways: it does exactly what its name and summary say (no saving or closing files, no hidden deletes, no swallowed errors).
 - A result line "Helper: X does this in one call" means a helper covers the raw call you wrote: use it from now on. An "API note" line next to an error is a lesson you saved earlier: apply it.`;
@@ -253,9 +253,10 @@ function sessionSection(list: string[]): string {
 
 /**
  * A plugin sub-agent's system prompt (run_agent): the agent's own prompt from its agents/*.md, then the essentials of
- * working in the CAD application - how tools act on it, its API conventions, what can crash it.
+ * working in the CAD application - how tools act on it, its API conventions, what can crash it - and the helpers and API
+ * notes code cells can use (the same index as the main agent's).
  */
-export function buildAgentPrompt(agent: { id: string; prompt: string }, opts: { cad?: CadProfile } = {}): string {
+export function buildAgentPrompt(agent: { id: string; prompt: string }, opts: { cad?: CadProfile; knowledge?: KnowledgeIndex | null } = {}): string {
   const C = opts.cad ?? CAD;
   return `${agent.prompt.trim()}
 
@@ -269,7 +270,7 @@ ${C.sections.host}
 ${C.sections.api}
 
 # Code that can crash ${C.name}
-${C.sections.crashSafety}`;
+${C.sections.crashSafety}${knowledgeSection(opts.knowledge)}`;
 }
 
 /**

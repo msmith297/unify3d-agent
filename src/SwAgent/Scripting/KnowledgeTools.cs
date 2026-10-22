@@ -88,7 +88,8 @@ namespace SwAgent.Scripting
             public string Name { get; set; }
 
             [ToolParam("The whole file: namespace SwAgent.UserHelpers { public static class <Name> { ... } } - public static methods, extension methods " +
-                       "allowed (e.g. public static IFeature FeatureByName(this IModelDoc2 model, string name) makes Model.FeatureByName(...) work). " +
+                       "allowed (e.g. public static IComponent2 GetComponentByName(this IModelDoc2 model, string name) makes Model.GetComponentByName(...) work; " +
+                       "an extension that a built-in one already defines is refused). " +
                        "Same usings as cells (System, Linq, SolidWorks.Interop.sldworks/swconst, ...). Self-contained: it may not call your other helpers. " +
                        "Other types go inside the class.", Required = true)]
             public string Code { get; set; }
@@ -112,7 +113,7 @@ namespace SwAgent.Scripting
             var existing = Store.Helper(name);
             if (existing != null && existing.Source != "user")
                 return ToolResult.Error($"{name} is a helper of {existing.Source}: plugin helpers are read-only. Save yours under another name.");
-            var builtIn = HelperIndex.BuiltIn.All().FirstOrDefault(h => h.Name == name || h.Name.Split('.')[0] == name);
+            var builtIn = HelperIndex.BuiltInNamed(name).FirstOrDefault();
             if (builtIn != null) return ToolResult.Error($"{name} is a built-in helper ({builtIn.Signature ?? builtIn.Name}): use it, or save yours under another name.");
 
             var (error, signature) = await Task.Run(() => Helpers.Check(name, code, input.Summary, input.Wraps));
@@ -140,7 +141,7 @@ namespace SwAgent.Scripting
         public ToolResult ReadHelper(ToolContext ctx, NameInput input)
         {
             var name = (input.Name ?? "").Trim();
-            var builtIn = HelperIndex.BuiltIn.All().Where(h => h.Name == name || h.Name.Split('.')[0] == name).ToList();
+            var builtIn = HelperIndex.BuiltInNamed(name);
             if (builtIn.Count > 0)
                 return ToolResult.Ok("Built-in helper (part of the add-in, read-only):\n" + string.Join("\n", builtIn.Select(h => $"{h.Signature ?? h.Name} - {h.Summary}" + (h.Wraps?.Length > 0 ? $" (wraps {string.Join(", ", h.Wraps)})" : ""))));
             var build = Helpers.Current();
@@ -178,7 +179,7 @@ namespace SwAgent.Scripting
             bool Match(string text) => words.All((text ?? "").ToLowerInvariant().Contains);
             var records = Store.Helpers();
             var sb = new StringBuilder();
-            foreach (var h in HelperIndex.BuiltIn.All().Concat(build.Helpers.Select(b => b.Info())))
+            foreach (var h in HelperIndex.Merge(build.Helpers.Select(b => b.Info())))
             {
                 if (!Match(h.Name + " " + h.Signature + " " + h.Summary + " " + string.Join(" ", h.Wraps ?? new string[0]))) continue;
                 var r = records.FirstOrDefault(x => x.Name == h.Name && x.Source == h.Source);
@@ -198,7 +199,7 @@ namespace SwAgent.Scripting
             var record = Store.Helper(name);
             if (record == null)
             {
-                if (HelperIndex.BuiltIn.All().Any(h => h.Name == name || h.Name.Split('.')[0] == name)) return ToolResult.Error($"{name} is built in: it can't be deleted.");
+                if (HelperIndex.BuiltInNamed(name).Count > 0) return ToolResult.Error($"{name} is built in: it can't be deleted.");
                 var built = Helpers.Current().Find(name);
                 return ToolResult.Error(built != null ? $"{name} belongs to {built.Source}: plugin helpers can't be deleted (disable the plugin instead)." : $"No helper named {name}.");
             }
@@ -253,25 +254,35 @@ namespace SwAgent.Scripting
 
     /// <summary>
     /// What the panel puts in the system prompt (knowledge.index): every helper cells can call, one line each, and the most used
-    /// API notes, together capped at about 1,500 tokens.
+    /// API notes, together capped at about 2,900 tokens. The agent's own and the plugins' helpers come first (OwnShare), then
+    /// the built-in catalog in short lines (BuiltInShare), then the notes in what is left (at least 2,400 characters).
     /// </summary>
     internal static class KnowledgeIndex
     {
-        public const int MaxChars = 6000;
-        private const int HelperShare = 3600;
+        public const int MaxChars = 11600;
+        private const int OwnShare = 3600;
+        private const int BuiltInShare = 5600;
 
         public static JObject Build(UserHelpers helpers, int maxChars = MaxChars)
         {
             var build = helpers.Current();
-            var all = HelperIndex.BuiltIn.All().Concat(build.Helpers.Select(b => b.Info())).ToList();
+            var all = HelperIndex.Merge(build.Helpers.Select(b => b.Info()));
             var helperLines = new JArray();
             var used = 0;
-            var helperBudget = Math.Min(HelperShare, maxChars);
+            var own = 0;
+            var builtInUsed = 0;
             foreach (var h in all)
             {
-                var line = Line($"{(string.IsNullOrWhiteSpace(h.Signature) ? h.Name : h.Signature.Trim())}{(string.IsNullOrWhiteSpace(h.Summary) ? "" : " - " + h.Summary.Trim())}", 260);
-                if (used + line.Length + 3 > helperBudget) break;
-                used += line.Length + 3;
+                var builtIn = h.Source == "built-in";
+                // Built-in lines keep the summary's first clause: the helper's own errors say what it checked.
+                var summary = builtIn ? FirstClause(h.Summary) : h.Summary?.Trim();
+                var line = Line($"{(string.IsNullOrWhiteSpace(h.Signature) ? h.Name : h.Signature.Trim())}{(string.IsNullOrWhiteSpace(summary) ? "" : " - " + summary)}", builtIn ? 180 : 260);
+                var cost = line.Length + 3;
+                if (used + cost > maxChars) break;
+                if (builtIn ? builtInUsed + cost > BuiltInShare : own + cost > OwnShare) continue;
+                if (builtIn) builtInUsed += cost;
+                else own += cost;
+                used += cost;
                 helperLines.Add(new JObject { ["name"] = h.Name, ["source"] = h.Source, ["signature"] = h.Signature, ["summary"] = h.Summary, ["line"] = line });
             }
             var disabled = new JArray(helpers.Store.Helpers().Where(r => r.Disabled).Select(r => new JObject { ["name"] = r.Name, ["source"] = r.Source, ["reason"] = r.DisabledReason }));
@@ -292,6 +303,19 @@ namespace SwAgent.Scripting
                 ["notes"] = noteLines,
                 ["omitted"] = new JObject { ["helpers"] = all.Count - helperLines.Count, ["notes"] = notes.Count - noteLines.Count },
             };
+        }
+
+        /// <summary>"Move a body ... with one Move/Copy Body feature; checked: ..." -> the part before "; checked" or the first ". ".</summary>
+        internal static string FirstClause(string s)
+        {
+            s = System.Text.RegularExpressions.Regex.Replace(s ?? "", @"\s+", " ").Trim();
+            var cut = -1;
+            foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(s, @"(?<!\be\.g|\bi\.e)\. |; checked|\. Checked"))
+            {
+                cut = m.Index;
+                break;
+            }
+            return cut > 0 ? s.Substring(0, cut).TrimEnd('.') + "." : s;
         }
 
         private static string Line(string s, int max)

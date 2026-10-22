@@ -85,15 +85,16 @@ namespace SwAgent.Tests
     }
 }";
 
-        /// <summary>The wrong-interface call from the user's chats: FeatureByName is on IPartDoc, not IModelDoc2.</summary>
-        private const string FeatureLookup = @"namespace SwAgent.UserHelpers
+        /// <summary>
+        /// A wrong-interface call: GetComponentByName is on IAssemblyDoc, not IModelDoc2. (FeatureByName, the most common one in
+        /// the user's chats, is a built-in extension now, so a helper may not define it again.)
+        /// </summary>
+        private const string ComponentLookup = @"namespace SwAgent.UserHelpers
 {
-    public static class FeatureLookup
+    public static class ComponentLookup
     {
-        public static IFeature FeatureByName(this IModelDoc2 model, string name) =>
-            model is IPartDoc part ? part.FeatureByName(name) as IFeature
-            : model is IAssemblyDoc asm ? asm.FeatureByName(name) as IFeature
-            : null;
+        public static IComponent2 GetComponentByName(this IModelDoc2 model, string name) =>
+            model is IAssemblyDoc asm ? asm.GetComponentByName(name) as IComponent2 : null;
     }
 }";
 
@@ -193,25 +194,25 @@ namespace SwAgent.Tests
         {
             using (var env = new KnowledgeTestEnv())
             {
-                const string cell = "IModelDoc2 doc = Model; var f = doc.FeatureByName(\"Boss-Extrude1\"); f == null ? \"no feature\" : \"found\"";
+                const string cell = "IModelDoc2 doc = Model; var c = doc.GetComponentByName(\"Part1-1\"); c == null ? \"no component\" : \"found\"";
                 var before = env.Host.CompilePreviewAsync(cell).GetAwaiter().GetResult();
                 Assert.Contains("CS1061", before.Errors);
 
                 var saved = env.Call("save_helper", new JObject
                 {
-                    ["name"] = "FeatureLookup",
-                    ["code"] = FeatureLookup,
-                    ["summary"] = "Model.FeatureByName for parts and assemblies",
-                    ["wraps"] = new JArray("IPartDoc.FeatureByName"),
+                    ["name"] = "ComponentLookup",
+                    ["code"] = ComponentLookup,
+                    ["summary"] = "Model.GetComponentByName for assemblies (null elsewhere)",
+                    ["wraps"] = new JArray("IAssemblyDoc.GetComponentByName"),
                 });
                 Assert.False(saved.IsError, KnowledgeTestEnv.Text(saved));
-                Assert.Contains("IModelDoc2.FeatureByName(string name): IFeature", KnowledgeTestEnv.Text(saved));
+                Assert.Contains("IModelDoc2.GetComponentByName(string name): IComponent2", KnowledgeTestEnv.Text(saved));
 
                 var after = env.Host.CompilePreviewAsync(cell).GetAwaiter().GetResult();
                 Assert.Null(after.Errors);
                 var run = env.Cell(cell); // no document in the test: the helper returns null instead of throwing
                 Assert.False(run.IsError, KnowledgeTestEnv.Text(run));
-                Assert.Contains("no feature", KnowledgeTestEnv.Text(run));
+                Assert.Contains("no component", KnowledgeTestEnv.Text(run));
             }
         }
 
@@ -246,16 +247,16 @@ namespace SwAgent.Tests
                     Assert.Contains("public static class Other", KnowledgeTestEnv.Text(noClass));
 
                     // Two helpers with the same extension method would make every call ambiguous: the second is refused.
-                    Assert.False(env.Call("save_helper", new JObject { ["name"] = "FeatureLookup", ["code"] = FeatureLookup, ["summary"] = "x" }).IsError);
-                    var twice = env.Call("save_helper", new JObject { ["name"] = "FeatureLookup2", ["code"] = FeatureLookup.Replace("class FeatureLookup", "class FeatureLookup2"), ["summary"] = "x" });
+                    Assert.False(env.Call("save_helper", new JObject { ["name"] = "ComponentLookup", ["code"] = ComponentLookup, ["summary"] = "x" }).IsError);
+                    var twice = env.Call("save_helper", new JObject { ["name"] = "ComponentLookup2", ["code"] = ComponentLookup.Replace("class ComponentLookup", "class ComponentLookup2"), ["summary"] = "x" });
                     Assert.True(twice.IsError);
                     Assert.Contains("ambiguous", KnowledgeTestEnv.Text(twice));
 
                     // A new version keeps the old file; delete_helper refuses what isn't the user's.
-                    Assert.False(env.Call("save_helper", new JObject { ["name"] = "FeatureLookup", ["code"] = FeatureLookup + "\n// v2", ["summary"] = "x" }).IsError);
-                    Assert.True(File.Exists(Path.Combine(env.Store.HelpersDir, "FeatureLookup.v1.cs")));
+                    Assert.False(env.Call("save_helper", new JObject { ["name"] = "ComponentLookup", ["code"] = ComponentLookup + "\n// v2", ["summary"] = "x" }).IsError);
+                    Assert.True(File.Exists(Path.Combine(env.Store.HelpersDir, "ComponentLookup.v1.cs")));
                     Assert.True(env.Call("delete_helper", new JObject { ["name"] = "Bodies" }).IsError);
-                    Assert.False(env.Call("delete_helper", new JObject { ["name"] = "FeatureLookup" }).IsError);
+                    Assert.False(env.Call("delete_helper", new JObject { ["name"] = "ComponentLookup" }).IsError);
                 }
             }
             finally
@@ -269,7 +270,7 @@ namespace SwAgent.Tests
         {
             using (var env = new KnowledgeTestEnv())
             {
-                var fail = env.Cell("Model.FeatureByName(\"x\")");
+                var fail = env.Cell("Model.GetComponentByName(\"x\")");
                 Assert.True(fail.IsError);
                 Assert.Contains("CS1061", KnowledgeTestEnv.Text(fail));
                 var fail2 = env.Cell("throw new InvalidOperationException(\"nope\");");
@@ -310,7 +311,9 @@ namespace SwAgent.Tests
                     var r = env.Cell("Model.Extension.InsertMoveCopyBody2(1, 2)");
                     var text = KnowledgeTestEnv.Text(r);
                     Assert.True(r.IsError);
-                    Assert.Contains("Helper: Bodies.Rotate does this in one call (instead of InsertMoveCopyBody2): Bodies.Rotate(IBody2 body, double[] axis, double deg): IBody2", text);
+                    // A compile error: the compile advisor names the helper; the cell hint doesn't repeat it.
+                    Assert.Contains("- Bodies.Rotate does this in one checked call: Bodies.Rotate(IBody2 body, double[] axis, double deg): IBody2", text);
+                    Assert.DoesNotContain("Helper: Bodies.Rotate", text);
                     Assert.Contains("API note n1 (Move/copy body rotation sign): angles are right-handed about the axis", text);
                     Assert.Equal(1, env.Store.Notes()[0].Hits);
                 }
@@ -374,11 +377,12 @@ namespace SwAgent.Tests
                     var index = KnowledgeIndex.Build(env.Helpers);
                     Assert.Equal(new[] { "helpers", "disabled", "notes", "omitted" }, index.Properties().Select(p => p.Name));
                     var helpers = (JArray)index["helpers"];
-                    Assert.Equal("Bodies.Rotate", (string)helpers[0]["name"]);
-                    Assert.Equal("built-in", (string)helpers[0]["source"]);
-                    Assert.Equal("Calc", (string)helpers[1]["name"]);
-                    Assert.Equal("user", (string)helpers[1]["source"]);
-                    Assert.Equal("Calc.Twice(int x): int - doubles a number", (string)helpers[1]["line"]);
+                    // The agent's own helpers first (they are the lessons it saved), then the built-in ones.
+                    Assert.Equal("Calc", (string)helpers[0]["name"]);
+                    Assert.Equal("user", (string)helpers[0]["source"]);
+                    Assert.Equal("Calc.Twice(int x): int - doubles a number", (string)helpers[0]["line"]);
+                    Assert.Equal("Bodies.Rotate", (string)helpers[1]["name"]);
+                    Assert.Equal("built-in", (string)helpers[1]["source"]);
                     var notes = (JArray)index["notes"];
                     Assert.Equal("n42", (string)notes[0]["id"]); // most hits first
                     foreach (var key in new[] { "id", "topic", "right", "wrong", "apis", "hits", "line" }) Assert.NotNull(notes[0][key]);

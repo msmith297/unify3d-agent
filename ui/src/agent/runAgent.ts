@@ -621,7 +621,7 @@ async function runSubAgent(tu: Anthropic.Beta.Messages.BetaToolUseBlock, opts: A
       longRun: false,
       agents: [],
       localTools: [],
-      system: buildAgentPrompt(agent),
+      system: buildAgentPrompt(agent, { knowledge: opts.knowledge }),
       cb: {
         ...cb,
         getMessages: () => messages,
