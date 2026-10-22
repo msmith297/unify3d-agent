@@ -56,6 +56,28 @@ namespace SwAgent.Infrastructure
         public static string ChatBackupDir => Ensure(Path.Combine(LocalDir, "chat-backup"));
         public static string CaptureDir => Ensure(Path.Combine(LocalDir, "captures"));
 
+        /// <summary>
+        /// %APPDATA%\SwAgent\plugins: installed.json, marketplaces\, cache\&lt;plugin&gt;\&lt;version&gt;\, local\&lt;plugin&gt;\ (the user's
+        /// own, editable), data\&lt;plugin&gt;\ (CLAUDE_PLUGIN_DATA) and session.json (the hook session id).
+        /// </summary>
+        public static string PluginsDir => Ensure(Path.Combine(RoamingDir, "plugins"));
+
+        /// <summary>The per-PC hook/MCP session id (one id kept across SolidWorks runs).</summary>
+        public static string PluginSessionFile => Path.Combine(PluginsDir, "session.json");
+
+        /// <summary>The user's own MCP servers outside plugins: %APPDATA%\SwAgent\mcp.json ({ "mcpServers": { ... } }).</summary>
+        public static string McpConfigFile => Path.Combine(RoamingDir, "mcp.json");
+
+        /// <summary>%LOCALAPPDATA%\SwAgent\plugins\logs: hook and MCP server output (never hook stdin).</summary>
+        public static string PluginLogDir => Ensure(Path.Combine(LocalDir, "plugins", "logs"));
+
+        /// <summary>%LOCALAPPDATA%\SwAgent\plugins\transcripts: the JSONL transcripts hooks get as transcript_path.</summary>
+        public static string PluginTranscriptDir => Ensure(Path.Combine(LocalDir, "plugins", "transcripts"));
+
+        /// <summary>Where plugin_package writes: Documents\Unify3D Plugins (a shareable marketplace folder).</summary>
+        public static string PackagesDir => Ensure(TestRoot != null ? Path.Combine(TestRoot, "Packages") : Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Unify3D Plugins"));
+
         private static string Ensure(string dir)
         {
             Directory.CreateDirectory(dir);

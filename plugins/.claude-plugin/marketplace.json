@@ -1,0 +1,6 @@
+{
+  "name": "unify3d",
+  "owner": { "name": "Unify3D" },
+  "description": "Plugins made for Unify3D Agent, shipped with the add-in.",
+  "plugins": []
+}

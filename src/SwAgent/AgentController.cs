@@ -380,6 +380,7 @@ namespace SwAgent
             });
             UserTools.Changed -= OnUserToolsChanged;
             UserTools.Changed += OnUserToolsChanged;
+            Plugins.PluginsBridge.Attach(bridge); // plugins.* RPCs: store, marketplaces, commands, skills, agents
             bridge.Register("doc.activate", p =>
             {
                 var model = DocumentFor((string)p["docKey"])?.Model;

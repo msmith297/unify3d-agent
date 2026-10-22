@@ -22,6 +22,9 @@ namespace SwAgent.Tools
 
         private static readonly Regex NamePattern = new Regex("^[a-z0-9][a-z0-9-]{1,47}$");
 
+        /// <summary>A plugin's tool: "&lt;plugin&gt;:&lt;tool&gt;" (the colon is allowed only there; design 4.1).</summary>
+        private static readonly Regex PluginToolPattern = new Regex("^([a-z0-9][a-z0-9-]{1,47}):([a-z0-9][a-z0-9-]{1,47})$");
+
         private const string CategoryHelp =
             "Optional category: tools that share one get their own box on the Unify3D ribbon tab and their own section in the Workflows menu, " +
             "e.g. \"Molding & Toolmaking\". Reuse an existing category name (see list_user_tools) rather than inventing a near-duplicate.";
@@ -118,10 +121,26 @@ namespace SwAgent.Tools
 
         private static string BuiltInSettingsPath => Path.Combine(Root, "builtin-settings.json");
 
-        /// <summary>The folder of a tool: the user's, else a built-in one; null if there is none.</summary>
+        /// <summary>
+        /// The folder of a tool: the user's, else a built-in one, else - for "plugin:tool" - the tool of an enabled plugin;
+        /// null if there is none. The one lookup the ribbon, the palette, ToolRunner and read_user_tool share.
+        /// </summary>
         public static string DirOf(string name)
         {
             name = (name ?? "").Trim().ToLowerInvariant();
+            var plugin = PluginToolPattern.Match(name);
+            if (plugin.Success)
+            {
+                try
+                {
+                    return Plugins.PluginManager.Instance.ToolDir(plugin.Groups[1].Value, plugin.Groups[2].Value);
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn($"Plugin tool '{name}' lookup failed: {ex.Message}");
+                    return null;
+                }
+            }
             if (!NamePattern.IsMatch(name)) return null;
             var user = Path.Combine(Root, name);
             if (Directory.Exists(user) && File.Exists(Path.Combine(user, "TOOL.md"))) return user;
@@ -129,12 +148,42 @@ namespace SwAgent.Tools
             return Directory.Exists(builtIn) && File.Exists(Path.Combine(builtIn, "TOOL.md")) ? builtIn : null;
         }
 
-        /// <summary>A built-in Unify3D tool (shipped with the add-in, read-only).</summary>
-        public static bool IsBuiltIn(string name)
+        /// <summary>
+        /// A read-only tool: built in (shipped with the add-in) or from an installed plugin. Tools of the user's own plugins
+        /// (plugins\local) stay editable. Kept for the existing callers; same as IsReadOnly.
+        /// </summary>
+        public static bool IsBuiltIn(string name) => IsReadOnly(name);
+
+        /// <summary>The tool can't be changed or deleted: built in, or from an installed (not local) plugin.</summary>
+        public static bool IsReadOnly(string name) => IsReadOnlyDir(DirOf(name));
+
+        /// <summary>A tool folder that is replaced by installs and updates: builtin-tools, or a plugin's cache folder.</summary>
+        internal static bool IsReadOnlyDir(string dir)
         {
-            var dir = DirOf(name);
-            return dir != null && dir.StartsWith(BuiltInRoot, StringComparison.OrdinalIgnoreCase);
+            if (dir == null) return false;
+            if (dir.StartsWith(BuiltInRoot, StringComparison.OrdinalIgnoreCase)) return true;
+            try
+            {
+                return Plugins.PluginManager.Instance.IsReadOnlyDir(dir);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("Plugin folder check failed: " + ex.Message);
+                return false;
+            }
         }
+
+        /// <summary>A tool of a plugin ("plugin:tool"), enabled or not.</summary>
+        public static bool IsPluginTool(string name) => PluginToolPattern.IsMatch((name ?? "").Trim().ToLowerInvariant());
+
+        /// <summary>
+        /// The tool's name as a file or folder name (last-inputs\&lt;key&gt;.json, builtin-data\&lt;key&gt;, builtin-settings.json keys):
+        /// "plugin:tool" becomes "plugin+tool" - a colon would make an NTFS alternate data stream, and '+' can't occur in a name.
+        /// </summary>
+        public static string StorageKey(string name) => (name ?? "").Trim().ToLowerInvariant().Replace(':', '+');
+
+        /// <summary>Tell the panel and the ribbon that tools changed (plugins enabled, installed, updated or edited).</summary>
+        internal static void NotifyChanged() => Changed?.Invoke();
 
         private static bool BuiltInExists(string name) => File.Exists(Path.Combine(BuiltInRoot, name, "TOOL.md"));
 
@@ -143,7 +192,7 @@ namespace SwAgent.Tools
         {
             try
             {
-                if (File.Exists(BuiltInSettingsPath) && JObject.Parse(File.ReadAllText(BuiltInSettingsPath))[name] is JObject o)
+                if (File.Exists(BuiltInSettingsPath) && JObject.Parse(File.ReadAllText(BuiltInSettingsPath))[StorageKey(name)] is JObject o)
                     return o.Properties().ToDictionary(p => p.Name, p => (string)p.Value, StringComparer.OrdinalIgnoreCase);
             }
             catch (Exception ex)
@@ -153,11 +202,11 @@ namespace SwAgent.Tools
             return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         }
 
-        /// <summary>Front matter of a tool with the user's settings applied (built-in tools keep those outside their folder).</summary>
+        /// <summary>Front matter of a tool with the user's settings applied (read-only tools keep those outside their folder).</summary>
         internal static Dictionary<string, string> EffectiveFrontMatter(string name, string dir)
         {
             var fm = ReadFrontMatter(File.ReadAllText(Path.Combine(dir, "TOOL.md")));
-            if (dir.StartsWith(BuiltInRoot, StringComparison.OrdinalIgnoreCase))
+            if (IsReadOnlyDir(dir))
             {
                 foreach (var kv in BuiltInSettings(name)) fm[kv.Key] = kv.Value;
             }
@@ -365,7 +414,10 @@ namespace SwAgent.Tools
                 .ToList();
             var text = File.ReadAllText(target);
             if (others.Count > 0 && string.IsNullOrWhiteSpace(input.File)) text += "\n\n---\nExtra files in this tool: " + string.Join(", ", others);
-            if (IsBuiltIn(input.Name)) text += "\n\n(Built-in Unify3D tool: read-only. If the user wants it to work differently, save their own version under a new name.)";
+            if (IsReadOnly(input.Name))
+                text += IsPluginTool(input.Name)
+                    ? "\n\n(Tool of an installed plugin: read-only. If the user wants it to work differently, save their own version under a new name.)"
+                    : "\n\n(Built-in Unify3D tool: read-only. If the user wants it to work differently, save their own version under a new name.)";
             return ToolResult.Ok(text);
         }
 
@@ -542,18 +594,19 @@ namespace SwAgent.Tools
         public static void SetValue(string name, string key, string value)
         {
             var isCategory = string.Equals(key, "category", StringComparison.OrdinalIgnoreCase);
-            if (IsBuiltIn(name))
+            if (IsReadOnly(name))
             {
-                var shipped = ReadFrontMatter(File.ReadAllText(Path.Combine(BuiltInRoot, name, "TOOL.md")));
+                var storageKey = StorageKey(name);
+                var shipped = ReadFrontMatter(File.ReadAllText(Path.Combine(DirOf(name), "TOOL.md")));
                 shipped.TryGetValue(key, out var original);
                 var clean = value == null ? null : isCategory ? CleanCategory(value) : OneLine(value);
                 var same = clean != null && (isCategory ? CleanCategory(original) == clean : original != null && OneLine(original) == clean);
                 var all = File.Exists(BuiltInSettingsPath) ? JObject.Parse(File.ReadAllText(BuiltInSettingsPath)) : new JObject();
-                var mine = all[name] as JObject ?? new JObject();
+                var mine = all[storageKey] as JObject ?? new JObject();
                 if (clean == null || same) mine.Remove(key);
                 else mine[key] = clean; // "" for a category: the user chose none
-                if (mine.HasValues) all[name] = mine;
-                else all.Remove(name);
+                if (mine.HasValues) all[storageKey] = mine;
+                else all.Remove(storageKey);
                 File.WriteAllText(BuiltInSettingsPath, all.ToString(Newtonsoft.Json.Formatting.Indented));
                 Changed?.Invoke();
                 return;
@@ -613,19 +666,24 @@ namespace SwAgent.Tools
             var builtIn = Directory.Exists(BuiltInRoot) ? Directory.GetDirectories(BuiltInRoot) : new string[0];
             var dirs = builtIn.OrderBy(d => d, StringComparer.OrdinalIgnoreCase)
                 .Concat(Directory.GetDirectories(Root).OrderBy(d => d, StringComparer.OrdinalIgnoreCase)
-                    .Where(d => !BuiltInExists(Path.GetFileName(d)))); // a built-in name can't be a user tool
-            foreach (var dir in dirs)
+                    .Where(d => !BuiltInExists(Path.GetFileName(d)))) // a built-in name can't be a user tool
+                .Select(d => (Name: Path.GetFileName(d), Dir: d, Plugin: (string)null))
+                .Concat(PluginTools());
+            foreach (var (name, dir, plugin) in dirs)
             {
                 var md = Path.Combine(dir, "TOOL.md");
                 if (!File.Exists(md)) continue;
                 try
                 {
-                    var name = Path.GetFileName(dir);
                     var fm = EffectiveFrontMatter(name, dir);
+                    var readOnly = IsReadOnlyDir(dir);
                     result.Add(new JObject
                     {
                         ["name"] = name,
                         ["builtIn"] = dir.StartsWith(BuiltInRoot, StringComparison.OrdinalIgnoreCase),
+                        // A plugin's tool ("plugin:tool"): read-only unless the plugin is the user's own (plugins\local).
+                        ["plugin"] = plugin,
+                        ["readOnly"] = readOnly,
                         ["title"] = fm.TryGetValue("title", out var t) ? t : name,
                         ["description"] = fm.TryGetValue("description", out var d) ? d : "",
                         ["icon"] = fm.TryGetValue("icon", out var i) && Icons.Contains(i) ? i : "macro",
@@ -644,7 +702,7 @@ namespace SwAgent.Tools
                         // Grouping on the ribbon and in the Workflows menu, the ribbon's shorter button title, and long runs.
                         ["category"] = CategoryOf(fm),
                         // A built-in's shipped category, so the panel can offer "Reset to default" after the user changed it.
-                        ["categoryDefault"] = dir.StartsWith(BuiltInRoot, StringComparison.OrdinalIgnoreCase)
+                        ["categoryDefault"] = readOnly
                             ? CategoryOf(ReadFrontMatter(File.ReadAllText(md)))
                             : null,
                         ["ribbonTitle"] = fm.TryGetValue("ribbon_title", out var rt) && !string.IsNullOrWhiteSpace(rt) ? OneLine(rt) : null,
@@ -661,6 +719,21 @@ namespace SwAgent.Tools
             return result;
         }
 
+        /// <summary>The tools of enabled plugins, named "plugin:tool".</summary>
+        private static IEnumerable<(string Name, string Dir, string Plugin)> PluginTools()
+        {
+            try
+            {
+                return Plugins.PluginManager.Instance.EnabledPlugins()
+                    .SelectMany(p => p.Manifest.Tools().Select(t => (p.Name + ":" + t.Name, t.Dir, p.Name))).ToList();
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("Plugin tools unavailable: " + ex.Message);
+                return new List<(string, string, string)>();
+            }
+        }
+
         public static void Delete(string name)
         {
             var dir = ToolDir(name, mustExist: true);
@@ -672,6 +745,15 @@ namespace SwAgent.Tools
         private static string ToolDir(string name, bool mustExist, bool forWrite = true)
         {
             name = (name ?? "").Trim().ToLowerInvariant();
+            if (PluginToolPattern.IsMatch(name))
+            {
+                // A plugin's tool: editable only in the user's own plugins (plugins\local); never created here.
+                var pluginDir = DirOf(name) ?? throw new ToolException($"No tool named '{name}' (is its plugin enabled?). Use list_user_tools to see what exists.");
+                if (forWrite && IsReadOnlyDir(pluginDir))
+                    throw new ToolException($"'{name}' belongs to an installed plugin and can't be changed or deleted. If the user wants it to work differently, " +
+                                            "save their own version under a new name with save_user_tool.");
+                return pluginDir;
+            }
             if (!NamePattern.IsMatch(name)) throw new ToolException($"'{name}' is not a valid tool name.");
             if (IsBuiltIn(name))
             {
@@ -686,7 +768,7 @@ namespace SwAgent.Tools
         }
 
         /// <summary>Resolve a relative path inside a tool folder; rejects anything that escapes it.</summary>
-        private static string SafePath(string dir, string relative)
+        internal static string SafePath(string dir, string relative)
         {
             if (string.IsNullOrWhiteSpace(relative) || Path.IsPathRooted(relative)) throw new ToolException("File paths must be relative to the tool folder.");
             var full = Path.GetFullPath(Path.Combine(dir, relative));

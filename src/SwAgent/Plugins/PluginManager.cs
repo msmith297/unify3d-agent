@@ -1,0 +1,1223 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Threading;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+using Newtonsoft.Json.Serialization;
+using SwAgent.Infrastructure;
+
+namespace SwAgent.Plugins
+{
+    /// <summary>
+    /// Installed plugins and marketplaces (design 3): %APPDATA%\SwAgent\plugins\ holds installed.json, marketplaces\ (copies
+    /// or clones), cache\&lt;plugin&gt;\&lt;version&gt;\ (installed files, read-only, replaced on update), local\&lt;plugin&gt;\ (the
+    /// user's own plugins: the "local" marketplace, editable) and data\&lt;plugin&gt;\ (CLAUDE_PLUGIN_DATA, kept across updates).
+    /// The built-in "unify3d" marketplace ships with the add-in in builtin-plugins\.
+    ///
+    /// Trust (design critique 16): hooks and MCP servers only run when the hash of the plugin's current hooks and MCP servers
+    /// equals the hash the user approved in the panel's trust dialog (Install / Enable with trustHash). The agent's tools
+    /// never pass a trustHash, so nothing the agent writes or enables runs a program without the user's click.
+    ///
+    /// Everything here is files and network: no SolidWorks, safe on background threads (fetching runs there).
+    /// </summary>
+    internal sealed class PluginManager : IPluginRuntimeSource
+    {
+        public const string BuiltInMarketplace = "unify3d", LocalMarketplace = "local";
+
+        private static readonly Regex IdPattern = new Regex("^([a-z0-9][a-z0-9-]{1,47})@([a-z0-9][a-z0-9-]{1,47})$");
+        private static readonly byte[] Entropy = Encoding.UTF8.GetBytes("SwAgent.PluginConfig.v1");
+        private static readonly JsonSerializerSettings Json = new JsonSerializerSettings
+        {
+            ContractResolver = new DefaultContractResolver { NamingStrategy = new CamelCaseNamingStrategy() },
+            NullValueHandling = NullValueHandling.Ignore,
+            Formatting = Formatting.Indented,
+        };
+
+        private static PluginManager _instance;
+
+        /// <summary>The add-in's plugins (under Paths, so SWAGENT_DATA_DIR redirects it). Tests may swap it.</summary>
+        public static PluginManager Instance
+        {
+            get => _instance ?? (_instance = new PluginManager());
+            internal set => _instance = value;
+        }
+
+        public string Root { get; }
+        public string BuiltInRoot { get; }
+        public string InstalledFile => Path.Combine(Root, "installed.json");
+        public string MarketplacesDir => Path.Combine(Root, "marketplaces");
+        public string CacheDir => Path.Combine(Root, "cache");
+        public string LocalDir => Path.Combine(Root, "local");
+        public string DataRoot => Path.Combine(Root, "data");
+        private string SecretsDir => Path.Combine(Root, "secrets");
+        private string TrashDir => Path.Combine(Root, "trash");
+
+        private readonly object _lock = new object();
+        private readonly object _op = new object();
+        private readonly Dictionary<string, Staged> _staged = new Dictionary<string, Staged>(StringComparer.Ordinal);
+        private List<LoadedPlugin> _snapshot;
+        private DateTime _snapshotAt;
+
+        /// <summary>Install, uninstall, enable, trust, update, options or a local plugin's files changed. Raised on the calling (often a background) thread.</summary>
+        public event Action Changed;
+
+        /// <param name="root">The plugins folder (default %APPDATA%\SwAgent\plugins).</param>
+        /// <param name="builtInRoot">The built-in marketplace folder (default builtin-plugins next to the add-in).</param>
+        public PluginManager(string root = null, string builtInRoot = null)
+        {
+            Root = root ?? Paths.PluginsDir;
+            BuiltInRoot = builtInRoot ?? Path.Combine(Paths.AddInDir, "builtin-plugins");
+            Directory.CreateDirectory(Root);
+        }
+
+        // ---------------------------------------------------------------- state (installed.json)
+
+        internal sealed class PluginRecord
+        {
+            public string Name;
+            public string Marketplace;
+            public string Version;
+            public string Sha;
+            public string Path;
+            public bool Enabled;
+            public string TrustedHash;
+            public JObject Source;
+            public string InstalledAt;
+            public string UpdatedAt;
+            public JObject UserConfig = new JObject();
+            public JObject Unify3d = new JObject();
+            public string PendingUpdate;
+
+            [JsonIgnore] public string Id => Name + "@" + Marketplace;
+            [JsonIgnore] public bool Local => Marketplace == LocalMarketplace;
+        }
+
+        internal sealed class MarketplaceRecord
+        {
+            public JObject Source;
+            public string Path;
+            public string UpdatedAt;
+            public string Sha;
+            public bool? AutoUpdate;
+        }
+
+        private sealed class State
+        {
+            public Dictionary<string, PluginRecord> Plugins = new Dictionary<string, PluginRecord>(StringComparer.Ordinal);
+            public Dictionary<string, MarketplaceRecord> Marketplaces = new Dictionary<string, MarketplaceRecord>(StringComparer.Ordinal);
+            public List<string> Trash = new List<string>();
+        }
+
+        private State Load()
+        {
+            try
+            {
+                if (File.Exists(InstalledFile))
+                {
+                    var s = JsonConvert.DeserializeObject<State>(File.ReadAllText(InstalledFile), Json) ?? new State();
+                    s.Plugins = new Dictionary<string, PluginRecord>(s.Plugins ?? new Dictionary<string, PluginRecord>(), StringComparer.Ordinal);
+                    s.Marketplaces = new Dictionary<string, MarketplaceRecord>(s.Marketplaces ?? new Dictionary<string, MarketplaceRecord>(), StringComparer.Ordinal);
+                    s.Trash = s.Trash ?? new List<string>();
+                    foreach (var r in s.Plugins.Values)
+                    {
+                        r.UserConfig = r.UserConfig ?? new JObject();
+                        r.Unify3d = r.Unify3d ?? new JObject();
+                    }
+                    return s;
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error("installed.json unreadable; plugins start empty", ex);
+            }
+            return new State();
+        }
+
+        private void Save(State s)
+        {
+            var tmp = InstalledFile + ".tmp";
+            File.WriteAllText(tmp, JsonConvert.SerializeObject(s, Json), new UTF8Encoding(false));
+            if (File.Exists(InstalledFile)) File.Replace(tmp, InstalledFile, null);
+            else File.Move(tmp, InstalledFile);
+        }
+
+        /// <summary>Read, change and write installed.json under the lock; then raise Changed.</summary>
+        private T Mutate<T>(Func<State, T> change)
+        {
+            T result;
+            lock (_lock)
+            {
+                var s = Load();
+                result = change(s);
+                Save(s);
+                _snapshot = null;
+            }
+            RaiseChanged();
+            return result;
+        }
+
+        private void RaiseChanged()
+        {
+            try
+            {
+                Changed?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                Log.Error("A plugins.changed handler failed", ex);
+            }
+        }
+
+        /// <summary>A local plugin's files changed (plugin_write_file, plugin_add_tool): drop the cached snapshot and tell the runtime.</summary>
+        public void Invalidate()
+        {
+            lock (_lock) _snapshot = null;
+            RaiseChanged();
+        }
+
+        // ---------------------------------------------------------------- plugins as loaded
+
+        /// <summary>An installed plugin with its manifest read from disk.</summary>
+        internal sealed class LoadedPlugin
+        {
+            public PluginRecord Record;
+            public PluginManifest Manifest;
+            public string Id => Record.Id;
+            public string Name => Record.Name;
+            public string Root => Record.Path;
+            public bool Enabled => Record.Enabled;
+            public bool Local => Record.Local;
+        }
+
+        /// <summary>
+        /// Every installed plugin (local ones included: each folder in local\ is installed, disabled until enabled), read
+        /// once and cached for a few seconds - the tool index asks for every tool.
+        /// </summary>
+        public List<LoadedPlugin> Installed()
+        {
+            lock (_lock)
+            {
+                if (_snapshot != null && (DateTime.UtcNow - _snapshotAt).TotalSeconds < 3) return _snapshot;
+                var s = Load();
+                var list = new List<LoadedPlugin>();
+                foreach (var r in s.Plugins.Values.OrderBy(r => r.Name, StringComparer.Ordinal))
+                {
+                    if (r.Local) r.Path = Path.Combine(LocalDir, r.Name);
+                    var m = PluginManifest.Load(r.Path);
+                    if (m == null)
+                    {
+                        if (!r.Local) Log.Warn($"Plugin {r.Id}: its folder {r.Path} is missing.");
+                        if (r.Local) continue; // deleted by hand
+                        m = new PluginManifest { Root = r.Path, Name = r.Name, Findings = { "error: the installed files are missing; reinstall the plugin." } };
+                    }
+                    list.Add(new LoadedPlugin { Record = r, Manifest = m });
+                }
+                if (Directory.Exists(LocalDir))
+                {
+                    foreach (var dir in Directory.GetDirectories(LocalDir).OrderBy(d => d, StringComparer.OrdinalIgnoreCase))
+                    {
+                        var name = Path.GetFileName(dir);
+                        if (!PluginManifest.NamePattern.IsMatch(name) || s.Plugins.ContainsKey(name + "@" + LocalMarketplace)) continue;
+                        if (!File.Exists(PluginManifest.ManifestPath(dir))) continue;
+                        list.Add(new LoadedPlugin
+                        {
+                            Record = new PluginRecord { Name = name, Marketplace = LocalMarketplace, Path = dir, Enabled = false },
+                            Manifest = PluginManifest.Load(dir),
+                        });
+                    }
+                }
+                _snapshot = list;
+                _snapshotAt = DateTime.UtcNow;
+                return list;
+            }
+        }
+
+        public IEnumerable<LoadedPlugin> EnabledPlugins() => Installed().Where(p => p.Enabled);
+
+        /// <summary>An installed plugin by id ("name@marketplace") or by name; null when none.</summary>
+        public LoadedPlugin Find(string idOrName)
+        {
+            var key = (idOrName ?? "").Trim().ToLowerInvariant();
+            return Installed().FirstOrDefault(p => p.Id == key) ?? Installed().FirstOrDefault(p => p.Name == key);
+        }
+
+        /// <summary>The folder of a plugin's tool ("tool" of "plugin:tool") when the plugin is enabled and has it; else null.</summary>
+        public string ToolDir(string plugin, string tool)
+        {
+            var p = EnabledPlugins().FirstOrDefault(x => x.Name == plugin);
+            return p?.Manifest.Tools().Where(t => t.Name == tool).Select(t => t.Dir).FirstOrDefault();
+        }
+
+        /// <summary>A folder holding installed (not local) plugin files: read-only, replaced on update.</summary>
+        public bool IsReadOnlyDir(string dir) => dir != null && PluginManifest.IsInside(CacheDir, dir);
+
+        /// <summary>The current trust hash: hooks + MCP servers, and for a local plugin every file too (its hooks may run them).</summary>
+        internal string CurrentHash(LoadedPlugin p)
+        {
+            if (p.Manifest == null || !p.Manifest.HasRuntime) return "";
+            var files = p.Local && Directory.Exists(p.Root)
+                ? Directory.GetFiles(p.Root, "*", SearchOption.AllDirectories).Where(f => !f.Substring(p.Root.Length).Replace('\\', '/').Contains("/.git/"))
+                : null;
+            return p.Manifest.TrustHash(files);
+        }
+
+        public bool IsTrusted(LoadedPlugin p)
+        {
+            var hash = CurrentHash(p);
+            return hash == "" || hash == p.Record.TrustedHash;
+        }
+
+        // ---------------------------------------------------------------- the runtime seam (track B)
+
+        /// <summary>Every enabled plugin as the runtime sees it, trusted or not (Runnable() filters).</summary>
+        public IReadOnlyList<PluginRuntime> Enabled() => EnabledPlugins().Where(p => p.Manifest != null).Select(BuildRuntime).ToList();
+
+        public IReadOnlyList<PluginRuntime> Runnable()
+        {
+            var list = new List<PluginRuntime>();
+            foreach (var p in EnabledPlugins())
+            {
+                if (p.Manifest == null || !IsTrusted(p)) continue;
+                var rt = BuildRuntime(p);
+                if (!PluginSettings.Hooks) rt.Hooks = new JObject();
+                if (!PluginSettings.Mcp) rt.McpServers = new Dictionary<string, JObject>();
+                list.Add(rt);
+            }
+            return list;
+        }
+
+        internal PluginRuntime BuildRuntime(LoadedPlugin p)
+        {
+            var m = p.Manifest;
+            var dataDir = Directory.CreateDirectory(Path.Combine(DataRoot, p.Name)).FullName;
+            var options = Options(p);
+            var vars = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["CLAUDE_PLUGIN_ROOT"] = p.Root,
+                ["UNIFY3D_PLUGIN_ROOT"] = p.Root,
+                ["CLAUDE_PLUGIN_DATA"] = dataDir,
+                ["UNIFY3D_DEVICE"] = Environment.MachineName,
+                ["UNIFY3D_PID"] = Process.GetCurrentProcess().Id.ToString(),
+            };
+            Func<string, string> full = text => Expand(text, vars, options, withSecrets: true);
+            Func<string, string> forCommands = text => Expand(text, vars, options, withSecrets: false);
+
+            // Entry env first, then plugin.json's unify3d.env, then the user's options (design critique 3).
+            var env = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var source in new[] { p.Record.Unify3d?["env"] as JObject, m.Unify3d?["env"] as JObject })
+            {
+                foreach (var kv in source?.Properties() ?? Enumerable.Empty<JProperty>())
+                {
+                    if (IsBlockedEnv(kv.Name)) continue;
+                    env[kv.Name] = full((string)kv.Value ?? "");
+                }
+            }
+            foreach (var o in options)
+            {
+                if (o.Value.Value != null) env["CLAUDE_PLUGIN_OPTION_" + o.Key.ToUpperInvariant()] = o.Value.Value;
+            }
+            env["CLAUDE_PLUGIN_ROOT"] = p.Root;
+            env["UNIFY3D_PLUGIN_ROOT"] = p.Root;
+            env["CLAUDE_PLUGIN_DATA"] = dataDir;
+            env["UNIFY3D"] = "1";
+
+            var servers = new Dictionary<string, JObject>(StringComparer.Ordinal);
+            foreach (var kv in m.McpServers)
+            {
+                var s = (JObject)kv.Value.DeepClone();
+                if (s["env"] is JObject e)
+                {
+                    foreach (var prop in e.Properties().ToList())
+                    {
+                        if (IsBlockedEnv(prop.Name)) prop.Remove();
+                        else prop.Value = full((string)prop.Value ?? "");
+                    }
+                }
+                servers[kv.Key] = s;
+            }
+            return new PluginRuntime
+            {
+                Id = p.Id,
+                Name = p.Name,
+                Root = p.Root,
+                DataDir = dataDir,
+                Env = env,
+                Expand = forCommands,
+                Hooks = (JObject)m.Hooks.DeepClone(),
+                McpServers = servers,
+                TrustHash = CurrentHash(p),
+            };
+        }
+
+        /// <summary>The Anthropic key never reaches a plugin process, not even through ${ANTHROPIC_API_KEY}.</summary>
+        private static bool IsBlockedEnv(string name) => string.Equals(name, "ANTHROPIC_API_KEY", StringComparison.OrdinalIgnoreCase);
+
+        private static readonly Regex Placeholder = new Regex(@"\$\{([^}]+)\}");
+
+        /// <summary>${CLAUDE_PLUGIN_ROOT} and friends, ${user_config.KEY}, ${ENV} and ${ENV:-default}; unknown ones become "".</summary>
+        internal static string Expand(string text, IDictionary<string, string> vars, IDictionary<string, (string Value, bool Sensitive)> options, bool withSecrets)
+        {
+            if (string.IsNullOrEmpty(text)) return text;
+            return Placeholder.Replace(text, m =>
+            {
+                var key = m.Groups[1].Value.Trim();
+                if (vars.TryGetValue(key, out var v)) return v;
+                if (key.StartsWith("user_config.", StringComparison.Ordinal))
+                {
+                    if (!options.TryGetValue(key.Substring(12), out var o)) return "";
+                    return o.Sensitive && !withSecrets ? "" : o.Value ?? "";
+                }
+                string fallback = null;
+                var dash = key.IndexOf(":-", StringComparison.Ordinal);
+                if (dash > 0)
+                {
+                    fallback = key.Substring(dash + 2);
+                    key = key.Substring(0, dash);
+                }
+                if (IsBlockedEnv(key)) return "";
+                var env = Environment.GetEnvironmentVariable(key);
+                return string.IsNullOrEmpty(env) ? fallback ?? "" : env;
+            });
+        }
+
+        // ---------------------------------------------------------------- user options (userConfig)
+
+        /// <summary>Every option with its value: the user's, else the default; sensitive values come from the DPAPI file.</summary>
+        internal Dictionary<string, (string Value, bool Sensitive)> Options(LoadedPlugin p)
+        {
+            var result = new Dictionary<string, (string, bool)>(StringComparer.Ordinal);
+            var secrets = ReadSecrets(p.Id);
+            foreach (var kv in p.Manifest.UserConfig)
+            {
+                var sensitive = (bool?)kv.Value["sensitive"] == true;
+                string value;
+                if (sensitive) value = (string)secrets[kv.Key];
+                else value = p.Record.UserConfig?[kv.Key] is JToken t && t.Type != JTokenType.Null ? (string)t : null;
+                if (value == null && kv.Value["default"] is JToken d && d.Type != JTokenType.Null) value = d.Type == JTokenType.Boolean ? ((bool)d ? "true" : "false") : (string)d;
+                result[kv.Key] = (value, sensitive);
+            }
+            return result;
+        }
+
+        private string SecretsFile(string id) => Path.Combine(SecretsDir, id + ".bin");
+
+        private JObject ReadSecrets(string id)
+        {
+            try
+            {
+                var f = SecretsFile(id);
+                if (!File.Exists(f)) return new JObject();
+                var plain = ProtectedData.Unprotect(File.ReadAllBytes(f), Entropy, DataProtectionScope.CurrentUser);
+                return JObject.Parse(Encoding.UTF8.GetString(plain));
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Could not read the stored options of {id}: {ex.GetType().Name}");
+                return new JObject();
+            }
+        }
+
+        private void WriteSecrets(string id, JObject values)
+        {
+            var f = SecretsFile(id);
+            if (!values.HasValues)
+            {
+                if (File.Exists(f)) File.Delete(f);
+                return;
+            }
+            Directory.CreateDirectory(SecretsDir);
+            File.WriteAllBytes(f, ProtectedData.Protect(Encoding.UTF8.GetBytes(values.ToString(Formatting.None)), Entropy, DataProtectionScope.CurrentUser));
+        }
+
+        /// <summary>Set options (null removes a value). Only keys the plugin declares; sensitive ones are stored encrypted, never in installed.json.</summary>
+        public void SetConfig(string id, JObject values)
+        {
+            var p = Find(id) ?? throw new InvalidOperationException($"No installed plugin \"{id}\".");
+            var secrets = ReadSecrets(p.Id);
+            var plain = new JObject();
+            foreach (var kv in values?.Properties() ?? Enumerable.Empty<JProperty>())
+            {
+                if (!p.Manifest.UserConfig.TryGetValue(kv.Name, out var opt)) throw new InvalidOperationException($"{p.Name} has no option \"{kv.Name}\".");
+                var value = kv.Value == null || kv.Value.Type == JTokenType.Null ? null : kv.Value.Type == JTokenType.Boolean ? ((bool)kv.Value ? "true" : "false") : (string)kv.Value;
+                if ((bool?)opt["sensitive"] == true)
+                {
+                    if (value == null) secrets.Remove(kv.Name);
+                    else secrets[kv.Name] = value;
+                }
+                else plain[kv.Name] = value;
+            }
+            WriteSecrets(p.Id, secrets);
+            Mutate(s =>
+            {
+                var r = Record(s, p);
+                foreach (var kv in plain.Properties())
+                {
+                    if (kv.Value.Type == JTokenType.Null) r.UserConfig.Remove(kv.Name);
+                    else r.UserConfig[kv.Name] = kv.Value;
+                }
+                return 0;
+            });
+            Log.Info($"Plugin {p.Id}: options updated ({string.Join(", ", values?.Properties().Select(x => x.Name) ?? new string[0])})");
+        }
+
+        /// <summary>The record of a plugin in the state (a local plugin's is created on first use).</summary>
+        private PluginRecord Record(State s, LoadedPlugin p)
+        {
+            if (!s.Plugins.TryGetValue(p.Id, out var r))
+            {
+                if (!p.Local) throw new InvalidOperationException($"No installed plugin \"{p.Id}\".");
+                r = new PluginRecord
+                {
+                    Name = p.Name, Marketplace = LocalMarketplace, Path = p.Root, Version = p.Manifest?.Version,
+                    Source = new JObject { ["source"] = "local" }, InstalledAt = Now(),
+                };
+                s.Plugins[p.Id] = r;
+            }
+            return r;
+        }
+
+        // ---------------------------------------------------------------- marketplaces
+
+        internal sealed class MarketplaceInfo
+        {
+            public string Name;
+            public PluginSource Source;
+            public string SourceText;
+            public string Root;
+            public bool BuiltIn;
+            public bool Removable;
+            public bool AutoUpdate;
+            public string UpdatedAt;
+            public MarketplaceManifest Manifest;
+            public string Error;
+        }
+
+        /// <summary>The built-in "unify3d", the "local" marketplace and every added one, with their plugin lists.</summary>
+        public List<MarketplaceInfo> Marketplaces()
+        {
+            var s = Snapshot();
+            var list = new List<MarketplaceInfo>();
+            var builtIn = new MarketplaceInfo { Name = BuiltInMarketplace, Root = BuiltInRoot, BuiltIn = true, SourceText = "Built in", AutoUpdate = MarketplaceAutoUpdate(s, BuiltInMarketplace) };
+            try
+            {
+                builtIn.Manifest = File.Exists(MarketplaceManifest.PathIn(BuiltInRoot)) ? MarketplaceManifest.Load(BuiltInRoot) : new MarketplaceManifest { Name = BuiltInMarketplace };
+            }
+            catch (Exception ex)
+            {
+                builtIn.Error = ex.Message;
+            }
+            list.Add(builtIn);
+
+            var local = new MarketplaceInfo { Name = LocalMarketplace, Root = LocalDir, BuiltIn = true, SourceText = LocalDir, Manifest = new MarketplaceManifest { Name = LocalMarketplace } };
+            foreach (var p in Installed().Where(x => x.Local))
+            {
+                local.Manifest.Plugins.Add(new MarketplaceEntry
+                {
+                    Name = p.Name, Description = p.Manifest.Description, Version = p.Manifest.Version, Keywords = p.Manifest.Keywords,
+                    Category = PluginManifest.Str(p.Manifest.Unify3d["category"]),
+                    Source = new PluginSource { Kind = PluginSource.SourceKind.Relative, Path = "./" + p.Name },
+                });
+            }
+            list.Add(local);
+
+            foreach (var kv in s.Marketplaces.OrderBy(k => k.Key, StringComparer.Ordinal))
+            {
+                var info = new MarketplaceInfo { Name = kv.Key, Root = kv.Value.Path, Removable = true, UpdatedAt = kv.Value.UpdatedAt, AutoUpdate = MarketplaceAutoUpdate(s, kv.Key) };
+                try
+                {
+                    info.Source = PluginSource.FromJson(kv.Value.Source);
+                    info.SourceText = info.Source.ToString();
+                    info.Manifest = MarketplaceManifest.Load(kv.Value.Path);
+                    if (info.Source.Kind == PluginSource.SourceKind.Url) info.Root = null; // one marketplace.json: no folders in it
+                }
+                catch (Exception ex)
+                {
+                    info.Error = ex.Message;
+                }
+                list.Add(info);
+            }
+            return list;
+        }
+
+        private State Snapshot()
+        {
+            lock (_lock) return Load();
+        }
+
+        /// <summary>Auto-update is on for the built-in marketplace and off for third-party ones unless the user turned it on.</summary>
+        private static bool MarketplaceAutoUpdate(State s, string name) =>
+            s.Marketplaces.TryGetValue(name, out var r) && r.AutoUpdate.HasValue ? r.AutoUpdate.Value : name == BuiltInMarketplace;
+
+        public MarketplaceInfo AddMarketplace(string input, CancellationToken cancel = default(CancellationToken))
+        {
+            var source = PluginSource.FromUserInput(input);
+            lock (_op)
+            {
+                string name, path, sha = null;
+                if (source.Kind == PluginSource.SourceKind.Folder)
+                {
+                    if (!File.Exists(MarketplaceManifest.PathIn(source.Path)))
+                        throw new InvalidOperationException($"\"{source.Path}\" has no .claude-plugin\\marketplace.json.");
+                    name = MarketplaceManifest.Load(source.Path).Name;
+                    path = source.Path; // read in place: edits show at once
+                    CheckNewMarketplace(name);
+                }
+                else
+                {
+                    Directory.CreateDirectory(MarketplacesDir);
+                    var tmp = Path.Combine(MarketplacesDir, ".new-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+                    try
+                    {
+                        sha = Fetcher.FetchMarketplace(source, tmp, cancel);
+                        if (!File.Exists(MarketplaceManifest.PathIn(tmp))) throw new InvalidOperationException("That repository has no .claude-plugin/marketplace.json.");
+                        name = MarketplaceManifest.Load(tmp).Name;
+                        CheckNewMarketplace(name);
+                        path = Path.Combine(MarketplacesDir, name);
+                        if (Directory.Exists(path)) Fetcher.TryDelete(path);
+                        Fetcher.MoveDirectory(tmp, path);
+                    }
+                    finally
+                    {
+                        Fetcher.TryDelete(tmp);
+                    }
+                }
+                Mutate(s =>
+                {
+                    s.Marketplaces[name] = new MarketplaceRecord { Source = source.ToJson(), Path = path, UpdatedAt = Now(), Sha = sha };
+                    return 0;
+                });
+                Log.Info($"Added plugin marketplace {name} ({source})");
+                return Marketplaces().First(m => m.Name == name);
+            }
+        }
+
+        private void CheckNewMarketplace(string name)
+        {
+            if (name == BuiltInMarketplace || name == LocalMarketplace) throw new InvalidOperationException($"\"{name}\" is a reserved marketplace name.");
+            if (Snapshot().Marketplaces.ContainsKey(name)) throw new InvalidOperationException($"A marketplace named \"{name}\" is already added. Update it instead.");
+        }
+
+        /// <summary>Remove an added marketplace and uninstall its plugins (as Claude Code does).</summary>
+        public void RemoveMarketplace(string name)
+        {
+            if (name == BuiltInMarketplace || name == LocalMarketplace) throw new InvalidOperationException($"The \"{name}\" marketplace can't be removed.");
+            lock (_op)
+            {
+                var s = Snapshot();
+                if (!s.Marketplaces.TryGetValue(name ?? "", out var rec)) throw new InvalidOperationException($"No marketplace \"{name}\".");
+                foreach (var id in s.Plugins.Values.Where(r => r.Marketplace == name).Select(r => r.Id).ToList()) Uninstall(id);
+                var source = PluginSource.FromJson(rec.Source);
+                if (source.Kind != PluginSource.SourceKind.Folder && PluginManifest.IsInside(MarketplacesDir, rec.Path)) Fetcher.TryDelete(rec.Path);
+                Mutate(st => st.Marketplaces.Remove(name));
+                Log.Info($"Removed plugin marketplace {name}");
+            }
+        }
+
+        /// <summary>Fetch a marketplace again (git: fetch + hard reset; zip or marketplace.json: download again). Built-in and folder ones are read in place.</summary>
+        public void UpdateMarketplace(string name, CancellationToken cancel = default(CancellationToken))
+        {
+            if (name == BuiltInMarketplace || name == LocalMarketplace) return;
+            lock (_op)
+            {
+                var s = Snapshot();
+                if (!s.Marketplaces.TryGetValue(name ?? "", out var rec)) throw new InvalidOperationException($"No marketplace \"{name}\".");
+                var source = PluginSource.FromJson(rec.Source);
+                string sha = rec.Sha;
+                if (source.Kind != PluginSource.SourceKind.Folder)
+                {
+                    if (Fetcher.TryPull(rec.Path, source.Ref, cancel))
+                    {
+                        sha = Fetcher.GitHead(rec.Path);
+                    }
+                    else
+                    {
+                        var tmp = Path.Combine(MarketplacesDir, ".new-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+                        try
+                        {
+                            sha = Fetcher.FetchMarketplace(source, tmp, cancel);
+                            var fetched = MarketplaceManifest.Load(tmp).Name;
+                            if (fetched != name) throw new InvalidOperationException($"The marketplace is now called \"{fetched}\"; remove it and add it again.");
+                            Fetcher.TryDelete(rec.Path);
+                            Fetcher.MoveDirectory(tmp, rec.Path);
+                        }
+                        finally
+                        {
+                            Fetcher.TryDelete(tmp);
+                        }
+                    }
+                }
+                Mutate(st =>
+                {
+                    if (st.Marketplaces.TryGetValue(name, out var r))
+                    {
+                        r.UpdatedAt = Now();
+                        r.Sha = sha;
+                    }
+                    return 0;
+                });
+            }
+        }
+
+        public void SetMarketplaceAutoUpdate(string name, bool on)
+        {
+            Mutate(s =>
+            {
+                if (s.Marketplaces.TryGetValue(name, out var r)) r.AutoUpdate = on;
+                else if (name == BuiltInMarketplace) s.Marketplaces.Remove(name); // the built-in one has no record: always on
+                return 0;
+            });
+        }
+
+        private (MarketplaceInfo Market, MarketplaceEntry Entry) Entry(string marketplace, string name)
+        {
+            var market = Marketplaces().FirstOrDefault(m => m.Name == marketplace) ?? throw new InvalidOperationException($"No marketplace \"{marketplace}\".");
+            if (market.Error != null) throw new InvalidOperationException($"The marketplace \"{marketplace}\" can't be read: {market.Error}");
+            var entry = market.Manifest.Plugins.FirstOrDefault(p => p.Name == name) ?? throw new InvalidOperationException($"The marketplace \"{marketplace}\" has no plugin \"{name}\".");
+            if (entry.Source == null) throw new InvalidOperationException($"{name}: {entry.SourceError}");
+            return (market, entry);
+        }
+
+        // ---------------------------------------------------------------- install, enable, update, uninstall
+
+        /// <summary>The result of install / enable / update.</summary>
+        internal sealed class Outcome
+        {
+            public bool Ok;
+            public LoadedPlugin Plugin;
+
+            /// <summary>Set when the user must approve what the plugin runs before it can: { hooks: [...], mcp: [...] }.</summary>
+            public JObject NeedsTrust;
+            public string Hash;
+            public bool UpToDate;
+            public List<string> Warnings = new List<string>();
+            public List<string> AlsoInstalled = new List<string>();
+
+            public JObject ToJson(PluginManager pm)
+            {
+                var o = new JObject { ["ok"] = Ok };
+                if (Plugin != null) o["plugin"] = pm.PluginJson(Plugin);
+                if (NeedsTrust != null)
+                {
+                    o["needsTrust"] = NeedsTrust;
+                    o["hash"] = Hash;
+                }
+                if (UpToDate) o["upToDate"] = true;
+                if (Warnings.Count > 0) o["warnings"] = new JArray(Warnings);
+                if (AlsoInstalled.Count > 0) o["alsoInstalled"] = new JArray(AlsoInstalled);
+                return o;
+            }
+        }
+
+        /// <summary>A plugin fetched for install or update, kept while the trust dialog is open (so it isn't downloaded twice).</summary>
+        private sealed class Staged
+        {
+            public string Dir;
+            public string Sha;
+            public string Hash;
+        }
+
+        public static (string Name, string Marketplace) ParseId(string id)
+        {
+            var m = IdPattern.Match((id ?? "").Trim().ToLowerInvariant());
+            if (!m.Success) throw new InvalidOperationException($"\"{id}\" is not a plugin id (name@marketplace).");
+            return (m.Groups[1].Value, m.Groups[2].Value);
+        }
+
+        /// <summary>
+        /// Install a plugin from a marketplace (fetch into cache\&lt;plugin&gt;\&lt;version&gt;, enabled). A plugin with hooks or MCP
+        /// servers needs the user's approval: without the matching trustHash nothing is installed and NeedsTrust lists what
+        /// it would run. The marketplace entry's unify3d.installWith plugins are installed with it.
+        /// </summary>
+        public Outcome Install(string id, string trustHash = null, CancellationToken cancel = default(CancellationToken))
+        {
+            var (name, marketplace) = ParseId(id);
+            lock (_op)
+            {
+                if (marketplace == LocalMarketplace) return Enable(id, true, trustHash);
+                var other = Installed().FirstOrDefault(p => p.Name == name);
+                if (other != null && other.Record.Marketplace != marketplace)
+                    throw new InvalidOperationException($"A plugin named \"{name}\" is already installed from \"{other.Record.Marketplace}\". Uninstall it first.");
+                var (market, entry) = Entry(marketplace, name);
+                var staged = Stage(id, market, entry, cancel);
+                var manifest = PluginManifest.Load(staged.Dir);
+                if (manifest.Name != name)
+                    throw new InvalidOperationException($"The marketplace lists \"{name}\" but the plugin calls itself \"{manifest.Name}\".");
+                var outcome = new Outcome();
+                CheckNode(manifest, outcome);
+                if (staged.Hash != "" && trustHash != staged.Hash)
+                {
+                    outcome.NeedsTrust = TrustList(manifest, staged.Dir);
+                    outcome.Hash = staged.Hash;
+                    return outcome;
+                }
+                var version = VersionOf(manifest, entry, staged);
+                var dest = Path.Combine(CacheDir, name, version);
+                var previous = other?.Record.Path;
+                Place(staged, dest);
+                _staged.Remove(id);
+                Mutate(s =>
+                {
+                    s.Plugins[id] = new PluginRecord
+                    {
+                        Name = name, Marketplace = marketplace, Version = version, Sha = staged.Sha, Path = dest, Enabled = true,
+                        TrustedHash = staged.Hash, Source = entry.Source.ToJson(), InstalledAt = other?.Record.InstalledAt ?? Now(), UpdatedAt = Now(),
+                        UserConfig = other?.Record.UserConfig ?? new JObject(), Unify3d = (JObject)entry.Unify3d.DeepClone(),
+                    };
+                    return 0;
+                });
+                if (previous != null && !SamePath(previous, dest)) RemoveFiles(previous);
+                Log.Info($"Installed plugin {id} {version}");
+
+                // The overlay that belongs with it (agent-bridge-unify3d with agent-bridge), from the same marketplace.
+                foreach (var dep in (entry.Unify3d["installWith"] as JArray ?? new JArray()).Select(t => (string)t).Where(t => t != null))
+                {
+                    var depId = dep.Contains("@") ? dep : dep + "@" + marketplace;
+                    try
+                    {
+                        if (Find(depId) != null) continue;
+                        var r = Install(depId, null, cancel);
+                        if (r.Ok) outcome.AlsoInstalled.Add(depId);
+                        else outcome.Warnings.Add($"{depId} needs your approval: install it from the store.");
+                    }
+                    catch (Exception ex)
+                    {
+                        outcome.Warnings.Add($"{depId} could not be installed: {ex.Message}");
+                    }
+                }
+                outcome.Ok = true;
+                outcome.Plugin = Find(id);
+                return outcome;
+            }
+        }
+
+        /// <summary>Fetch (or reuse the copy fetched for the trust dialog) into a staging folder under cache\&lt;plugin&gt;.</summary>
+        private Staged Stage(string id, MarketplaceInfo market, MarketplaceEntry entry, CancellationToken cancel)
+        {
+            if (_staged.TryGetValue(id, out var old))
+            {
+                if (Directory.Exists(old.Dir)) return old;
+                _staged.Remove(id);
+            }
+            var dir = Path.Combine(CacheDir, entry.Name, ".staging-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            Directory.CreateDirectory(Path.GetDirectoryName(dir));
+            try
+            {
+                var sha = Fetcher.FetchTo(entry.Source, market.Root, dir, cancel);
+                var manifest = PluginManifest.Load(dir) ?? throw new InvalidOperationException("The fetched plugin is empty.");
+                var staged = new Staged { Dir = dir, Sha = sha, Hash = manifest.TrustHash() };
+                _staged[id] = staged;
+                return staged;
+            }
+            catch
+            {
+                Fetcher.TryDelete(dir);
+                throw;
+            }
+        }
+
+        /// <summary>The cache folder name: the plugin's version, else the listed one, else the commit (lib.mjs reports a hex folder as CLIENT_VERSION), else a content hash.</summary>
+        private static string VersionOf(PluginManifest manifest, MarketplaceEntry entry, Staged staged)
+        {
+            var v = manifest.Version ?? entry.Version;
+            if (v != null && Regex.IsMatch(v, @"^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$")) return v;
+            if (staged.Sha != null && Regex.IsMatch(staged.Sha, "^[0-9a-f]{40}$")) return staged.Sha.Substring(0, 12);
+            return ContentHash(staged.Dir);
+        }
+
+        /// <summary>12 hex characters over every file's path and bytes.</summary>
+        internal static string ContentHash(string dir)
+        {
+            using (var sha = SHA256.Create())
+            {
+                var root = Path.GetFullPath(dir);
+                foreach (var f in Directory.GetFiles(root, "*", SearchOption.AllDirectories).OrderBy(f => f, StringComparer.OrdinalIgnoreCase))
+                {
+                    var name = Encoding.UTF8.GetBytes(f.Substring(root.Length).Replace('\\', '/').ToLowerInvariant());
+                    sha.TransformBlock(name, 0, name.Length, null, 0);
+                    var bytes = File.ReadAllBytes(f);
+                    sha.TransformBlock(bytes, 0, bytes.Length, null, 0);
+                }
+                sha.TransformFinalBlock(new byte[0], 0, 0);
+                return PluginManifest.Hex(sha.Hash).Substring(0, 12);
+            }
+        }
+
+        /// <summary>Move a staged plugin to its version folder. The same version already there is kept (it may be running).</summary>
+        private static void Place(Staged staged, string dest)
+        {
+            if (Directory.Exists(dest))
+            {
+                if (ContentHash(dest) == ContentHash(staged.Dir))
+                {
+                    Fetcher.TryDelete(staged.Dir);
+                    return;
+                }
+                if (!Fetcher.TryDelete(dest)) throw new InvalidOperationException($"{dest} is in use; close what runs from it and try again.");
+            }
+            Fetcher.MoveDirectory(staged.Dir, dest);
+        }
+
+        private static bool SamePath(string a, string b) => string.Equals(Path.GetFullPath(a).TrimEnd('\\'), Path.GetFullPath(b).TrimEnd('\\'), StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>Delete an old version folder; when it is in use (an MCP server still running) it goes on the list cleaned at start-up.</summary>
+        private void RemoveFiles(string dir)
+        {
+            if (!PluginManifest.IsInside(CacheDir, dir)) return;
+            if (!Fetcher.TryDelete(dir)) Mutate(s => { s.Trash.Add(dir); return 0; });
+            var parent = Path.GetDirectoryName(dir);
+            try
+            {
+                if (Directory.Exists(parent) && !Directory.EnumerateFileSystemEntries(parent).Any()) Directory.Delete(parent);
+            }
+            catch (IOException)
+            {
+                // Not empty after all.
+            }
+        }
+
+        /// <summary>Delete what an earlier session couldn't (folders that were in use), and stale staging folders.</summary>
+        public void CleanUp()
+        {
+            var s = Snapshot();
+            var left = s.Trash.Where(d => Directory.Exists(d) && !Fetcher.TryDelete(d)).ToList();
+            if (left.Count != s.Trash.Count) Mutate(st => { st.Trash = left; return 0; });
+            var scratch = new List<string>();
+            if (Directory.Exists(CacheDir)) scratch.AddRange(Directory.GetDirectories(CacheDir).SelectMany(Directory.GetDirectories));
+            if (Directory.Exists(MarketplacesDir)) scratch.AddRange(Directory.GetDirectories(MarketplacesDir));
+            foreach (var d in scratch.Where(d => Path.GetFileName(d).StartsWith("."))) Fetcher.TryDelete(d);
+        }
+
+        /// <summary>
+        /// Enable or disable. Enabling a plugin whose hooks or MCP servers the user hasn't approved (in this exact form): from the
+        /// panel (fromAgent false) nothing changes and NeedsTrust is returned until the matching trustHash comes back; from the
+        /// agent it is enabled without trust, so its tools, commands and skills work but nothing runs.
+        /// </summary>
+        public Outcome Enable(string id, bool enabled, string trustHash = null, bool fromAgent = false)
+        {
+            var p = Find(id) ?? throw new InvalidOperationException($"No installed plugin \"{id}\".");
+            var outcome = new Outcome();
+            var hash = CurrentHash(p);
+            var trusted = hash == "" || hash == p.Record.TrustedHash || trustHash == hash;
+            if (enabled && !trusted && !fromAgent)
+            {
+                CheckNode(p.Manifest, outcome);
+                outcome.NeedsTrust = TrustList(p.Manifest, p.Root);
+                outcome.Hash = hash;
+                outcome.Plugin = p;
+                return outcome;
+            }
+            Mutate(s =>
+            {
+                var r = Record(s, p);
+                r.Enabled = enabled;
+                if (enabled && hash != "" && trustHash == hash) r.TrustedHash = hash;
+                return 0;
+            });
+            if (enabled && !trusted) outcome.Warnings.Add("Its hooks and MCP servers won't run until you approve them in Plugins.");
+            Log.Info($"Plugin {p.Id} {(enabled ? "enabled" : "disabled")}");
+            outcome.Ok = true;
+            outcome.Plugin = Find(p.Id);
+            return outcome;
+        }
+
+        /// <summary>
+        /// Update one plugin: a new listed version or a new commit of its source is fetched; the old version folder goes. An
+        /// update that changes the hooks or MCP servers asks again (NeedsTrust); autoUpdate leaves those for the user.
+        /// </summary>
+        public Outcome Update(string id, string trustHash = null, bool autoUpdate = false, CancellationToken cancel = default(CancellationToken))
+        {
+            lock (_op)
+            {
+                var p = Find(id) ?? throw new InvalidOperationException($"No installed plugin \"{id}\".");
+                var outcome = new Outcome { Plugin = p };
+                if (p.Local)
+                {
+                    outcome.Ok = outcome.UpToDate = true;
+                    return outcome;
+                }
+                var (market, entry) = Entry(p.Record.Marketplace, p.Name);
+                var remote = entry.Source.Kind == PluginSource.SourceKind.GitHub || entry.Source.Kind == PluginSource.SourceKind.Git || entry.Source.Kind == PluginSource.SourceKind.GitSubdir;
+                if (remote && !_staged.ContainsKey(p.Id) && (entry.Version == null || entry.Version == p.Record.Version))
+                {
+                    var sha = Fetcher.RemoteSha(entry.Source, cancel);
+                    if (sha != null && sha == p.Record.Sha)
+                    {
+                        outcome.Ok = outcome.UpToDate = true;
+                        return outcome;
+                    }
+                }
+                var staged = Stage(p.Id, market, entry, cancel);
+                var manifest = PluginManifest.Load(staged.Dir);
+                if (manifest.Name != p.Name) throw new InvalidOperationException($"The new version calls itself \"{manifest.Name}\".");
+                var version = VersionOf(manifest, entry, staged);
+                var dest = Path.Combine(CacheDir, p.Name, version);
+                if (SamePath(dest, p.Root) && Directory.Exists(dest) && ContentHash(dest) == ContentHash(staged.Dir))
+                {
+                    Fetcher.TryDelete(staged.Dir);
+                    _staged.Remove(p.Id);
+                    Mutate(s => { if (s.Plugins.TryGetValue(p.Id, out var r)) { r.Sha = staged.Sha ?? r.Sha; r.Unify3d = (JObject)entry.Unify3d.DeepClone(); r.PendingUpdate = null; } return 0; });
+                    outcome.Ok = outcome.UpToDate = true;
+                    outcome.Plugin = Find(p.Id);
+                    return outcome;
+                }
+                if (staged.Hash != "" && staged.Hash != p.Record.TrustedHash && trustHash != staged.Hash)
+                {
+                    if (autoUpdate)
+                    {
+                        Mutate(s => { if (s.Plugins.TryGetValue(p.Id, out var r)) r.PendingUpdate = version; return 0; });
+                        Fetcher.TryDelete(staged.Dir);
+                        _staged.Remove(p.Id);
+                    }
+                    outcome.NeedsTrust = TrustList(manifest, staged.Dir);
+                    outcome.Hash = staged.Hash;
+                    return outcome;
+                }
+                CheckNode(manifest, outcome);
+                Place(staged, dest);
+                _staged.Remove(p.Id);
+                var old = p.Root;
+                Mutate(s =>
+                {
+                    var r = s.Plugins[p.Id];
+                    r.Version = version;
+                    r.Sha = staged.Sha;
+                    r.Path = dest;
+                    r.UpdatedAt = Now();
+                    r.TrustedHash = staged.Hash;
+                    r.Unify3d = (JObject)entry.Unify3d.DeepClone();
+                    r.PendingUpdate = null;
+                    return 0;
+                });
+                if (!SamePath(old, dest)) RemoveFiles(old);
+                Log.Info($"Updated plugin {p.Id} to {version}");
+                outcome.Ok = true;
+                outcome.Plugin = Find(p.Id);
+                return outcome;
+            }
+        }
+
+        /// <summary>
+        /// Start-up auto-update (setting pluginAutoUpdate): auto-updating marketplaces are fetched, then their enabled plugins
+        /// updated, files only. Updates that need a new approval wait for the user. Returns the ids updated.
+        /// </summary>
+        public List<string> AutoUpdate(CancellationToken cancel = default(CancellationToken))
+        {
+            var updated = new List<string>();
+            if (!PluginSettings.AutoUpdate) return updated;
+            foreach (var m in Marketplaces().Where(x => x.AutoUpdate && x.Name != LocalMarketplace))
+            {
+                try
+                {
+                    UpdateMarketplace(m.Name, cancel);
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn($"Auto-update of marketplace {m.Name} failed: {ex.Message}");
+                    continue;
+                }
+                foreach (var p in EnabledPlugins().Where(x => x.Record.Marketplace == m.Name).ToList())
+                {
+                    try
+                    {
+                        var r = Update(p.Id, null, autoUpdate: true, cancel: cancel);
+                        if (r.Ok && !r.UpToDate) updated.Add(p.Id);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Warn($"Auto-update of {p.Id} failed: {ex.Message}");
+                    }
+                }
+            }
+            return updated;
+        }
+
+        /// <summary>
+        /// Uninstall: its files go (a local plugin's folder is moved to plugins\trash, so the user's work can be recovered); its
+        /// data folder stays (Claude Code keeps it too) unless deleteData.
+        /// </summary>
+        public void Uninstall(string id, bool deleteData = false)
+        {
+            lock (_op)
+            {
+                var p = Find(id) ?? throw new InvalidOperationException($"No installed plugin \"{id}\".");
+                Mutate(s => s.Plugins.Remove(p.Id));
+                if (p.Local)
+                {
+                    if (Directory.Exists(p.Root))
+                    {
+                        var to = Path.Combine(TrashDir, p.Name + "-" + DateTime.Now.ToString("yyyyMMdd-HHmmss"));
+                        Directory.CreateDirectory(TrashDir);
+                        Fetcher.MoveDirectory(p.Root, to);
+                    }
+                }
+                else RemoveFiles(p.Root);
+                try
+                {
+                    if (File.Exists(SecretsFile(p.Id))) File.Delete(SecretsFile(p.Id));
+                }
+                catch (IOException ex)
+                {
+                    Log.Warn($"Could not delete the stored options of {p.Id}: {ex.Message}");
+                }
+                if (deleteData) Fetcher.TryDelete(Path.Combine(DataRoot, p.Name));
+                _staged.Remove(p.Id);
+                Invalidate();
+                Log.Info($"Uninstalled plugin {p.Id}");
+            }
+        }
+
+        /// <summary>What the trust dialog shows: each hook command and MCP server command line (sensitive options left out).</summary>
+        private JObject TrustList(PluginManifest m, string root)
+        {
+            var vars = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["CLAUDE_PLUGIN_ROOT"] = root, ["UNIFY3D_PLUGIN_ROOT"] = root, ["CLAUDE_PLUGIN_DATA"] = Path.Combine(DataRoot, m.Name ?? ""),
+                ["UNIFY3D_DEVICE"] = Environment.MachineName, ["UNIFY3D_PID"] = Process.GetCurrentProcess().Id.ToString(),
+            };
+            var none = new Dictionary<string, (string, bool)>();
+            return new JObject
+            {
+                ["hooks"] = new JArray(m.HookCommands().Select(h => $"{h.Event}: {Expand(h.Command, vars, none, false)}")),
+                ["mcp"] = new JArray(m.McpServers.Select(kv =>
+                {
+                    var cmd = PluginManifest.Str(kv.Value["command"]);
+                    if (cmd == null) return $"{kv.Key}: {kv.Value["url"]}";
+                    var args = (kv.Value["args"] as JArray ?? new JArray()).Select(a => Fetcher.QuoteArg(Expand((string)a ?? "", vars, none, false)));
+                    return $"{kv.Key}: {string.Join(" ", new[] { Expand(cmd, vars, none, false) }.Concat(args))}";
+                })),
+            };
+        }
+
+        /// <summary>Hooks and MCP servers that run node need Node.js 18 or newer (global fetch, AbortSignal.timeout).</summary>
+        private static void CheckNode(PluginManifest m, Outcome outcome)
+        {
+            bool IsNode(string cmd) => Regex.IsMatch(Path.GetFileName(ExecutableResolver.FirstToken(cmd ?? "")) ?? "", @"^node(\.exe)?$", RegexOptions.IgnoreCase);
+            var needsNode = m.HookCommands().Any(h => IsNode(h.Command)) || m.McpServers.Values.Any(s => IsNode(PluginManifest.Str(s["command"])));
+            if (!needsNode) return;
+            var v = ExecutableResolver.NodeVersion();
+            if (v == null) throw new InvalidOperationException($"{m.DisplayName ?? m.Name} needs Node.js 18 or newer, and Node.js isn't installed. Install it from https://nodejs.org, then try again.");
+            if (v.Major < 18) throw new InvalidOperationException($"{m.DisplayName ?? m.Name} needs Node.js 18 or newer; this PC has {v}. Update it from https://nodejs.org, then try again.");
+        }
+
+        // ---------------------------------------------------------------- JSON for the panel
+
+        /// <summary>One installed plugin for plugins.list and the store's Installed tab.</summary>
+        public JObject PluginJson(LoadedPlugin p)
+        {
+            var m = p.Manifest;
+            var hash = CurrentHash(p);
+            var options = Options(p);
+            var commands = CommandIndex.For(m);
+            var skills = SkillIndex.For(m, HiddenSkills(p));
+            var agents = AgentIndex.For(m);
+            var tools = m.Tools().ToList();
+            var notes = new JArray();
+            if (m.Hooks["PermissionRequest"] != null) notes.Add("Remote approvals (PermissionRequest hooks) don't run in Unify3D yet; Unify3D's own approval cards are used.");
+            return new JObject
+            {
+                ["id"] = p.Id,
+                ["name"] = p.Name,
+                ["marketplace"] = p.Record.Marketplace,
+                ["displayName"] = m.DisplayName ?? p.Name,
+                ["description"] = m.Description,
+                ["version"] = p.Record.Version ?? m.Version,
+                ["author"] = m.Author,
+                ["keywords"] = new JArray(m.Keywords),
+                ["category"] = PluginManifest.Str(m.Unify3d["category"]),
+                ["icon"] = PluginManifest.Str(m.Unify3d["icon"]),
+                ["enabled"] = p.Enabled,
+                ["local"] = p.Local,
+                ["readOnly"] = !p.Local,
+                ["path"] = p.Root,
+                ["installedAt"] = p.Record.InstalledAt,
+                ["updatedAt"] = p.Record.UpdatedAt,
+                ["pendingUpdate"] = p.Record.PendingUpdate,
+                ["components"] = new JObject
+                {
+                    ["tools"] = tools.Count,
+                    ["commands"] = commands.Count,
+                    ["skills"] = skills.Count,
+                    ["agents"] = agents.Count,
+                    ["hooks"] = m.HookCommands().Count(),
+                    ["mcpServers"] = m.McpServers.Count,
+                },
+                ["tools"] = new JArray(tools.Select(t => p.Name + ":" + t.Name)),
+                ["hookEvents"] = new JArray(m.Hooks.Properties().Select(x => x.Name)),
+                ["mcpServers"] = new JArray(m.McpServers.Keys),
+                ["userConfig"] = new JArray(m.UserConfig.Select(kv => new JObject
+                {
+                    ["key"] = kv.Key,
+                    ["type"] = PluginManifest.Str(kv.Value["type"]) ?? "string",
+                    ["title"] = PluginManifest.Str(kv.Value["title"]) ?? kv.Key,
+                    ["description"] = PluginManifest.Str(kv.Value["description"]),
+                    ["default"] = kv.Value["default"]?.DeepClone(),
+                    ["sensitive"] = (bool?)kv.Value["sensitive"] == true,
+                    // a sensitive value never goes back to the panel
+                    ["value"] = (bool?)kv.Value["sensitive"] == true ? null : options[kv.Key].Value,
+                    ["isSet"] = options[kv.Key].Value != null,
+                })),
+                ["trust"] = new JObject
+                {
+                    ["needed"] = hash != "",
+                    ["approved"] = hash == "" || hash == p.Record.TrustedHash,
+                    ["hash"] = hash,
+                },
+                ["findings"] = new JArray(m.Findings),
+                ["notes"] = notes,
+            };
+        }
+
+        /// <summary>The marketplace entry's unify3d.hideSkills: Claude Code-only skills that would mislead the agent here.</summary>
+        internal static HashSet<string> HiddenSkills(LoadedPlugin p) =>
+            new HashSet<string>((p.Record.Unify3d?["hideSkills"] as JArray ?? new JArray()).Select(t => (string)t).Where(t => t != null), StringComparer.Ordinal);
+
+        /// <summary>The marketplaces with their plugins, for the store's Discover and Marketplaces tabs.</summary>
+        public JArray MarketplacesJson()
+        {
+            var installed = Installed();
+            return new JArray(Marketplaces().Select(m => new JObject
+            {
+                ["name"] = m.Name,
+                ["source"] = m.SourceText,
+                ["builtIn"] = m.BuiltIn,
+                ["removable"] = m.Removable,
+                ["autoUpdate"] = m.AutoUpdate,
+                ["updatedAt"] = m.UpdatedAt,
+                ["owner"] = m.Manifest?.Owner,
+                ["description"] = m.Manifest?.Description,
+                ["error"] = m.Error,
+                ["findings"] = new JArray(m.Manifest?.Findings ?? new List<string>()),
+                ["plugins"] = new JArray((m.Manifest?.Plugins ?? new List<MarketplaceEntry>()).Select(e =>
+                {
+                    var id = e.Name + "@" + m.Name;
+                    var have = installed.FirstOrDefault(x => x.Id == id);
+                    return new JObject
+                    {
+                        ["id"] = id,
+                        ["name"] = e.Name,
+                        ["marketplace"] = m.Name,
+                        ["description"] = e.Description,
+                        ["version"] = e.Version,
+                        ["category"] = e.Category,
+                        ["keywords"] = new JArray(e.Keywords),
+                        ["source"] = e.Source?.ToString(),
+                        ["sourceError"] = e.SourceError,
+                        ["installed"] = have != null,
+                        ["enabled"] = have?.Enabled ?? false,
+                        ["installWith"] = e.Unify3d["installWith"]?.DeepClone(),
+                    };
+                })),
+            }));
+        }
+
+        public JArray PluginsJson() => new JArray(Installed().Select(PluginJson));
+
+        private static string Now() => DateTime.UtcNow.ToString("o");
+    }
+}
