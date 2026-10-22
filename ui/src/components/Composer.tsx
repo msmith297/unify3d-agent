@@ -1,9 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { Dropdown, IconButton } from "./Menu";
 import { ToolsPalette } from "./ToolsPalette";
+import { SlashMenu, type MenuRow } from "./SlashMenu";
 import {
   IconAgent,
+  IconEffort,
+  IconPlugin,
   IconAttach,
   IconCamera,
   IconDocs,
@@ -26,10 +29,16 @@ import {
   IconToolPen,
   IconUndo,
 } from "./SwIcons";
-import { EMPTY, MARKUP_COLORS, MARKUP_NAME, currentThread, draftKey, isAgentSelection, talkKeyName, useStore, type MarkupTool, type QueuedMessage } from "../store";
+import { EMPTY, MARKUP_COLORS, MARKUP_NAME, currentThread, draftKey, isAgentSelection, talkKeyName, useStore, type MarkupTool, type QueuedMessage, type Tag } from "../store";
+import { atQuery, slashQuery, slashRows, tagRows, type CommandSources } from "../lib/commands";
 import { EFFORTS, MODELS } from "../lib/models";
 import { isHosted, rpc } from "../lib/bridge";
-import type { Attachment, Effort, FileEntry, ImageMediaType } from "../lib/types";
+import type { Attachment, Effort, FileEntry, ImageMediaType, Wake } from "../lib/types";
+
+/** Below these composer widths (CSS px inside the composer's own zoom) labels give way to icons, so the row never overflows. */
+const NARROW = "@max-[360px]:hidden";
+const NARROWER = "@max-[440px]:hidden";
+const TINY = "@max-[300px]:hidden";
 
 export function Composer() {
   const thread = useStore(currentThread);
@@ -58,16 +67,68 @@ export function Composer() {
       ? talkKeyName(s.settings.voiceKey)
       : null,
   );
-  const { setDraft, send, stop, attachView, addAttachment, removeAttachment, setThreadModel, setThreadEffort, startMarkup, pickFiles, startWatch } =
+  const tags = useStore((s) => s.tags[key] ?? (EMPTY as unknown as Tag[]));
+  const commands = useStore((s) => s.commands);
+  const skills = useStore((s) => s.skills);
+  const agents = useStore((s) => s.agents);
+  const plugins = useStore((s) => s.plugins);
+  const userTools = useStore((s) => s.userTools);
+  const { setDraft, submitInput, stop, attachView, addAttachment, removeAttachment, setThreadModel, setThreadEffort, startMarkup, pickFiles, startWatch, addTag, removeTag } =
     useStore.getState();
   const ref = useRef<HTMLTextAreaElement>(null);
   const [dragging, setDragging] = useState(false);
+  // The "/" and "@" popup: where the caret is, which row is highlighted, and the text it was closed for (Esc).
+  const [caret, setCaret] = useState(0);
+  const [active, setActive] = useState(0);
+  const [closedFor, setClosedFor] = useState<string | null>(null);
+  const sources: CommandSources = useMemo(() => ({ commands, skills, tools: userTools, plugins, agents }), [commands, skills, userTools, plugins, agents]);
+  const menu = useMemo((): { prefix: "/" | "@"; title: string; rows: MenuRow[]; start: number } | null => {
+    if (closedFor === draft || markupActive) return null;
+    const slash = slashQuery(draft, caret);
+    if (slash !== null) {
+      const rows = slashRows(sources, slash).map((r, i): MenuRow => ({ key: `${r.kind}:${r.name}:${i}`, ...r }));
+      return { prefix: "/", title: "Commands, skills, tools and workflows", rows, start: 0 };
+    }
+    const at = atQuery(draft, caret);
+    if (at) {
+      const rows = tagRows(sources, at.query).map((r, i): MenuRow => ({ key: `${r.kind}:${r.name}:${i}`, kind: r.kind, name: r.name, description: r.description, source: r.kind }));
+      return { prefix: "@", title: "Tag a plugin, tool, skill or agent", rows, start: at.start };
+    }
+    return null;
+  }, [draft, caret, closedFor, sources, markupActive]);
+  useEffect(() => setActive(0), [menu?.prefix, menu?.rows.length]);
 
   const model = thread?.model ?? settings.defaultModel;
   const effort = thread?.effort ?? settings.defaultEffort;
   const reading = attachments.some((a) => a.kind === "model" && a.status === "reading");
   // While the agent works, Enter queues the message (see QueuedList).
   const canSend = !markupActive && !reading && (draft.trim().length > 0 || attachments.length > 0);
+
+  /** Take a popup row: "/name " (a command without arguments runs at once with Enter), or an @ tag chip. */
+  const pick = (index: number, run: boolean) => {
+    if (!menu) return;
+    const row = menu.rows[index];
+    if (!row) return;
+    if (menu.prefix === "@") {
+      // The "@word" leaves the text (it follows a space or the start, so no words join); the tag becomes a chip.
+      const next = draft.slice(0, menu.start) + draft.slice(caret).replace(/^\s*/, "");
+      setDraft(next);
+      addTag({ kind: row.kind as Tag["kind"], name: row.name });
+      setCaret(menu.start);
+      requestAnimationFrame(() => ref.current?.setSelectionRange(menu.start, menu.start));
+      return;
+    }
+    const rest = draft.replace(/^\/\S*\s?/, "");
+    if (run && row.kind === "builtin" && !row.hint && !rest.trim()) {
+      void submitInput(`/${row.name}`);
+      return;
+    }
+    const next = `/${row.name} ${rest}`;
+    setDraft(next);
+    const at = row.name.length + 2;
+    setCaret(at);
+    requestAnimationFrame(() => ref.current?.setSelectionRange(at, at));
+  };
 
   // Files dropped anywhere on the panel must not make the WebView navigate to them.
   useEffect(() => {
@@ -88,16 +149,27 @@ export function Composer() {
     if (el) el.setSelectionRange(el.value.length, el.value.length);
   }, [focusTick, key]);
 
-  // Auto-grow up to ~8 lines.
+  // Auto-grow up to ~8 lines - again when the panel's width changes (text rewraps).
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    el.style.height = "auto";
-    el.style.height = Math.min(el.scrollHeight, 160) + "px";
+    const fit = () => {
+      el.style.height = "auto";
+      el.style.height = Math.min(el.scrollHeight, 160) + "px";
+    };
+    fit();
+    let width = el.clientWidth;
+    const ro = new ResizeObserver(() => {
+      if (el.clientWidth === width) return;
+      width = el.clientWidth;
+      fit();
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
   }, [draft]);
 
   const submit = () => {
-    if (canSend) send(draft);
+    if (canSend) void submitInput(draft);
   };
 
   const onPaste = (e: React.ClipboardEvent) => {
@@ -131,7 +203,7 @@ export function Composer() {
 
   return (
     <div
-      className="sw-etch relative shrink-0 bg-panel px-1.5 pb-1.5 pt-1.5"
+      className="sw-etch @container relative min-w-0 shrink-0 bg-panel px-1.5 pb-1.5 pt-1.5"
       onDragOver={(e) => {
         if (!e.dataTransfer.types.includes("Files")) return;
         e.preventDefault();
@@ -148,6 +220,7 @@ export function Composer() {
         </div>
       )}
       {thread && <QueuedList threadId={thread.id} running={running} />}
+      {menu && <SlashMenu rows={menu.rows} active={Math.min(active, Math.max(0, menu.rows.length - 1))} prefix={menu.prefix} title={menu.title} onPick={(i) => pick(i, true)} onHover={setActive} />}
       {voicePhase !== "idle" && <VoiceBar />}
       {watch.active || watch.busy ? <WatchBar /> : markupActive ? <MarkupBar /> : hasDoc && voicePhase === "idle" && <SelectionChips />}
 
@@ -159,13 +232,55 @@ export function Composer() {
             ))}
           </div>
         )}
+        {tags.length > 0 && (
+          <div className="flex flex-wrap gap-1 px-1.5 pt-1.5">
+            {tags.map((t, i) => (
+              <span
+                key={`${t.kind}:${t.name}`}
+                className="flex h-[20px] max-w-full min-w-0 items-center gap-1 rounded-[2px] border border-accent/50 bg-accent-soft px-1.5 text-[10.5px] text-text"
+                title={`The agent prefers this ${t.kind}'s tools and instructions for this message`}
+              >
+                {t.kind === "plugin" ? <IconPlugin size={11} /> : null}
+                <span className="truncate">@{t.name}</span>
+                <span className="shrink-0 text-text-3">{t.kind === "plugin" ? "" : t.kind}</span>
+                <button type="button" onClick={() => removeTag(i)} title="Remove the tag" className="shrink-0 opacity-60 hover:opacity-100">
+                  <X size={9} />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
         <textarea
           ref={ref}
           rows={2}
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            setCaret(e.target.selectionStart ?? e.target.value.length);
+          }}
+          onSelect={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
           onPaste={onPaste}
           onKeyDown={(e) => {
+            if (menu && !e.nativeEvent.isComposing) {
+              const n = menu.rows.length;
+              if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                e.preventDefault();
+                if (n) setActive((a) => (a + (e.key === "ArrowDown" ? 1 : n - 1)) % n);
+                return;
+              }
+              if ((e.key === "Enter" && !e.shiftKey) || e.key === "Tab") {
+                if (n) {
+                  e.preventDefault();
+                  pick(Math.min(active, n - 1), e.key === "Enter");
+                  return;
+                }
+              }
+              if (e.key === "Escape") {
+                e.preventDefault();
+                setClosedFor(draft);
+                return;
+              }
+            }
             if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault();
               submit();
@@ -183,25 +298,27 @@ export function Composer() {
               : hasDoc
                 ? talkKey
                   ? `Ask a question or describe a change… or hold ${talkKey} and talk`
-                  : "Ask a question or describe a change…"
-                : "Ask anything, or open a document first…"
+                  : "Ask a question or describe a change… / for commands, @ to tag"
+                : "Ask anything, or open a document first… / for commands"
           }
           className="block max-h-[160px] min-h-[36px] w-full resize-none bg-transparent px-2 pb-1 pt-1.5 text-[12px] leading-[1.42] text-text outline-none placeholder:text-text-3"
         />
       </div>
 
-      <div className="mt-1 flex items-center gap-0.5">
-        <span className="inline-flex items-center gap-0.5" data-tour="model">
-          <Dropdown title="Model" icon={<IconAgent size={14} />} value={model} items={MODELS.map((m) => ({ id: m.id, label: m.label, note: m.note }))} onChange={setThreadModel} disabled={running} />
-          <Dropdown<Effort> title="Effort" value={effort} items={EFFORTS.map((e) => ({ id: e.id, label: e.label, note: e.note }))} onChange={setThreadEffort} disabled={running} />
+      <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-0.5 gap-y-1">
+        <span className="flex min-w-0 items-center gap-0.5">
+          <span className="inline-flex min-w-0 items-center gap-0.5" data-tour="model">
+            <Dropdown title="Model" icon={<IconAgent size={14} />} labelClassName={NARROW} value={model} items={MODELS.map((m) => ({ id: m.id, label: m.label, note: m.note }))} onChange={setThreadModel} disabled={running} />
+            <Dropdown<Effort> title="Effort" icon={<IconEffort size={14} />} labelClassName={NARROW} value={effort} items={EFFORTS.map((e) => ({ id: e.id, label: e.label, note: e.note }))} onChange={setThreadEffort} disabled={running} />
+          </span>
+          <span className="inline-flex" data-tour="tools">
+            <ToolsPalette disabled={running || markupActive} labelClassName={NARROWER} />
+          </span>
         </span>
-        <span className="inline-flex" data-tour="tools">
-          <ToolsPalette disabled={running || markupActive} />
-        </span>
-        <div className="flex-1" />
+        <span className="ml-auto flex shrink-0 items-center gap-0.5">
         {overlayCount > 0 && (
-          <button type="button" className="sw-btn mr-1 !h-[22px] !px-1.5 text-[11px]" onClick={() => useStore.getState().clearOverlay()} title="Remove what the agent drew on your view">
-            <IconEye size={12} /> Clear overlay
+          <button type="button" className="sw-btn mr-1 !h-[22px] !px-1.5 text-[11px]" onClick={() => useStore.getState().clearOverlay()} title="Clear overlay: remove what the agent drew on your view">
+            <IconEye size={12} /> <span className={NARROWER}>Clear overlay</span>
           </button>
         )}
         <IconButton title="Attach images, PDFs or 3D models (or drop them here)" onClick={pickFiles} disabled={markupActive}>
@@ -236,18 +353,19 @@ export function Composer() {
                 title={asking ? "Answer the agent's question with this (Enter)" : "Queue this message (Enter): it's sent when the agent finishes"}
                 className="sw-btn sw-btn-primary mr-1 !h-6 !px-2.5"
               >
-                <IconSend size={13} /> {asking ? "Answer" : "Queue"}
+                <IconSend size={13} /> <span className={TINY}>{asking ? "Answer" : "Queue"}</span>
               </button>
             )}
             <button type="button" onClick={() => stop()} title="Stop" className="sw-btn !h-6 !px-2">
-              <IconStop size={13} /> Stop
+              <IconStop size={13} /> <span className={TINY}>Stop</span>
             </button>
           </>
         ) : (
           <button type="button" onClick={submit} disabled={!canSend} title={reading ? "Waiting for the 3D model to be read" : "Send (Enter)"} className="sw-btn sw-btn-primary !h-6 !px-2.5">
-            <IconSend size={13} /> Send
+            <IconSend size={13} /> <span className={TINY}>Send</span>
           </button>
         )}
+        </span>
       </div>
     </div>
   );
@@ -259,10 +377,24 @@ export function Composer() {
  */
 function QueuedList({ threadId, running }: { threadId: string; running: boolean }) {
   const queue = useStore((s) => s.queue[threadId] ?? (EMPTY as unknown as QueuedMessage[]));
+  const wakes = useStore((s) => s.wakes[threadId] ?? (EMPTY as unknown as Wake[]));
   const { queueSendNow, queueEdit, queueRemove } = useStore.getState();
-  if (queue.length === 0) return null;
+  if (queue.length === 0 && wakes.length === 0) return null;
   return (
     <div className="mb-1.5 flex flex-col gap-1">
+      {wakes.length > 0 && (
+        <div className="sw-rollout flex items-start gap-1.5 px-2 py-1 text-[11.5px]" title={wakes.map((w) => w.text).join("\n\n")}>
+          <span className="mt-px shrink-0">
+            <IconPlugin size={13} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="line-clamp-2 break-words text-text">{wakes[wakes.length - 1].text}</div>
+            <div className="text-[10.5px] text-text-3">
+              {wakes.length > 1 ? `${wakes.length} plugin events` : wakes[0].plugin} - goes to the agent when this turn ends
+            </div>
+          </div>
+        </div>
+      )}
       {queue.map((m) => (
         <div key={m.id} className="sw-rollout flex items-start gap-1.5 px-2 py-1 text-[11.5px]">
           <div className="min-w-0 flex-1">

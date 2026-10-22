@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import { IconButton, useOutside } from "./Menu";
-import { Caret, IconAssembly, IconCancel, IconDrawing, IconGear, IconHistory, IconNewChat, IconPart, Spinner } from "./SwIcons";
+import { Caret, IconAssembly, IconCancel, IconDrawing, IconGear, IconHistory, IconNewChat, IconPart, IconPlugin, Spinner } from "./SwIcons";
 import { EMPTY, currentThread, useStore } from "../store";
 import { UpdateButton } from "./Update";
 import { confirmAction } from "./Dialog";
@@ -64,6 +64,9 @@ export function Header() {
         }}
       >
         <IconNewChat />
+      </IconButton>
+      <IconButton title="Plugins" active={panel === "plugins"} onClick={() => setPanel(panel === "plugins" ? "chat" : "plugins")}>
+        <IconPlugin />
       </IconButton>
       <IconButton tour="options" title="Options" active={panel === "settings"} onClick={() => setPanel(panel === "settings" ? "chat" : "settings")}>
         <IconGear />

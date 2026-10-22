@@ -1,8 +1,11 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { buildSystemPrompt, type Verbosity } from "./systemPrompt";
+import { buildAgentPrompt, buildSystemPrompt, type IndexedSkill, type Verbosity } from "./systemPrompt";
 import { repairHistory } from "./history";
-import { modelOption } from "../lib/models";
+import { modelFromAlias, modelOption } from "../lib/models";
+import { hookContextText, hookToolResponse } from "../lib/hooks";
 import type {
+  AgentInfo,
+  HookResult,
   ApprovalMode,
   ContentBlockParam,
   Effort,
@@ -113,8 +116,45 @@ export const ASK_SELECTION_TOOL: ToolDef = {
   },
 };
 
-/** The UI-handled tools, offered on every request after the add-in's. */
+/**
+ * Handled in the UI: runs one of the plugins' sub-agents (agents/*.md) as a nested agent loop with the agent's own
+ * prompt, model and tools, and returns its final reply. Offered only while a plugin provides agents.
+ */
+export const RUN_AGENT_TOOL: ToolDef = {
+  name: "run_agent",
+  description:
+    "Hand a self-contained task to one of the plugins' sub-agents (listed under \"Plugin agents\" in your instructions) and get its final " +
+    "reply. The sub-agent starts fresh: put everything it needs in the prompt (the document, [S#] references and their meaning, what to " +
+    "report). It can't ask the user anything, and its intermediate steps aren't shown to the user - summarise its findings yourself.",
+  input_schema: {
+    type: "object",
+    properties: {
+      agent: { type: "string", description: "The agent's id, e.g. \"shop-standards:mold-reviewer\"." },
+      prompt: { type: "string", description: "The complete task for the sub-agent." },
+    },
+    required: ["agent", "prompt"],
+  },
+};
+
+/** The UI-handled tools, offered on every request after the add-in's (run_agent only while there are plugin agents). */
 export const LOCAL_TOOLS: ToolDef[] = [ASK_USER_TOOL, ASK_FORM_TOOL, ASK_SELECTION_TOOL, OFFER_RESTART_TOOL];
+
+/** Local tools that wait for the user: never offered to a sub-agent, and a hook's "ask" doesn't add an approval to them. */
+const USER_TOOLS = new Set([ASK_USER_TOOL.name, ASK_FORM_TOOL.name, ASK_SELECTION_TOOL.name]);
+
+/** A sub-agent's step limit (API round trips). */
+export const SUB_AGENT_STEPS = 50;
+
+/**
+ * The tools a sub-agent gets: the ones its front matter lists that Unify3D has (Claude Code agents list Read, Bash...,
+ * which don't exist here); every tool when it lists none; read-only tools (no WRITE_TOOLS) when nothing it lists exists.
+ */
+export function subAgentTools(listed: string[] | null | undefined, tools: ToolDef[]): ToolDef[] {
+  if (!listed) return tools;
+  const wanted = new Set(listed.map((n) => n.trim()));
+  const kept = tools.filter((t) => wanted.has(t.name));
+  return kept.length ? kept : tools.filter((t) => !WRITE_TOOLS.has(t.name));
+}
 
 /** A content block while it streams. */
 export interface LiveBlock {
@@ -153,6 +193,11 @@ export interface AgentCallbacks {
   runTool(name: string, input: unknown, toolUseId?: string): Promise<ToolRunResult>;
   isAutoApproved(): boolean;
   setAutoApproved(): void;
+  /**
+   * Plugin hooks around a tool call (PreToolUse before validation and approval, PostToolUse after it ran); null when
+   * no hook handles this tool.
+   */
+  hook?(event: "PreToolUse" | "PostToolUse", call: { tool_name: string; tool_input: unknown; tool_response?: unknown }): Promise<HookResult | null>;
 }
 
 export interface AgentRunOptions {
@@ -168,6 +213,13 @@ export interface AgentRunOptions {
   maxSteps?: number;
   /** A long tool run: the prompt cache lives 1 hour (answers to its gate questions often take 5-60 min). */
   longRun?: boolean;
+  /** Plugin skills, sub-agents and MCP server instructions for the system prompt; agents also enable run_agent. */
+  skills?: IndexedSkill[];
+  agents?: AgentInfo[];
+  mcpInstructions?: { server: string; text: string }[];
+  /** A sub-agent run: its own system prompt and no local tools. */
+  system?: string;
+  localTools?: ToolDef[];
   signal: AbortSignal;
   cb: AgentCallbacks;
 }
@@ -190,7 +242,7 @@ const CLEAR_OLD_TOOL_USES = {
   keep: { type: "tool_uses" as const, value: 6 },
   clear_at_least: { type: "input_tokens" as const, value: 12000 },
   clear_tool_inputs: true,
-  exclude_tools: ["ask_user", "ask_form", "ask_selection", "offer_restart", "read_user_tool"],
+  exclude_tools: ["ask_user", "ask_form", "ask_selection", "offer_restart", "read_user_tool", "use_skill"],
 };
 
 /** No bytes at all (not even keep-alive pings) for this long means the connection is dead, not thinking. */
@@ -231,14 +283,27 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
   if (m.progressUpdates) betas.push("thinking-display-updates-2026-08-18");
   if (m.fallbacks) betas.push("server-side-fallback-2026-07-01");
 
-  const tools: Anthropic.Beta.Messages.BetaToolUnion[] = [...opts.tools, ...LOCAL_TOOLS].map((t) => ({
+  const tools: Anthropic.Beta.Messages.BetaToolUnion[] = [...opts.tools, ...localTools(opts)].map((t) => ({
     name: t.name,
     description: t.description,
     input_schema: t.input_schema,
     eager_input_streaming: true,
   }));
 
-  const system = buildSystemPrompt({ realisticAppearance: opts.realisticAppearance, verbosity: opts.verbosity, userTools: opts.userTools });
+  // use_skill exists only with plugins (and a sub-agent may lack read_user_tool): exclude only tools this run has.
+  const names = new Set([...opts.tools, ...localTools(opts)].map((t) => t.name));
+  const clearing = { ...CLEAR_OLD_TOOL_USES, exclude_tools: CLEAR_OLD_TOOL_USES.exclude_tools.filter((n) => names.has(n)) };
+
+  const system =
+    opts.system ??
+    buildSystemPrompt({
+      realisticAppearance: opts.realisticAppearance,
+      verbosity: opts.verbosity,
+      userTools: opts.userTools,
+      skills: opts.skills,
+      agents: opts.agents,
+      mcpInstructions: opts.mcpInstructions,
+    });
   let malformedRetries = 0;
   let stallRetries = 0;
   const maxSteps = clampSteps(opts.maxSteps);
@@ -280,7 +345,7 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
           cache_control: opts.longRun ? { type: "ephemeral", ttl: "1h" } : { type: "ephemeral" },
           // Old tool calls (C# cells, screenshots, model dumps) are cleared server-side once the prompt grows, keeping
           // only the most recent ones. The stored history stays complete and append-only, so thinking stays valid.
-          context_management: { edits: [CLEAR_OLD_TOOL_USES] },
+          context_management: { edits: [clearing] },
           ...(m.fallbacks ? { fallbacks: "default" as const } : {}),
           betas,
         },
@@ -372,16 +437,23 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
       if (toolUses.length === 0) return { stop: message.stop_reason ?? "end_turn" };
 
       const results: ToolResultBlockParam[] = [];
+      // What plugin hooks add goes after all the results, in its own text blocks (context editing clears old results).
+      const added: ContentBlockParam[] = [];
+      let hookStop: string | null = null;
       for (const tu of toolUses) {
-        if (signal.aborted) {
-          results.push({ type: "tool_result", tool_use_id: tu.id, is_error: true, content: "Stopped by the user before this ran." });
+        if (signal.aborted || hookStop !== null) {
+          results.push({ type: "tool_result", tool_use_id: tu.id, is_error: true, content: signal.aborted ? "Stopped by the user before this ran." : "Not run: a plugin hook stopped the turn." });
           continue;
         }
-        results.push(await executeTool(tu, opts));
+        const r = await executeWithHooks(tu, opts);
+        results.push(r.result);
+        added.push(...r.added);
+        if (r.stop !== undefined) hookStop = r.stop;
       }
       const steer = signal.aborted ? null : cb.takeSteering?.();
-      await cb.append({ role: "user", content: steer?.length ? [...results, ...steer] : results });
+      await cb.append({ role: "user", content: [...results, ...added, ...(steer ?? [])] });
       if (signal.aborted) return { stop: "aborted" };
+      if (hookStop !== null) return { stop: "hook_stop", error: `A plugin hook stopped the turn${hookStop ? `: ${hookStop}` : "."}` };
     }
     return { stop: "iteration_limit", error: `Stopped after ${maxSteps} steps. Send "continue" to carry on.` };
   } finally {
@@ -390,15 +462,69 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
   }
 }
 
-async function executeTool(tu: Anthropic.Beta.Messages.BetaToolUseBlock, opts: AgentRunOptions): Promise<ToolResultBlockParam> {
+/** The local tools a run offers: the panel's own (run_agent only with plugin agents), or a sub-agent's (none). */
+function localTools(opts: AgentRunOptions): ToolDef[] {
+  return opts.localTools ?? (opts.agents?.length ? [...LOCAL_TOOLS, RUN_AGENT_TOOL] : LOCAL_TOOLS);
+}
+
+/**
+ * A tool call with the plugins' PreToolUse and PostToolUse hooks around it (Claude Code semantics): PreToolUse can
+ * deny the call, or ask for the user's approval even where none is needed ("allow" never skips Unify3D's own approval);
+ * what hooks add for the model, and a PostToolUse block's reason, come back as text blocks for after the results;
+ * `continue: false` ends the turn after this call.
+ */
+async function executeWithHooks(tu: Anthropic.Beta.Messages.BetaToolUseBlock, opts: AgentRunOptions): Promise<{ result: ToolResultBlockParam; added: ContentBlockParam[]; stop?: string }> {
+  const { cb } = opts;
+  const added: ContentBlockParam[] = [];
+  let stop: string | undefined;
+  const note = (event: "PreToolUse" | "PostToolUse", h: HookResult | null) => {
+    if (!h) return;
+    const texts = [...h.additionalContext, ...(event === "PostToolUse" && h.block && h.reason ? [h.reason] : [])].filter((t) => t?.trim());
+    if (texts.length) added.push({ type: "text", text: hookContextText(event, texts, tu.name) });
+    if (!h.continue) stop = h.stopReason ?? "";
+  };
+  const pre = cb.hook ? await cb.hook("PreToolUse", { tool_name: tu.name, tool_input: tu.input }).catch(() => null) : null;
+  note("PreToolUse", pre);
+  if (pre && (pre.block || pre.permissionDecision === "deny")) {
+    const why = pre.permissionDecisionReason || pre.reason;
+    return { result: { type: "tool_result", tool_use_id: tu.id, is_error: true, content: `A plugin hook blocked this call${why ? `: ${why}` : "."}` }, added, stop };
+  }
+  if (stop !== undefined) return { result: { type: "tool_result", tool_use_id: tu.id, is_error: true, content: "Not run: a plugin hook stopped the turn." }, added, stop };
+  const result = await executeTool(tu, opts, pre?.permissionDecision === "ask");
+  if (cb.hook) {
+    const response = hookToolResponse(result.content as string | { type: string; text?: string }[] | undefined, !!result.is_error);
+    note("PostToolUse", await cb.hook("PostToolUse", { tool_name: tu.name, tool_input: tu.input, tool_response: response }).catch(() => null));
+  }
+  return { result, added, stop };
+}
+
+async function executeTool(tu: Anthropic.Beta.Messages.BetaToolUseBlock, opts: AgentRunOptions, hookAsks = false): Promise<ToolResultBlockParam> {
   const { cb } = opts;
   const err = (text: string): ToolResultBlockParam => ({ type: "tool_result", tool_use_id: tu.id, is_error: true, content: text });
 
-  const local = LOCAL_TOOLS.find((t) => t.name === tu.name);
+  const local = localTools(opts).find((t) => t.name === tu.name);
   const def = local ?? opts.tools.find((t) => t.name === tu.name);
   if (!def) return err(`Unknown tool '${tu.name}'.`);
   const problem = validateInput(def, tu.input);
   if (problem) return err(`INVALID_INPUT: ${problem}. Re-issue the call with complete, valid JSON input.`);
+
+  // A PreToolUse hook asked for the user's OK: the approval card, whatever the approval setting (read-only still wins below).
+  let approved = false;
+  if (hookAsks && !USER_TOOLS.has(tu.name) && !(WRITE_TOOLS.has(tu.name) && opts.approval === "read_only")) {
+    const d = await cb.approve({ toolUseId: tu.id, name: tu.name, input: tu.input });
+    if (d.decision === "reject") return err(`The user declined to run this.${d.note ? ` Their note: ${d.note}` : ""} Don't retry it unchanged.`);
+    if (d.decision === "always") cb.setAutoApproved();
+    approved = true;
+  }
+
+  if (tu.name === RUN_AGENT_TOOL.name) {
+    cb.setRunningTool(tu.id);
+    try {
+      return await runSubAgent(tu, opts);
+    } finally {
+      cb.setRunningTool(null);
+    }
+  }
 
   if (tu.name === ASK_FORM_TOOL.name) {
     const form = tu.input as FormSpec;
@@ -426,7 +552,7 @@ async function executeTool(tu: Anthropic.Beta.Messages.BetaToolUseBlock, opts: A
     if (opts.approval === "read_only") {
       return err("Read-only mode is on: tools that change the model are disabled. Explain what you would do instead.");
     }
-    if (opts.approval === "ask" && !cb.isAutoApproved()) {
+    if (opts.approval === "ask" && !cb.isAutoApproved() && !approved) {
       const d = await cb.approve({ toolUseId: tu.id, name: tu.name, input: tu.input });
       if (d.decision === "reject") {
         return err(`The user declined to run this.${d.note ? ` Their note: ${d.note}` : ""} Don't retry it unchanged.`);
@@ -444,6 +570,56 @@ async function executeTool(tu: Anthropic.Beta.Messages.BetaToolUseBlock, opts: A
   } finally {
     cb.setRunningTool(null);
   }
+}
+
+/**
+ * run_agent: a nested agent loop with the sub-agent's prompt (plus the CAD essentials), its model and its tools -
+ * never the ask_* tools or run_agent itself - and its own step limit. Write tools still go through the parent's
+ * approval; usage counts towards the parent's turn. The parent gets the final reply and a one-line list of the steps.
+ */
+async function runSubAgent(tu: Anthropic.Beta.Messages.BetaToolUseBlock, opts: AgentRunOptions): Promise<ToolResultBlockParam> {
+  const { cb } = opts;
+  const input = tu.input as { agent: string; prompt: string };
+  const err = (text: string): ToolResultBlockParam => ({ type: "tool_result", tool_use_id: tu.id, is_error: true, content: text });
+  const agents = opts.agents ?? [];
+  const wanted = String(input.agent ?? "").trim();
+  const byShort = agents.filter((a) => a.id.slice(a.id.indexOf(":") + 1) === wanted);
+  const agent = agents.find((a) => a.id === wanted) ?? (byShort.length === 1 ? byShort[0] : undefined);
+  if (!agent) return err(`Unknown agent '${wanted}'. Available: ${agents.map((a) => a.id).join(", ") || "none"}.`);
+
+  const messages: MessageParam[] = [{ role: "user", content: [{ type: "text", text: String(input.prompt ?? "") }] }];
+  const steps: string[] = [];
+  const res = await runAgent({
+    ...opts,
+    model: modelFromAlias(agent.model) ?? opts.model,
+    tools: subAgentTools(agent.tools, opts.tools),
+    maxSteps: SUB_AGENT_STEPS,
+    longRun: false,
+    agents: [],
+    localTools: [],
+    system: buildAgentPrompt(agent),
+    cb: {
+      ...cb,
+      getMessages: () => messages,
+      append: async (m) => {
+        messages.push(m);
+        if (m.role === "assistant" && typeof m.content !== "string") for (const b of m.content) if (b.type === "tool_use") steps.push(b.name);
+      },
+      setLive: () => {},
+      setRunningTool: () => {},
+      takeSteering: undefined,
+      onRequest: undefined,
+      onStatus: undefined,
+      ask: async () => "(A sub-agent can't ask the user.)",
+      askSelection: async () => "(A sub-agent can't ask the user.)",
+    },
+  });
+  const last = [...messages].reverse().find((m) => m.role === "assistant");
+  const text = last && typeof last.content !== "string" ? last.content.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join("\n\n").trim() : "";
+  const content: ContentBlockParam[] = [{ type: "text", text: text || "(The sub-agent ended without a reply.)" }];
+  if (steps.length) content.push({ type: "text", text: `[${agent.id}: ${steps.length} step${steps.length === 1 ? "" : "s"} - ${steps.join(", ")}]` });
+  if (res.error) content.push({ type: "text", text: `[The sub-agent stopped: ${res.error}]` });
+  return { type: "tool_result", tool_use_id: tu.id, content: content as ToolResultBlockParam["content"], ...(res.stop === "end_turn" ? {} : { is_error: true }) };
 }
 
 /** Minimal JSON-schema check: object, required keys present, primitive types match. */

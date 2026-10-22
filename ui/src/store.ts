@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { on, rpc } from "./lib/bridge";
 import { syncRibbonIcons } from "./lib/toolIcons";
-import { DEFAULT_SETTINGS, SETTINGS_VERSION, tierModel } from "./lib/models";
+import { DEFAULT_SETTINGS, EFFORTS, MODELS, SETTINGS_VERSION, modelFromAlias, tierModel } from "./lib/models";
 import type {
   Attachment,
   ChatData,
@@ -33,11 +33,24 @@ import type {
   SelectionAsk,
   SelectionKind,
   ToolRunSticky,
+  AgentInfo,
+  CommandInfo,
+  ExpandedCommand,
+  HookEvent,
+  HookResult,
+  MarketplaceInfo,
+  McpServerStatus,
+  PluginInfo,
+  SessionInfo,
+  SkillInfo,
+  Wake,
 } from "./lib/types";
 import { recordSession } from "./lib/sessions";
 import { refBase, selectionAnswer, type SnapshotItem } from "./lib/selection";
 import { DEFAULT_STEPS, LONG_RUN_STEPS, clampSteps, runReportsDone, stickyState, withRunDoc } from "./lib/toolRun";
 import { WRITE_TOOLS, runAgent, type ApprovalDecision, type ApprovalRequest, type LiveBlock } from "./agent/runAgent";
+import { BUILTIN_COMMANDS, commandHead, parseSlash, resolveSlash, tagLines, type CommandSources, type TagKind } from "./lib/commands";
+import { EVENT_TAG, HOOK_TAG, autoTurnAllowed, hasHook, hookContextText, systemEventText } from "./lib/hooks";
 
 export interface ChatSlot {
   docKey: string;
@@ -72,6 +85,12 @@ export interface RunOverride {
   tool?: string;
   /** Not a follow-up (e.g. making a new tool): ends a long tool run's follow-up settings and uses the chat's own. */
   fresh?: boolean;
+  /** A plugin command's run ("plugin:command"): its model applies to this run only, not to a chat it starts. */
+  command?: string;
+  /** What the user typed (a slash command): back into the composer if a hook blocks the prompt. */
+  input?: string;
+  /** This run continues a turn a Stop hook blocked: its own Stop then fires with stop_hook_active. */
+  continuation?: boolean;
   /** Set by runSettings: this run continues a long tool run (the documents it activates become the run's too). */
   inToolRun?: boolean;
 }
@@ -166,7 +185,28 @@ interface State {
   queueRemove(threadId: string, id: string): void;
   drafts: Record<string, string>;
   attachments: Record<string, Attachment[]>;
-  panel: "chat" | "settings" | "newTool";
+  /** @ tags on a draft (per draft key): sent as "[Use plugin: x]" lines. */
+  tags: Record<string, Tag[]>;
+  addTag(tag: Tag): void;
+  removeTag(index: number): void;
+  /** The composer's Enter: a slash command runs, anything else is sent (with its tags). */
+  submitInput(text: string): Promise<void>;
+  /** Plugins (docs/plugins/design.md): the store, their components, MCP servers and the hook session. */
+  plugins: PluginInfo[];
+  marketplaces: MarketplaceInfo[];
+  commands: CommandInfo[];
+  skills: SkillInfo[];
+  agents: AgentInfo[];
+  mcpServers: McpServerStatus[];
+  session: SessionInfo | null;
+  loadPlugins(): Promise<void>;
+  pluginsTab: "discover" | "installed" | "marketplaces" | "create";
+  setPluginsTab(tab: State["pluginsTab"]): void;
+  /** Plugin wakes waiting for their thread's run to end. */
+  wakes: Record<string, Wake[]>;
+  /** Run a tool or workflow by name (ribbon tools through the add-in, workflows in the chat with the notes). */
+  runNamedTool(name: string, notes?: string): Promise<void>;
+  panel: "chat" | "settings" | "newTool" | "plugins";
   focusTick: number;
   notice: string | null;
   /** "Watch me": recording what the user does in a document (live log from the add-in). */
@@ -246,6 +286,12 @@ interface State {
   /** Stop recording and attach the log (with views before/after) to the next message. */
   stopWatch(): Promise<void>;
   cancelWatch(): void;
+}
+
+/** A plugin, tool, skill or agent tagged with @ in the composer. */
+export interface Tag {
+  kind: TagKind;
+  name: string;
 }
 
 export interface WatchState {
@@ -393,8 +439,9 @@ Finish this case yourself.${p.builtIn ? "" : " If it is a case the macro should 
 export const MODEL_TAG = "<model_file";
 export const WATCH_TAG = "<watch_log";
 export const VOICE_TAG = "<voice_timeline";
+export { EVENT_TAG, HOOK_TAG };
 export function isAttachmentText(text: string): boolean {
-  return text.startsWith(MODEL_TAG) || text.startsWith(WATCH_TAG) || text.startsWith(VOICE_TAG);
+  return text.startsWith(MODEL_TAG) || text.startsWith(WATCH_TAG) || text.startsWith(VOICE_TAG) || text.startsWith(HOOK_TAG) || text.startsWith(EVENT_TAG);
 }
 
 const clock = (ms: number) => {
@@ -513,6 +560,27 @@ function attachmentBlocks(a: Attachment): ContentBlockParam[] {
 /** Threads whose running turn answers a voice message (its reply may be read aloud). */
 const speakAfter = new Set<string>();
 let lastVoice: VoicePayload | null = null;
+
+/** Plugin wakes already taken (a nudge and session.takeWakes can hand the same one over twice before it is acked). */
+const seenWakes = new Set<string>();
+/** When automatic turns (plugin wakes, Stop-hook continuations) started: at most settings.pluginWakesPerHour an hour. */
+let autoTimes: number[] = [];
+/** The tags of the message being sent: back on the composer with its text if a hook blocks it. */
+let sentTags: { text: string; tags: Tag[] } | null = null;
+/** The thread a run last started in: plugin wakes go there while it exists. */
+let lastActiveThread: string | null = null;
+
+/** hooks.fire's result with every field present (an older or partial add-in may leave some out). */
+function hookResult(r: Partial<HookResult> | null | undefined): HookResult | null {
+  if (!r) return null;
+  return {
+    ...r,
+    block: !!r.block,
+    continue: r.continue !== false,
+    additionalContext: (r.additionalContext ?? []).filter((t) => typeof t === "string" && t.trim()),
+    systemMessages: (r.systemMessages ?? []).filter((t) => typeof t === "string" && t.trim()),
+  };
+}
 
 /** ask_selection cards whose Done is being processed (a double click must not answer twice). */
 const answeringSelection = new Set<string>();
@@ -666,9 +734,11 @@ export const useStore = create<State>((set, get) => {
     if (!thread) return;
 
     const controller = new AbortController();
+    lastActiveThread = threadId;
     set((s) => ({
       runs: { ...s.runs, [threadId]: { docKey, threadId, live: null, runningToolId: null, approval: null, question: null, controller, inToolRun: !!run.inToolRun, ...extra } },
     }));
+    let stopHook: HookResult | null = null;
     const started = performance.now();
     let outcome = "end_turn";
     const selDoc = get().activeDocKey ?? "";
@@ -693,6 +763,9 @@ export const useStore = create<State>((set, get) => {
         userTools: get().userTools,
         maxSteps: run.maxSteps,
         longRun: run.longRun,
+        skills: get().skills,
+        agents: get().agents,
+        mcpInstructions: get().session?.mcpInstructions ?? [],
         signal: controller.signal,
         cb: {
           getMessages: () => get().chats[docKey]?.data.threads.find((t) => t.id === threadId)?.messages ?? [],
@@ -767,10 +840,16 @@ export const useStore = create<State>((set, get) => {
           },
           isAutoApproved: () => !!run.autoApprove || !!get().chats[docKey]?.data.threads.find((t) => t.id === threadId)?.autoApprove,
           setAutoApproved: () => updateThread(docKey, threadId, (t) => ({ ...t, autoApprove: true })),
+          hook: (event, call) => fireHook(event, docKey, threadId, call),
         },
       });
       patchTurn({ stop: result.stop, error: result.error, durationMs: Math.round(performance.now() - started) });
       outcome = result.stop;
+      // The turn ended normally: the plugins' Stop hooks run while the chat still shows the agent as working.
+      if ((outcome === "end_turn" || outcome === "stop_sequence") && !controller.signal.aborted) {
+        stopHook = await fireHook("Stop", docKey, threadId, { stop_hook_active: !!run.continuation });
+        if (stopHook && !stopHook.continue && stopHook.stopReason) set({ notice: stopHook.stopReason });
+      }
     } catch (err: any) {
       outcome = "error";
       const status = err?.status;
@@ -800,9 +879,181 @@ export const useStore = create<State>((set, get) => {
       noteToolRunActivity(docKey, threadId, turnIndex);
       await persist(docKey);
       speakReply(docKey, threadId, outcome);
-      flushQueue(docKey, threadId, outcome);
+      // A Stop hook that blocks continues the turn (queued follow-ups go with it); otherwise the queue, then plugin wakes.
+      const continued = !!stopHook?.block && stopHook.continue && continueAfterStop(docKey, threadId, stopHook.reason ?? "", run);
+      if (!continued && !flushQueue(docKey, threadId, outcome)) flushWakes(threadId);
     }
   };
+
+  /**
+   * Fire a plugin hook event in the add-in (hooks.fire), when a handler can match: hooks are on and the session lists
+   * one for the event (and tool). Hook notices for the user show in the notice bar. Never throws: no result is null.
+   */
+  const fireHook = async (event: HookEvent, docKey: string, threadId: string, extra: Record<string, unknown> = {}): Promise<HookResult | null> => {
+    const s = get();
+    const tool = typeof extra.tool_name === "string" ? extra.tool_name : undefined;
+    if (s.settings.pluginHooks === false || !hasHook(s.session, event, tool)) return null;
+    const doc = s.docs[s.activeDocKey ?? ""];
+    const r = hookResult(
+      await rpc<HookResult>("hooks.fire", {
+        event,
+        threadId,
+        docKey,
+        unify3d_document: doc ? { title: doc.title, path: doc.path ?? null, type: doc.type ?? null } : null,
+        ...extra,
+      }).catch(() => null),
+    );
+    if (r?.systemMessages.length) set({ notice: r.systemMessages.join(" ") });
+    return r;
+  };
+
+  /**
+   * UserPromptSubmit for a prompt the user typed, queued or ran from the ribbon (never for wakes or Stop-hook
+   * continuations: agent-bridge resets its auto-resume counter on it). Blocked: the reason, and the caller puts the
+   * prompt back. Otherwise the context the hooks added, as a block for the message.
+   */
+  const promptHook = async (docKey: string, threadId: string, prompt: string): Promise<{ blocked: string | null; blocks: ContentBlockParam[] }> => {
+    const h = await fireHook("UserPromptSubmit", docKey, threadId, { prompt });
+    if (h && (h.block || !h.continue)) return { blocked: (h.block ? h.reason : h.stopReason) || "a plugin hook blocked this message.", blocks: [] };
+    return { blocked: null, blocks: h?.additionalContext.length ? [{ type: "text", text: hookContextText("UserPromptSubmit", h.additionalContext) }] : [] };
+  };
+
+  /** A prompt a hook blocked: back into the composer (an empty chat the send created goes away), with the reason. */
+  const restoreBlocked = (docKey: string, threadId: string, text: string, attachments: Attachment[], reason: string) => {
+    const t = get().chats[docKey]?.data.threads.find((x) => x.id === threadId);
+    if (t && t.messages.length === 0)
+      updateSlot(docKey, (d) => ({ ...d, threads: d.threads.filter((x) => x.id !== threadId), activeThreadId: d.activeThreadId === threadId ? null : d.activeThreadId }));
+    const key = get().chats[docKey]?.data.activeThreadId === threadId ? threadId : draftKey(get());
+    const tags = sentTags?.text === text ? sentTags.tags : [];
+    set((s) => ({
+      drafts: { ...s.drafts, [key]: [text, s.drafts[key]].filter(Boolean).join("\n\n") },
+      tags: tags.length ? { ...s.tags, [key]: [...(s.tags[key] ?? []), ...tags] } : s.tags,
+      attachments: { ...s.attachments, [key]: [...attachments, ...(s.attachments[key] ?? [])] },
+      notice: `Not sent: ${reason}`,
+      focusTick: s.focusTick + 1,
+    }));
+  };
+
+  /** Room for one more automatic turn this hour (plugin wakes and Stop-hook continuations together); counts it if so. */
+  const allowAutoTurn = (): boolean => {
+    const { allowed, recent } = autoTurnAllowed(autoTimes, Date.now(), get().settings.pluginWakesPerHour ?? 20);
+    autoTimes = allowed ? [...recent, Date.now()] : recent;
+    return allowed;
+  };
+
+  /**
+   * A Stop hook blocked the end of the turn: the turn continues with its reason as a system event, in the same chat and
+   * with the same run settings, together with the follow-ups the user queued meanwhile. False when automatic turns are
+   * paused (the loop guard): the caller then flushes the queue as usual.
+   */
+  const continueAfterStop = (docKey: string, threadId: string, reason: string, run: RunOverride): boolean => {
+    if (!allowAutoTurn()) {
+      set({ notice: `A plugin asked the agent to keep going, but automatic turns are paused (${get().settings.pluginWakesPerHour ?? 20} per hour). Send a message to continue.` });
+      return false;
+    }
+    const q = get().queue[threadId] ?? [];
+    const n = q.findIndex((m) => m.staged || m.run);
+    const batch = n < 0 ? q : q.slice(0, n);
+    set((s) => ({ queue: { ...s.queue, [threadId]: n < 0 ? [] : q.slice(n) } }));
+    const next: RunOverride = { model: run.model, effort: run.effort, autoApprove: run.autoApprove, label: run.label, maxSteps: run.maxSteps, longRun: run.longRun, continuation: true };
+    void (async () => {
+      const blocks: ContentBlockParam[] = [{ type: "text", text: systemEventText("stop", "Stop hook", reason || "A plugin's Stop hook asked you to continue.") }];
+      let refs: Record<string, string> = {};
+      if (batch.length) {
+        // The queued follow-ups are the user's words: UserPromptSubmit fires for them (a block sends them back).
+        const text = batch.map((m) => m.text).filter(Boolean).join("\n\n");
+        const attachments = batch.flatMap((m) => m.attachments);
+        const h = text ? await promptHook(docKey, threadId, text) : { blocked: null, blocks: [] };
+        if (h.blocked) restoreBlocked(docKey, threadId, text, attachments, h.blocked);
+        else {
+          blocks.push(...queuedBlocks(batch), ...h.blocks);
+          const ctx = await buildContext(docKey, threadId, false, { noView: true });
+          blocks.push(...ctx.blocks);
+          refs = ctx.refs;
+        }
+      }
+      await submitBlocks(docKey, threadId, blocks, refs, next);
+    })();
+    return true;
+  };
+
+  /** The chat plugin wakes go to: the last one a run started in, else the latest one used this session; null: none. */
+  const wakeThread = (): string | null => {
+    const threads = get().chats[WORKSPACE]?.data.threads ?? [];
+    if (lastActiveThread && threads.some((t) => t.id === lastActiveThread)) return lastActiveThread;
+    const session = get().sessionStart;
+    return threads.filter((t) => t.turns.some((m) => (m.session ?? 0) >= session)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]?.id ?? null;
+  };
+
+  /** Wakes the add-in holds (session.takeWakes): taken at panel start and on every session.wake nudge. */
+  const pullWakes = async () => {
+    const list = await rpc<Wake[] | null>("session.takeWakes").catch(() => null);
+    for (const w of list ?? []) await receiveWake(w);
+  };
+
+  /** A plugin woke the agent: into the wake chat now when it is idle, else when its run (and any question) ends. */
+  const receiveWake = async (w: Wake) => {
+    if (!w?.id || seenWakes.has(w.id)) return;
+    seenWakes.add(w.id);
+    await loadChat(WORKSPACE);
+    let threadId = wakeThread();
+    if (!threadId) {
+      // No chat was used this session: a new one, named after the plugin, shown if the user isn't in another chat.
+      const label = get().plugins.find((p) => p.name === w.plugin)?.displayName ?? w.plugin;
+      const created: Thread = {
+        id: uid(),
+        title: label || "Plugin",
+        createdAt: now(),
+        updatedAt: now(),
+        model: get().settings.defaultModel,
+        effort: get().settings.defaultEffort,
+        messages: [],
+        turns: [],
+      };
+      updateSlot(WORKSPACE, (d) => ({ ...d, threads: [created, ...d.threads], activeThreadId: d.activeThreadId ?? created.id }));
+      threadId = created.id;
+    }
+    if (get().runs[threadId]) {
+      const id = threadId;
+      set((s) => ({ wakes: { ...s.wakes, [id]: [...(s.wakes[id] ?? []), w] } }));
+      return;
+    }
+    await deliverWakes(threadId, [w]);
+  };
+
+  /** After a run: the wakes that waited for it go out together. */
+  const flushWakes = (threadId: string) => {
+    const list = get().wakes[threadId] ?? [];
+    if (!list.length || get().runs[threadId]) return;
+    set((s) => ({ wakes: { ...s.wakes, [threadId]: [] } }));
+    void deliverWakes(threadId, list);
+  };
+
+  /**
+   * Wakes into a chat as one system-event message, acked once it is saved there (a reload before that gets them handed
+   * over again), then a turn - unless automatic turns are paused: then they wait in the chat for the user's next
+   * message. Never through send(): that would answer a pending question, or end up in the composer on Stop.
+   */
+  const deliverWakes = async (threadId: string, list: Wake[]) => {
+    const blocks: ContentBlockParam[] = list.map((w) => ({ type: "text", text: systemEventText("wake", w.plugin || w.source, w.text) }));
+    const ack = () => {
+      for (const w of list) rpc("session.ackWake", { id: w.id }).catch(() => {});
+    };
+    if (allowAutoTurn()) {
+      await submitBlocks(WORKSPACE, threadId, blocks, {}, {}, ack);
+      return;
+    }
+    updateThread(WORKSPACE, threadId, (t) => {
+      const last = t.messages[t.messages.length - 1];
+      const messages: MessageParam[] =
+        last && last.role === "user" ? [...t.messages.slice(0, -1), { role: "user", content: [...asBlocks(last.content), ...blocks] }] : [...t.messages, { role: "user", content: blocks }];
+      return { ...t, messages };
+    });
+    await persist(WORKSPACE);
+    ack();
+    set({ notice: `${list[0].plugin || "A plugin"} added news to the chat, but automatic turns are paused (${get().settings.pluginWakesPerHour ?? 20} per hour): the agent sees it with your next message.` });
+  };
+
 
   /**
    * After a run in a chat with an open long tool run: the idle clock restarts, unless the tool reported in this turn
@@ -997,11 +1248,12 @@ export const useStore = create<State>((set, get) => {
 
   /**
    * After a run: queued follow-ups go out together as the next prompt. If the user pressed Stop they go back into
-   * the composer instead (nothing is lost, nothing is sent behind their back); after an error they wait.
+   * the composer instead (nothing is lost, nothing is sent behind their back); after an error they wait. True when
+   * a new run is on its way.
    */
-  const flushQueue = (docKey: string, threadId: string, outcome: string) => {
+  const flushQueue = (docKey: string, threadId: string, outcome: string): boolean => {
     const q = get().queue[threadId] ?? [];
-    if (q.length === 0 || outcome === "error") return;
+    if (q.length === 0 || outcome === "error") return false;
     if (outcome === "aborted") {
       // Stop: follow-ups go back into the composer, queued tool runs are dropped (the user can click the tool again).
       set((s) => ({ queue: { ...s.queue, [threadId]: [] } }));
@@ -1012,20 +1264,21 @@ export const useStore = create<State>((set, get) => {
         drafts: { ...s.drafts, [threadId]: [text, s.drafts[threadId]].filter(Boolean).join("\n\n") },
         attachments: { ...s.attachments, [threadId]: [...attachments, ...(s.attachments[threadId] ?? [])] },
       }));
-      return;
+      return false;
     }
     if (q[0].staged || q[0].run) {
       // One tool or workflow run, with its own settings; the rest wait for the next turn to end.
       const [first, ...rest] = q;
       set((s) => ({ queue: { ...s.queue, [threadId]: rest } }));
-      if (first.staged) void submitBlocks(docKey, threadId, first.staged.blocks, first.staged.refs, first.staged.run);
+      if (first.staged) void submitStaged(docKey, threadId, first.staged.blocks, first.staged.refs, first.staged.run);
       else void submitPrompt(docKey, threadId, first.text, first.attachments, first.run);
-      return;
+      return true;
     }
     const n = q.findIndex((m) => m.staged || m.run);
     const batch = n < 0 ? q : q.slice(0, n);
     set((s) => ({ queue: { ...s.queue, [threadId]: n < 0 ? [] : q.slice(n) } }));
     void submitPrompt(docKey, threadId, batch.map((m) => m.text).filter(Boolean).join("\n\n"), batch.flatMap((m) => m.attachments));
+    return true;
   };
 
   /** The agent needs the user (a question, an approval): show that chat and bring the pane up - tool runs happen out of sight. */
@@ -1041,10 +1294,17 @@ export const useStore = create<State>((set, get) => {
 
   /** Add a prompt (text, attachments, the user's selection and view) to a thread and run the agent. */
   const submitPrompt = async (docKey: string, threadId: string, trimmed: string, attachments: Attachment[], run: RunOverride = {}) => {
+    // Plugins see the prompt first (UserPromptSubmit): a block puts it back into the composer.
+    const hook = await promptHook(docKey, threadId, trimmed);
+    if (hook.blocked) {
+      restoreBlocked(docKey, threadId, run.input ?? trimmed, attachments, hook.blocked);
+      return;
+    }
     // The agent's drawings on the view belong to the conversation so far: a new message starts clean.
     if (get().overlayCount > 0) get().clearOverlay();
     const blocks: ContentBlockParam[] = [];
     if (trimmed) blocks.push({ type: "text", text: trimmed });
+    blocks.push(...hook.blocks);
     // A voice message's selections are numbered first, so the context block's ids continue after them.
     const thread = get().chats[docKey]?.data.threads.find((t) => t.id === threadId);
     const taken = refBase(thread?.selRefs);
@@ -1069,8 +1329,29 @@ export const useStore = create<State>((set, get) => {
     await submitBlocks(docKey, threadId, blocks, { ...voiceRefs, ...ctx.refs }, run);
   };
 
-  /** Add a user message (already built) to a thread and run the agent on it, with optional settings for this run. */
-  const submitBlocks = async (docKey: string, threadId: string, blocks: ContentBlockParam[], refs: Record<string, string>, given: RunOverride = {}) => {
+  /**
+   * A ribbon tool run's staged prompt: UserPromptSubmit fires for it like a typed prompt (a block cancels the run, with
+   * the reason); what the hooks add goes after the tool's head line.
+   */
+  const submitStaged = async (docKey: string, threadId: string, blocks: ContentBlockParam[], refs: Record<string, string>, run: RunOverride): Promise<boolean> => {
+    const head = blocks[0]?.type === "text" ? blocks[0].text : "";
+    const hook = await promptHook(docKey, threadId, head);
+    if (hook.blocked) {
+      set({ notice: `${run.label ?? "The tool"} didn't run: ${hook.blocked}` });
+      // A chat made just for this run goes away again.
+      if (get().chats[docKey]?.data.threads.find((t) => t.id === threadId)?.messages.length === 0)
+        updateSlot(docKey, (d) => ({ ...d, threads: d.threads.filter((t) => t.id !== threadId), activeThreadId: d.activeThreadId === threadId ? null : d.activeThreadId }));
+      return false;
+    }
+    await submitBlocks(docKey, threadId, [...blocks.slice(0, 1), ...hook.blocks, ...blocks.slice(1)], refs, run);
+    return true;
+  };
+
+  /**
+   * Add a user message (already built) to a thread and run the agent on it, with optional settings for this run.
+   * afterAppend runs once the message is saved, before the run starts (plugin wakes are acked there).
+   */
+  const submitBlocks = async (docKey: string, threadId: string, blocks: ContentBlockParam[], refs: Record<string, string>, given: RunOverride = {}, afterAppend?: () => void) => {
     const run = runSettings(docKey, threadId, given);
     updateThread(docKey, threadId, (t) => {
       const last = t.messages[t.messages.length - 1];
@@ -1090,7 +1371,163 @@ export const useStore = create<State>((set, get) => {
     });
     noteFile(threadId);
     await persist(docKey);
+    afterAppend?.();
     await startRun(docKey, threadId, run.label ? { label: run.label, startedAt: Date.now() } : {}, run);
+  };
+
+  /** What slash commands and @ tags can reach. */
+  const sources = (): CommandSources => {
+    const s = get();
+    return { commands: s.commands, skills: s.skills, tools: s.userTools, plugins: s.plugins, agents: s.agents };
+  };
+
+  /** Clear the composer (text, attachments, tags) of the current draft. */
+  const clearComposer = () => {
+    const key = draftKey(get());
+    set((s) => ({ drafts: { ...s.drafts, [key]: "" }, tags: { ...s.tags, [key]: [] } }));
+  };
+
+  /**
+   * A typed "/name args": a built-in, a plugin command (expanded by the add-in; its model applies to this run), a
+   * skill ("[Use skill: x]" plus the arguments), or a tool or workflow by name. False: not a command; send it as text.
+   */
+  const runSlash = async (name: string, args: string, typed: string, tagText: string): Promise<boolean> => {
+    const s = get();
+    const target = resolveSlash(name, sources());
+    const withTags = (text: string) => (tagText ? `${tagText}\n${text}` : text);
+    switch (target.kind) {
+      case "unknown":
+        set({ notice: `There is no /${name} command. Type / to see the commands.` });
+        return true;
+      case "ambiguous":
+        set({ notice: `Several plugins have /${name}: type ${target.options.map((o) => `/${o}`).join(" or ")}.` });
+        return true;
+      case "tool":
+        clearComposer();
+        await get().runNamedTool(target.tool.name, args);
+        return true;
+      case "skill":
+        clearComposer();
+        await get().send(withTags(`[Use skill: ${target.skill.id}]${args ? `\n${args}` : ""}`), { input: typed });
+        return true;
+      case "command": {
+        const c = target.command;
+        let res: ExpandedCommand;
+        try {
+          res = await rpc<ExpandedCommand>("plugins.expandCommand", { name: c.id, args });
+        } catch (err: any) {
+          set({ notice: `Couldn't run /${c.id}: ${err.message}` });
+          return true;
+        }
+        clearComposer();
+        if (res?.note) set({ notice: res.note });
+        const model = modelFromAlias(res?.model ?? c.model) ?? undefined;
+        await get().send(withTags(`${commandHead(c.id, args)}\n${res?.text ?? ""}`), { model, command: c.id, input: typed });
+        return true;
+      }
+      case "builtin":
+        break;
+    }
+    const done = () => clearComposer();
+    switch (target.name) {
+      case "help": {
+        done();
+        const plugin = s.commands.length ? ` Plugin commands: ${s.commands.map((c) => `/${c.id}`).join(", ")}.` : "";
+        set({ notice: `Commands: ${BUILTIN_COMMANDS.map((b) => `/${b.name}`).join(", ")}.${plugin} Your tools, workflows and skills run as /their-name. Type / to browse, @ to tag a plugin, tool, skill or agent.` });
+        return true;
+      }
+      case "clear":
+        done();
+        set({ panel: "chat" });
+        await get().newChat();
+        return true;
+      case "plugins":
+        done();
+        set({ panel: "plugins" });
+        return true;
+      case "settings":
+        done();
+        set({ panel: "settings" });
+        return true;
+      case "new-tool":
+        done();
+        set({ panel: "newTool" });
+        return true;
+      case "new-plugin":
+        done();
+        await get().runNamedTool("create-plugin", args);
+        return true;
+      case "tools": {
+        done();
+        const names = s.userTools.map((t) => `${t.name}${t.kind === "tool" ? "" : " (workflow)"}`);
+        set({ notice: names.length ? `Your tools and workflows: ${names.join(", ")}. Run one with /run <name> or /<name>.` : "No tools or workflows yet. /new-tool makes one." });
+        return true;
+      }
+      case "run": {
+        const [tool, ...rest] = args.split(/\s+/);
+        const t = tool ? s.userTools.find((x) => x.name.toLowerCase() === tool.toLowerCase()) : undefined;
+        if (!t) {
+          set({ notice: tool ? `There is no tool or workflow "${tool}". /tools lists them.` : "Which one? /run <tool>, e.g. /run smart-rebuild." });
+          return true;
+        }
+        done();
+        await get().runNamedTool(t.name, rest.join(" "));
+        return true;
+      }
+      case "model": {
+        const a = args.toLowerCase();
+        const m = modelFromAlias(a) ?? MODELS.find((x) => a && (x.label.toLowerCase().includes(a) || x.id.includes(a)))?.id;
+        if (!m || !MODELS.some((x) => x.id === m)) {
+          set({ notice: `Models: ${MODELS.map((x) => x.label).join(", ")} - e.g. /model sonnet.` });
+          return true;
+        }
+        done();
+        get().setThreadModel(m);
+        set({ notice: `Model: ${MODELS.find((x) => x.id === m)?.label}.` });
+        return true;
+      }
+      case "effort": {
+        const a = args.toLowerCase().replace(/[\s-]/g, "");
+        const e = EFFORTS.find((x) => x.id === a || x.label.toLowerCase().replace(/[\s-]/g, "") === a);
+        if (!e) {
+          set({ notice: `Effort levels: ${EFFORTS.map((x) => x.id).join(", ")} - e.g. /effort high.` });
+          return true;
+        }
+        done();
+        get().setThreadEffort(e.id);
+        set({ notice: `Effort: ${e.label}.` });
+        return true;
+      }
+    }
+    return false;
+  };
+
+  /** Fetch everything plugin-related the panel shows or the agent uses (older add-ins: empty). */
+  const loadPluginState = async () => {
+    const list = <T,>(method: string) => rpc<T[] | null>(method).then((r) => r ?? []).catch(() => [] as T[]);
+    const [plugins, marketplaces, commands, skills, agents, mcpServers, session] = await Promise.all([
+      list<PluginInfo>("plugins.list"),
+      list<MarketplaceInfo>("plugins.marketplaces"),
+      list<CommandInfo>("plugins.commands"),
+      list<SkillInfo>("plugins.skills"),
+      list<AgentInfo>("plugins.agents"),
+      list<McpServerStatus>("mcp.status"),
+      // The first session.info of a session starts its SessionStart hooks (the add-in fires them once).
+      rpc<SessionInfo | null>("session.info").catch(() => null),
+    ]);
+    set({ plugins, marketplaces, commands, skills, agents, mcpServers, session });
+  };
+
+  /**
+   * A workflow run, with notes as its inputs. Not a follow-up: it ends a long tool run's settings in this chat. A long
+   * workflow (front matter long_run) gets its step limit and 1-hour cache and opens its own follow-up settings - with
+   * the chat's model and approval (only ribbon tool runs are auto-approved).
+   */
+  const runWorkflow = async (name: string, notes: string) => {
+    const tool = get().userTools.find((t) => t.name === name);
+    const longRun = !!tool?.longRun;
+    const run: RunOverride = { tool: name, longRun, maxSteps: clampSteps(tool?.maxSteps ?? (longRun ? LONG_RUN_STEPS : DEFAULT_STEPS)) };
+    await get().send(`[Run workflow: ${name}]${notes ? `\n${notes}` : ""}`, run);
   };
 
   return {
@@ -1176,6 +1613,66 @@ export const useStore = create<State>((set, get) => {
     queue: {},
     drafts: {},
     attachments: {},
+    tags: {},
+    plugins: [],
+    marketplaces: [],
+    commands: [],
+    skills: [],
+    agents: [],
+    mcpServers: [],
+    session: null,
+    pluginsTab: "discover",
+    wakes: {},
+
+    addTag(tag) {
+      const key = draftKey(get());
+      set((s) => {
+        const list = s.tags[key] ?? [];
+        if (list.some((t) => t.kind === tag.kind && t.name === tag.name)) return {};
+        return { tags: { ...s.tags, [key]: [...list, tag] } };
+      });
+    },
+
+    removeTag(index) {
+      const key = draftKey(get());
+      set((s) => ({ tags: { ...s.tags, [key]: (s.tags[key] ?? []).filter((_, i) => i !== index) } }));
+    },
+
+    async submitInput(text) {
+      const key = draftKey(get());
+      const tags = get().tags[key] ?? [];
+      const tagText = tagLines(tags);
+      const trimmed = text.trim();
+      const slash = parseSlash(trimmed);
+      if (slash && (await runSlash(slash.name, slash.args, trimmed, tagText))) return;
+      if (!trimmed && (get().attachments[key] ?? []).length === 0) return; // tags alone aren't a message
+      set((s) => ({ tags: { ...s.tags, [key]: [] } }));
+      sentTags = tags.length ? { text: trimmed, tags } : null;
+      await get().send(tagText && trimmed ? `${tagText}\n${trimmed}` : trimmed || tagText, tagText ? { input: trimmed } : undefined);
+    },
+
+    async loadPlugins() {
+      await loadPluginState();
+    },
+
+    setPluginsTab(tab) {
+      set({ pluginsTab: tab });
+    },
+
+    async runNamedTool(name, notes) {
+      const t = get().userTools.find((x) => x.name === name);
+      set({ panel: "chat" });
+      // A ribbon tool opens its inputs (page or panel form) in the add-in, which hands the run back when it needs the agent.
+      if (t?.kind === "tool") {
+        await rpc("userTools.run", { name }).catch((err) => set({ notice: `Couldn't run ${t.title}: ${err.message}` }));
+        return;
+      }
+      if (!t && name !== "create-plugin") {
+        set({ notice: `There is no tool or workflow "${name}".` });
+        return;
+      }
+      await runWorkflow(name, (notes ?? "").trim());
+    },
     panel: "chat",
     focusTick: 0,
     notice: null,
@@ -1231,6 +1728,20 @@ export const useStore = create<State>((set, get) => {
       }
 
       on("overlay.changed", (p: { count: number }) => set({ overlayCount: p?.count ?? 0 }));
+
+      // Plugins: the store and components, the agent's tools (MCP servers come and go), and wakes from async hooks.
+      on("plugins.changed", () => void loadPluginState());
+      on("tools.changed", () => {
+        rpc<ToolDef[]>("tools.list")
+          .then((tools) => set({ tools: tools ?? [] }))
+          .catch(() => {});
+        rpc<McpServerStatus[] | null>("mcp.status")
+          .then((mcpServers) => set({ mcpServers: mcpServers ?? [] }))
+          .catch(() => {});
+      });
+      on("session.wake", () => void pullWakes());
+      // The panel is ready: plugin state (its first session.info starts the session's hooks), then any waiting wakes.
+      void loadPluginState().then(() => pullWakes());
 
       on("doc.activated", (doc: DocInfo) => {
         set((s) => ({ docs: { ...s.docs, [doc.key]: doc }, activeDocKey: doc.key }));
@@ -1529,7 +2040,7 @@ export const useStore = create<State>((set, get) => {
 
       let thread = currentThread(get());
       const asked = thread ? get().runs[thread.id]?.question : null;
-      const ownRun = !!(opts?.tool || opts?.fresh); // a workflow run or a new request: never an answer or a follow-up
+      const ownRun = !!(opts?.tool || opts?.fresh || opts?.command); // a workflow run, a new request or a command: never an answer or a follow-up
       if (thread && asked && !asked.form && trimmed && !ownRun && !attachments.some((a) => a.kind !== "voice")) {
         // The agent is waiting on a question: this is the answer (a queued message would wait behind it forever).
         // While it waits for a selection, the message is the user's note and counts as Done.
@@ -1554,10 +2065,18 @@ export const useStore = create<State>((set, get) => {
       if (!thread) {
         thread = {
           id: uid(),
-          title: (trimmed || attachments[0]?.name || "Image").replace(/^\[New tool\]\s*/, "New tool: ").replace(/^\[Smart rebuild\]\s*/, "Smart Rebuild: ").replace(/\s+/g, " ").slice(0, 70),
+          title: (trimmed || attachments[0]?.name || "Image")
+            .replace(/^(\[Use \w+: [^\]\n]+\]\s*)+/, "")
+            .replace(/^\[Command: (\/[^\]\n]+)\][\s\S]*/, "$1")
+            .replace(/^\[Use skill: ([^\]\n]+)\]\s*/, "Skill $1: ")
+            .replace(/^\[New tool\]\s*/, "New tool: ")
+            .replace(/^\[Smart rebuild\]\s*/, "Smart Rebuild: ")
+            .replace(/\s+/g, " ")
+            .slice(0, 70),
           createdAt: now(),
           updatedAt: now(),
-          model: opts?.model ?? settings.defaultModel,
+          // A command's model is for its own run only, not for the chat it starts.
+          model: (!opts?.command && opts?.model) || settings.defaultModel,
           effort: opts?.effort ?? settings.defaultEffort,
           messages: [],
           turns: [],
@@ -1775,14 +2294,7 @@ export const useStore = create<State>((set, get) => {
 
     async runUserTool(name) {
       // Whatever is typed in the composer becomes the workflow's notes/inputs.
-      const notes = (get().drafts[draftKey(get())] ?? "").trim();
-      // A workflow run is not a follow-up: it ends a long tool run's settings in this chat. A long workflow (front
-      // matter long_run) gets its step limit and 1-hour cache and opens its own follow-up settings - with the chat's
-      // model and approval (only ribbon tool runs are auto-approved).
-      const tool = get().userTools.find((t) => t.name === name);
-      const longRun = !!tool?.longRun;
-      const run: RunOverride = { tool: name, longRun, maxSteps: clampSteps(tool?.maxSteps ?? (longRun ? LONG_RUN_STEPS : DEFAULT_STEPS)) };
-      await get().send(`[Run workflow: ${name}]${notes ? `\n${notes}` : ""}`, run);
+      await runWorkflow(name, (get().drafts[draftKey(get())] ?? "").trim());
     },
 
     async runQuickTool(payload) {
@@ -1827,7 +2339,7 @@ export const useStore = create<State>((set, get) => {
         return;
       }
       set({ toolOutcome: null });
-      await submitBlocks(docKey, threadId, staged.blocks, staged.refs, run);
+      if (!(await submitStaged(docKey, threadId, staged.blocks, staged.refs, run))) return;
 
       // A one-line outcome for the banner: the agent's last words, or the error.
       const th = get().chats[docKey]?.data.threads.find((t) => t.id === threadId);
@@ -2138,8 +2650,9 @@ export function lastPromptIndex(messages: MessageParam[]): number {
   return 0;
 }
 
+/** A user message with something besides tool results (and the context plugin hooks add after them): a prompt. */
 export function isPrompt(m: MessageParam): boolean {
-  return m.role === "user" && (typeof m.content === "string" || m.content.some((b) => b.type !== "tool_result"));
+  return m.role === "user" && (typeof m.content === "string" || m.content.some((b) => b.type !== "tool_result" && !(b.type === "text" && b.text.startsWith(HOOK_TAG))));
 }
 
 function asBlocks(content: MessageParam["content"]): ContentBlockParam[] {

@@ -48,7 +48,23 @@ export const DEFAULT_SETTINGS: Settings = {
   voiceViews: true,
   speakReplies: "off",
   speakRate: 0,
+  // The add-in reads these from settings.json with the same defaults when a key is missing (plugins, MCP, tool forms).
+  pluginAutoUpdate: true,
+  pluginHooks: true,
+  pluginMcp: true,
+  pluginWakesPerHour: 20,
+  pluginEventsInChat: true,
+  toolInputs: "panel",
 };
+
+/** A command's or agent's `model` front matter (Claude Code aliases or a model id) as a model id; null: the chat's own. */
+export function modelFromAlias(alias: string | null | undefined): string | null {
+  const a = (alias ?? "").trim().toLowerCase();
+  if (!a || a === "inherit") return null;
+  const byFamily = MODELS.find((m) => m.id.startsWith(`claude-${a}-`));
+  if (byFamily) return byFamily.id;
+  return MODELS.find((m) => m.id === a || m.label.toLowerCase() === a)?.id ?? (a.startsWith("claude-") ? a : null);
+}
 
 export function modelOption(id: string): ModelOption {
   return MODELS.find((m) => m.id === id) ?? { id, label: id, note: "", fallbacks: false, progressUpdates: false };
