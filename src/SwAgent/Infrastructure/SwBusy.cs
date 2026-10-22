@@ -23,9 +23,16 @@ namespace SwAgent.Infrastructure
         {
             "search_sw_api", "get_sw_api_type", "mold_calc", "rebuild_journal", "list_user_tools", "read_user_tool", "save_user_tool",
             "edit_user_tool", "clear_overlay", "design_library", "list_open_documents", "get_selection",
+            // plugins: skills, plugin files and the plugin creator
+            "use_skill", "read_plugin_file", "list_plugins", "read_plugin",
         };
 
-        public static bool ModelFree(string tool) => tool != null && ModelFreeTools.Contains(tool);
+        /// <summary>
+        /// MCP tools (mcp__...) run in their server's process and never touch the model; the plugin creator's tools
+        /// (plugin_create, plugin_write_file, ...) only write plugin files.
+        /// </summary>
+        public static bool ModelFree(string tool) => tool != null &&
+            (ModelFreeTools.Contains(tool) || tool.StartsWith("mcp__", StringComparison.Ordinal) || tool.StartsWith("plugin_", StringComparison.Ordinal));
 
         /// <summary>SolidWorks' command state when the agent's last model tool call ended (null before the first one).</summary>
         public static string AgentLeft { get; set; }
