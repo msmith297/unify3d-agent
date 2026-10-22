@@ -57,9 +57,17 @@ namespace SwAgent.Mcp
         public async Task StartAsync(string command, IEnumerable<string> args, IDictionary<string, string> env, string cwd)
         {
             _process = PluginProcess.StartProgram(command, args, env, cwd, captureStdout: false);
-            _stdin = new StreamWriter(_process.Process.StandardInput.BaseStream, new UTF8Encoding(false)) { NewLine = "\n", AutoFlush = true };
-            var reader = _process.Process.StandardOutput;
+            _stdin = new StreamWriter(_process.Input, new UTF8Encoding(false)) { NewLine = "\n", AutoFlush = true };
+            var reader = _process.Output;
             new Thread(() => ReadLoop(reader), 256 * 1024) { IsBackground = true, Name = "mcp-" + Name }.Start();
+            // A grandchild that inherited stdout could keep the pipe open after the server died: its exit counts too.
+            var process = _process;
+            _ = process.Exited.ContinueWith(async _ =>
+            {
+                await Task.Delay(2000).ConfigureAwait(false);
+                var stderr = process.Stderr;
+                Close($"it exited with code {process.ExitCode}" + (string.IsNullOrWhiteSpace(stderr) ? "" : ": " + Clip(LastLines(stderr, 5), 600)));
+            }, TaskScheduler.Default);
             try
             {
                 var init = await RequestAsync("initialize", new JObject
