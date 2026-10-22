@@ -280,19 +280,14 @@ namespace SwAgent.Plugins
         internal static bool? GitOverride;
 
         private static string _git;
-        private static bool _gitLooked;
 
-        /// <summary>git.exe from PATH (the registry's, so a Git install after SolidWorks started counts), or null.</summary>
+        /// <summary>git.exe from PATH (the registry's, so a Git install after SolidWorks started counts: a miss is looked up again), or null.</summary>
         public static string Git
         {
             get
             {
                 if (GitOverride == false) return null;
-                if (!_gitLooked)
-                {
-                    _git = ExecutableResolver.Find("git");
-                    _gitLooked = true;
-                }
+                if (_git == null || !File.Exists(_git)) _git = ExecutableResolver.Find("git");
                 return _git;
             }
         }

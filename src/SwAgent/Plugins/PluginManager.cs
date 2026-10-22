@@ -887,9 +887,10 @@ namespace SwAgent.Plugins
             var s = Snapshot();
             var left = s.Trash.Where(d => Directory.Exists(d) && !Fetcher.TryDelete(d)).ToList();
             if (left.Count != s.Trash.Count) Mutate(st => { st.Trash = left; return 0; });
-            if (!Directory.Exists(CacheDir)) return;
-            foreach (var d in Directory.GetDirectories(CacheDir).SelectMany(Directory.GetDirectories).Where(d => Path.GetFileName(d).StartsWith(".")))
-                Fetcher.TryDelete(d);
+            var scratch = new List<string>();
+            if (Directory.Exists(CacheDir)) scratch.AddRange(Directory.GetDirectories(CacheDir).SelectMany(Directory.GetDirectories));
+            if (Directory.Exists(MarketplacesDir)) scratch.AddRange(Directory.GetDirectories(MarketplacesDir));
+            foreach (var d in scratch.Where(d => Path.GetFileName(d).StartsWith("."))) Fetcher.TryDelete(d);
         }
 
         /// <summary>
