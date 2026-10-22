@@ -260,6 +260,11 @@ installed: the Release build SolidWorks loads is still `29cf6a3` (section 2).
    Renaming Unify3D's MCP client to something with "claude" is not the fix (it would join the user's Claude app on the
    hub: account, Bridge Manager, revive requests). Also decide whether Unify3D should listen "always" by default
    (`"AGENT_BRIDGE_LISTEN": "always"` in the marketplace entry's `unify3d.env`); it is off now.
+   **Decided by the user (2026-10-21):** `github.com/msmith297/agent-bridge` stays **private**. Installing it from the
+   built-in marketplace therefore works only where git already has the user's GitHub credentials (the git-subdir
+   source; the zip fallback 404s). First-party approved plugins will get **a separate public repository** (a public
+   marketplace of approved plugins; not created yet). When it exists, the built-in "unify3d" marketplace and the store
+   should list it, and first-party entries should point there.
 4. **Known limitation:** with agent-bridge on a local hub, the broker `mcp.mjs` starts lands in the add-in's job objects
    and dies with that MCP server or SolidWorks (documented in authoring.md section 10).
 5. Smaller items left from the review: MCP server stderr isn't streamed to the log (only its last lines on exit); a
