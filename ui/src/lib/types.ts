@@ -299,7 +299,7 @@ export interface McpServerStatus {
   /** The plugin name, or null for a server from the user's mcp.json. */
   plugin: string | null;
   server: string;
-  state: "starting" | "running" | "error" | "stopped";
+  state: "starting" | "running" | "restarting" | "error" | "stopped";
   error?: string | null;
   toolCount: number;
 }
@@ -311,7 +311,12 @@ export interface SessionInfo {
   sessionId: string;
   /** Event -> the matchers of its handlers ("" or "*" match everything). */
   hookEvents: Partial<Record<HookEvent, string[]>>;
-  mcpInstructions: { server: string; text: string }[];
+  /** Server instructions from initialize; plugin is null for a server from the user's mcp.json. */
+  mcpInstructions: { server: string; plugin?: string | null; text: string }[];
+  /** SessionStart hooks' additionalContext and systemMessages (the system prompt carries them). */
+  sessionContext?: string[];
+  /** Wakes held back by the hourly limit; they go in with the next prompt. */
+  heldWakes?: number;
 }
 
 /** What hooks.fire returns: every handler of the event ran (in parallel) and their outputs are combined. */
@@ -503,6 +508,10 @@ export interface UserToolInfo {
   name: string;
   /** A built-in Unify3D tool (ships with the add-in, read-only). */
   builtIn?: boolean;
+  /** The plugin it comes from (its name is "plugin:tool"), or null for the user's own and built-in tools. */
+  plugin?: string | null;
+  /** Can't be edited or deleted: built-in tools and tools of installed plugins (a local plugin's tools stay editable). */
+  readOnly?: boolean;
   title: string;
   description: string;
   icon: string;

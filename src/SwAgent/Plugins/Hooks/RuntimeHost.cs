@@ -68,7 +68,7 @@ namespace SwAgent.Plugins.Hooks
         public static IPluginRuntimeSource NoPlugins { get; } = new EmptySource();
 
         /// <summary>User-level MCP servers: %APPDATA%\SwAgent\mcp.json ({ "mcpServers": { ... } }, as in Claude Code).</summary>
-        internal string McpJsonPath { get; set; } = Path.Combine(Paths.RoamingDir, "mcp.json");
+        internal string McpJsonPath { get; set; } = Paths.McpConfigFile;
 
         /// <summary>Switches to another plugin source (the plugin core's, once it is loaded).</summary>
         public void UseSource(IPluginRuntimeSource source)

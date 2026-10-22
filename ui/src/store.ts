@@ -766,6 +766,7 @@ export const useStore = create<State>((set, get) => {
         skills: get().skills,
         agents: get().agents,
         mcpInstructions: get().session?.mcpInstructions ?? [],
+        sessionContext: get().session?.sessionContext ?? [],
         signal: controller.signal,
         cb: {
           getMessages: () => get().chats[docKey]?.data.threads.find((t) => t.id === threadId)?.messages ?? [],
@@ -1740,6 +1741,12 @@ export const useStore = create<State>((set, get) => {
           .catch(() => {});
       });
       on("session.wake", () => void pullWakes());
+      // SessionStart context arrived, plugins or servers changed (hook events, MCP instructions), or a wake was held back.
+      on("session.changed", () => {
+        rpc<SessionInfo | null>("session.info")
+          .then((session) => session && set({ session }))
+          .catch(() => {});
+      });
       // The panel is ready: plugin state (its first session.info starts the session's hooks), then any waiting wakes.
       void loadPluginState().then(() => pullWakes());
 

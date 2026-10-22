@@ -54,7 +54,7 @@ namespace SwAgent
         /// <summary>The panel's settings (settings.json), also before the panel has loaded.</summary>
         internal JObject Settings => _settings;
 
-        /// <summary>Plugin hooks and MCP servers (Plugins/Hooks, Mcp); its plugins come from the plugin core (UseSource).</summary>
+        /// <summary>Plugin hooks and MCP servers (Plugins/Hooks, Mcp); its plugins come from the plugin core (PluginManager).</summary>
         internal RuntimeHost Runtime { get; }
         private string _lastActiveKey;
         private ChatDocumentHandler _selectionSource;
@@ -78,7 +78,7 @@ namespace SwAgent
             _app = app;
             _tools = tools;
             _scripts = scripts;
-            Runtime = new RuntimeHost(RuntimeHost.NoPlugins, Plugins.Hooks.Session.Open(), (name, data) => _bridge?.Emit(name, data));
+            Runtime = new RuntimeHost(Plugins.PluginManager.Instance, Plugins.Hooks.Session.Open(), (name, data) => _bridge?.Emit(name, data));
             Runtime.ApplySettings(_settings);
             _forms = new ToolFormBridge(app, scripts);
             // Push-to-talk voice messages and the markup pen.
@@ -166,6 +166,7 @@ namespace SwAgent
                 _settings = (JObject)p;
                 SettingsStore.SaveSettings(_settings);
                 _voice.ApplySettings();
+                Plugins.PluginSettings.Apply(_settings); // before the runtime: Runnable() reads pluginHooks / pluginMcp from it
                 Runtime.ApplySettings(_settings);
                 return null;
             });

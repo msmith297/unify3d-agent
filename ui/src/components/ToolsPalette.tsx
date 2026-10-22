@@ -21,7 +21,7 @@ async function chooseCategory(t: UserToolInfo, existing: string[]) {
   let value = t.category ?? "";
   const listId = `categories-${t.name}`;
   const shipped = t.categoryDefault ?? null;
-  const changedBuiltIn = !!t.builtIn && t.categoryDefault !== undefined && (t.category ?? null) !== shipped;
+  const changedBuiltIn = !!(t.builtIn || t.readOnly) && t.categoryDefault !== undefined && (t.category ?? null) !== shipped;
   const choice = await ask({
     title: `Category of "${t.title}"`,
     message: (
@@ -105,7 +105,7 @@ export function ToolsPalette({ disabled, labelClassName = "" }: { disabled?: boo
         >
           <IconTree size={12} />
         </button>
-        {!t.builtIn && (
+        {!t.builtIn && !t.readOnly && (
         <>
         <button
           className="sw-tool !h-[22px] !min-w-[22px] !p-0"

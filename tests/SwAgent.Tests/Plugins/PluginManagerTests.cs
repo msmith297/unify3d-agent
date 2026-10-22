@@ -201,11 +201,11 @@ namespace SwAgent.Tests.Plugins
                 Assert.False(rt.Env.ContainsKey("ANTHROPIC_API_KEY"));
                 Assert.Equal("fallback", rt.Expand("${SWAGENT_SURELY_UNSET_VAR:-fallback}"));
 
-                var options = (JArray)env.Pm.PluginJson(env.Pm.Find("configured"))["userConfig"];
-                var token = options.Single(o => (string)o["key"] == "token");
-                Assert.True((bool)token["isSet"]);
-                Assert.Null((string)token["value"]); // never sent back to the panel
-                Assert.Equal("us", (string)options.Single(o => (string)o["key"] == "region")["value"]);
+                var json = env.Pm.PluginJson(env.Pm.Find("configured"));
+                Assert.True((bool)json["userConfig"]["token"]["sensitive"]);
+                Assert.Equal(new JObject { ["set"] = true }, json["config"]["token"]); // the value is never sent back to the panel
+                Assert.DoesNotContain("s3cret", json.ToString());
+                Assert.Equal("us", (string)json["config"]["region"]);
 
                 env.Pm.Uninstall("configured@test-market");
                 Assert.Empty(Directory.GetFiles(Path.Combine(env.Pm.Root, "secrets")));

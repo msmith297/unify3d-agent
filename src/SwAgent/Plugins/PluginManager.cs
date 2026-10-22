@@ -709,7 +709,13 @@ namespace SwAgent.Plugins
                 }
                 if (UpToDate) o["upToDate"] = true;
                 if (Warnings.Count > 0) o["warnings"] = new JArray(Warnings);
-                if (AlsoInstalled.Count > 0) o["alsoInstalled"] = new JArray(AlsoInstalled);
+                if (AlsoInstalled.Count > 0)
+                {
+                    o["alsoInstalled"] = new JArray(AlsoInstalled);
+                    o["installed"] = new JArray(AlsoInstalled); // the panel's name for it
+                }
+                if (Warnings.Count > 0) o["note"] = string.Join(" ", Warnings);
+                else if (UpToDate) o["note"] = "Already up to date.";
                 return o;
             }
         }
@@ -1107,8 +1113,14 @@ namespace SwAgent.Plugins
 
         // ---------------------------------------------------------------- JSON for the panel
 
-        /// <summary>One installed plugin for plugins.list and the store's Installed tab.</summary>
-        public JObject PluginJson(LoadedPlugin p)
+        /// <summary>
+        /// One installed plugin for plugins.list and the store's Installed tab (ui/src/lib/types.ts PluginInfo, plus the
+        /// core's own fields: readOnly, path, tools, hookEvents, trust, findings, pendingUpdate).
+        /// </summary>
+        public JObject PluginJson(LoadedPlugin p) => PluginJson(p, null);
+
+        /// <param name="markets">The marketplaces, when the caller has read them already (plugins.list reads them once).</param>
+        private JObject PluginJson(LoadedPlugin p, List<MarketplaceInfo> markets)
         {
             var m = p.Manifest;
             var hash = CurrentHash(p);
@@ -1119,25 +1131,35 @@ namespace SwAgent.Plugins
             var tools = m.Tools().ToList();
             var notes = new JArray();
             if (m.Hooks["PermissionRequest"] != null) notes.Add("Remote approvals (PermissionRequest hooks) don't run in Unify3D yet; Unify3D's own approval cards are used.");
+            var entry = MarketplaceEntryOf(p, markets);
+            var errors = m.Findings.Where(f => f.StartsWith("error:", StringComparison.Ordinal)).ToList();
             return new JObject
             {
                 ["id"] = p.Id,
                 ["name"] = p.Name,
                 ["marketplace"] = p.Record.Marketplace,
                 ["displayName"] = m.DisplayName ?? p.Name,
-                ["description"] = m.Description,
+                ["description"] = m.Description ?? entry?.Description,
                 ["version"] = p.Record.Version ?? m.Version,
-                ["author"] = m.Author,
-                ["keywords"] = new JArray(m.Keywords),
-                ["category"] = PluginManifest.Str(m.Unify3d["category"]),
+                ["author"] = m.Author == null ? null : new JObject { ["name"] = m.Author },
+                ["homepage"] = PluginManifest.Str(m.Json["homepage"]) ?? PluginManifest.Str(entry?.Json?["homepage"]),
+                ["repository"] = PluginManifest.Str(m.Json["repository"]),
+                ["license"] = PluginManifest.Str(m.Json["license"]),
+                ["keywords"] = new JArray(m.Keywords.Concat(entry?.Keywords ?? new string[0]).Distinct()),
+                ["category"] = entry?.Category ?? PluginManifest.Str(m.Unify3d["category"]),
                 ["icon"] = PluginManifest.Str(m.Unify3d["icon"]),
+                ["installed"] = true,
                 ["enabled"] = p.Enabled,
+                ["trusted"] = hash == "" || hash == p.Record.TrustedHash,
                 ["local"] = p.Local,
                 ["readOnly"] = !p.Local,
                 ["path"] = p.Root,
                 ["installedAt"] = p.Record.InstalledAt,
                 ["updatedAt"] = p.Record.UpdatedAt,
                 ["pendingUpdate"] = p.Record.PendingUpdate,
+                ["updateAvailable"] = p.Record.PendingUpdate,
+                ["installWith"] = InstallWithIds(p.Record.Unify3d, p.Record.Marketplace),
+                ["error"] = errors.Count > 0 ? errors[0].Substring("error:".Length).Trim() : null,
                 ["components"] = new JObject
                 {
                     ["tools"] = tools.Count,
@@ -1150,18 +1172,19 @@ namespace SwAgent.Plugins
                 ["tools"] = new JArray(tools.Select(t => p.Name + ":" + t.Name)),
                 ["hookEvents"] = new JArray(m.Hooks.Properties().Select(x => x.Name)),
                 ["mcpServers"] = new JArray(m.McpServers.Keys),
-                ["userConfig"] = new JArray(m.UserConfig.Select(kv => new JObject
+                ["userConfig"] = new JObject(m.UserConfig.Select(kv => new JProperty(kv.Key, new JObject
                 {
-                    ["key"] = kv.Key,
                     ["type"] = PluginManifest.Str(kv.Value["type"]) ?? "string",
                     ["title"] = PluginManifest.Str(kv.Value["title"]) ?? kv.Key,
                     ["description"] = PluginManifest.Str(kv.Value["description"]),
                     ["default"] = kv.Value["default"]?.DeepClone(),
                     ["sensitive"] = (bool?)kv.Value["sensitive"] == true,
-                    // a sensitive value never goes back to the panel
-                    ["value"] = (bool?)kv.Value["sensitive"] == true ? null : options[kv.Key].Value,
-                    ["isSet"] = options[kv.Key].Value != null,
-                })),
+                    ["required"] = (bool?)kv.Value["required"] == true,
+                }))),
+                // a sensitive value never goes back to the panel: only whether one is set
+                ["config"] = new JObject(m.UserConfig.Select(kv => new JProperty(kv.Key, (bool?)kv.Value["sensitive"] == true
+                    ? new JObject { ["set"] = options[kv.Key].Value != null }
+                    : p.Record.UserConfig[kv.Key]?.DeepClone()))),
                 ["trust"] = new JObject
                 {
                     ["needed"] = hash != "",
@@ -1193,6 +1216,7 @@ namespace SwAgent.Plugins
                 ["description"] = m.Manifest?.Description,
                 ["error"] = m.Error,
                 ["findings"] = new JArray(m.Manifest?.Findings ?? new List<string>()),
+                ["pluginCount"] = m.Manifest?.Plugins.Count ?? 0,
                 ["plugins"] = new JArray((m.Manifest?.Plugins ?? new List<MarketplaceEntry>()).Select(e =>
                 {
                     var id = e.Name + "@" + m.Name;
@@ -1216,7 +1240,84 @@ namespace SwAgent.Plugins
             }));
         }
 
-        public JArray PluginsJson() => new JArray(Installed().Select(PluginJson));
+        /// <summary>
+        /// plugins.list: every installed plugin (PluginJson) and every marketplace plugin not installed yet, so Discover
+        /// and Installed read one list.
+        /// </summary>
+        public JArray PluginsJson()
+        {
+            var installed = Installed();
+            var markets = Marketplaces();
+            var list = new JArray(installed.Select(p => PluginJson(p, markets)));
+            foreach (var m in markets.Where(x => x.Manifest != null && x.Name != LocalMarketplace))
+                foreach (var e in m.Manifest.Plugins)
+                {
+                    var id = e.Name + "@" + m.Name;
+                    if (installed.Any(x => x.Id == id)) continue;
+                    list.Add(EntryJson(m, e, id));
+                }
+            return list;
+        }
+
+        /// <summary>A marketplace plugin that isn't installed. A "./folder" entry is read for its manifest; a remote one shows what the entry says.</summary>
+        private static JObject EntryJson(MarketplaceInfo market, MarketplaceEntry e, string id)
+        {
+            PluginManifest m = null;
+            if (e.Source?.Kind == PluginSource.SourceKind.Relative && market.Root != null)
+            {
+                var dir = Path.GetFullPath(Path.Combine(market.Root, e.Source.Path));
+                if (PluginManifest.IsInside(market.Root, dir)) m = PluginManifest.Load(dir);
+            }
+            var hidden = new HashSet<string>((e.Unify3d["hideSkills"] as JArray ?? new JArray()).Select(t => (string)t).Where(t => t != null), StringComparer.Ordinal);
+            return new JObject
+            {
+                ["id"] = id,
+                ["name"] = e.Name,
+                ["marketplace"] = market.Name,
+                ["displayName"] = m?.DisplayName ?? e.Name,
+                ["description"] = e.Description ?? m?.Description,
+                ["version"] = e.Version ?? m?.Version,
+                ["author"] = m?.Author == null ? null : new JObject { ["name"] = m.Author },
+                ["homepage"] = PluginManifest.Str(e.Json?["homepage"]) ?? PluginManifest.Str(m?.Json["homepage"]),
+                ["license"] = PluginManifest.Str(m?.Json["license"]),
+                ["category"] = e.Category ?? PluginManifest.Str(m?.Unify3d["category"]),
+                ["keywords"] = new JArray(e.Keywords),
+                ["installed"] = false,
+                ["enabled"] = false,
+                ["trusted"] = m == null || !m.HasRuntime,
+                ["local"] = false,
+                ["components"] = new JObject
+                {
+                    ["tools"] = m?.Tools().Count() ?? 0,
+                    ["commands"] = m == null ? 0 : CommandIndex.For(m).Count,
+                    ["skills"] = m == null ? 0 : SkillIndex.For(m, hidden).Count,
+                    ["agents"] = m == null ? 0 : AgentIndex.For(m).Count,
+                    ["hooks"] = m?.HookCommands().Count() ?? 0,
+                    ["mcpServers"] = m?.McpServers.Count ?? 0,
+                },
+                ["installWith"] = InstallWithIds(e.Unify3d, market.Name),
+                ["error"] = e.Source == null ? e.SourceError : market.Error,
+            };
+        }
+
+        /// <summary>A marketplace entry's unify3d.installWith as plugin ids (the companions come from the same marketplace).</summary>
+        private static JArray InstallWithIds(JObject unify3d, string marketplace) =>
+            new JArray((unify3d?["installWith"] as JArray ?? new JArray()).Select(t => (string)t).Where(t => !string.IsNullOrEmpty(t))
+                .Select(n => n.Contains("@") ? n : n + "@" + marketplace));
+
+        /// <summary>The installed plugin's entry in its marketplace (for the store's tags), or null.</summary>
+        private MarketplaceEntry MarketplaceEntryOf(LoadedPlugin p, List<MarketplaceInfo> markets)
+        {
+            try
+            {
+                return (markets ?? Marketplaces()).FirstOrDefault(x => x.Name == p.Record.Marketplace)?.Manifest?.Plugins.FirstOrDefault(x => x.Name == p.Name);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"The marketplace entry of {p.Id} can't be read: {ex.Message}");
+                return null;
+            }
+        }
 
         private static string Now() => DateTime.UtcNow.ToString("o");
     }

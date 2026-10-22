@@ -124,14 +124,18 @@ namespace SwAgent.Plugins
         internal static string ExpandBody(string body, string args, string root, Func<string, string> expand, List<string> notes)
         {
             var text = body ?? "";
+            // ${...} first, so the user's arguments are never expanded as variables
+            if (expand != null) text = expand(text);
             var positional = SplitArgs(args);
+            var referenced = text.Contains("$ARGUMENTS") || Regex.IsMatch(text, @"\$[1-9](?![0-9])");
             text = text.Replace("$ARGUMENTS", args);
             text = Regex.Replace(text, @"\$([1-9])(?![0-9])", m =>
             {
                 var i = int.Parse(m.Groups[1].Value) - 1;
                 return i < positional.Count ? positional[i] : "";
             });
-            if (expand != null) text = expand(text);
+            // as Claude Code does: arguments the body never mentions still reach the agent
+            if (!referenced && args.Trim().Length > 0) text = text.TrimEnd() + "\n\nARGUMENTS: " + args.Trim();
             if (Shell.IsMatch(text)) notes.Add("Shell lines (!`...`) in this command were not run: Unify3D doesn't run shell commands from plugins.");
             text = FileRef.Replace(text, m =>
             {

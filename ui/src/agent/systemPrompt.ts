@@ -180,6 +180,8 @@ export function buildSystemPrompt(opts: {
   skills?: IndexedSkill[];
   agents?: IndexedAgent[];
   mcpInstructions?: { server: string; text: string }[];
+  /** What the plugins' SessionStart hooks added (session.info sessionContext). */
+  sessionContext?: string[];
   cad?: CadProfile;
 }): string {
   const C = opts.cad ?? CAD;
@@ -190,7 +192,8 @@ export function buildSystemPrompt(opts: {
     PLUGINS +
     toolIndex(opts.userTools) +
     pluginIndex(opts.skills ?? [], opts.agents ?? []) +
-    mcpSection(opts.mcpInstructions ?? [])
+    mcpSection(opts.mcpInstructions ?? []) +
+    sessionSection(opts.sessionContext ?? [])
   );
 }
 
@@ -219,6 +222,13 @@ function mcpSection(list: { server: string; text: string }[]): string {
   const shown = list.filter((m) => m.text?.trim());
   if (!shown.length) return "";
   return `\n\n# MCP Server Instructions\nThe following MCP servers have provided instructions for how to use their tools and resources:\n${shown.map((m) => `\n## ${m.server}\n${m.text.trim()}`).join("\n")}`;
+}
+
+/** SessionStart hook output: context the plugins gave for this session, as Claude Code adds it at session start. */
+function sessionSection(list: string[]): string {
+  const shown = list.map((t) => t?.trim()).filter(Boolean);
+  if (!shown.length) return "";
+  return `\n\n# Session start\nPlugin hooks added this when the session started:\n<hook_context event="SessionStart">\n${shown.join("\n\n")}\n</hook_context>`;
 }
 
 /**

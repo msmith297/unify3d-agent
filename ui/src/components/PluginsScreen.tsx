@@ -283,7 +283,7 @@ function Discover({ onOpen }: { onOpen: (id: string) => void }) {
 
 // ---- Installed ----
 
-const STATE_COLOR: Record<McpServerStatus["state"], string> = { running: "#2E9E3E", starting: "#F2B11F", error: "#D63A3A", stopped: "#8A9099" };
+const STATE_COLOR: Record<McpServerStatus["state"], string> = { running: "#2E9E3E", starting: "#F2B11F", restarting: "#F2B11F", error: "#D63A3A", stopped: "#8A9099" };
 
 function McpRows({ servers }: { servers: McpServerStatus[] }) {
   const { busy, run } = useBusy();
@@ -316,6 +316,12 @@ function McpRows({ servers }: { servers: McpServerStatus[] }) {
       })}
     </div>
   );
+}
+
+/** Installed plugins that came with this one (installWith): they go when it is uninstalled. */
+function companionsOf(p: PluginInfo): PluginInfo[] {
+  const all = useStore.getState().plugins;
+  return (p.installWith ?? []).map((id) => all.find((x) => x.id === id)).filter((x): x is PluginInfo => !!x?.installed && !x.local);
 }
 
 function Installed({ onOpen }: { onOpen: (id: string) => void }) {
@@ -386,10 +392,16 @@ function InstalledRow({ p, servers, onOpen }: { p: PluginInfo; servers: McpServe
       <McpRows servers={servers} />
       <Notes p={p} />
       <div className="mt-1 flex flex-wrap gap-1">
-        {p.updateAvailable && (
+        {p.updateAvailable ? (
           <button type="button" className="sw-btn sw-btn-primary !h-[22px]" disabled={busy[p.id]} onClick={() => run(p.id, () => pluginAction(p, "update"))}>
             <IconUpdate size={12} /> Update to {p.updateAvailable}
           </button>
+        ) : (
+          !p.local && (
+            <button type="button" className="sw-btn !h-[22px]" title="Fetch the newest version from its source" disabled={busy[p.id]} onClick={() => run(p.id, () => pluginAction(p, "update"))}>
+              <IconUpdate size={12} /> Update
+            </button>
+          )
         )}
         {hasConfig && (
           <button type="button" className="sw-btn !h-[22px]" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((o) => !o)}>
@@ -405,9 +417,13 @@ function InstalledRow({ p, servers, onOpen }: { p: PluginInfo; servers: McpServe
             className="sw-btn !h-[22px]"
             disabled={busy[p.id]}
             onClick={() =>
-              confirmAction(`Uninstall ${label(p)}?`, <p>Its files are removed; its settings and data on this PC are kept for a reinstall.</p>, "Uninstall", true).then(
+              confirmAction(`Uninstall ${label(p)}?`, <p>Its files are removed{companionsOf(p).length ? `, with ${companionsOf(p).map(label).join(", ")}` : ""}; its settings and data on this PC are kept for a reinstall.</p>, "Uninstall", true).then(
                 (ok) => {
-                  if (ok) void run(p.id, () => rpc("plugins.uninstall", { id: p.id }));
+                  if (ok)
+                    void run(p.id, async () => {
+                      await rpc("plugins.uninstall", { id: p.id });
+                      for (const c of companionsOf(p)) await rpc("plugins.uninstall", { id: c.id });
+                    });
                 },
               )
             }
@@ -544,6 +560,12 @@ function Marketplaces() {
               {m.builtIn ? " · built in" : m.autoUpdate ? " · updates automatically" : ""}
             </div>
             {m.error && <div className="break-words text-[11px] text-err">{m.error}</div>}
+            {!m.builtIn && (
+              <label className="mt-0.5 flex items-center gap-1 text-[11px] text-text-2" title="Update this marketplace's installed plugins at startup, in the background">
+                <input type="checkbox" checked={!!m.autoUpdate} disabled={busy[m.name]} onChange={(e) => { const autoUpdate = e.target.checked; void run(m.name, () => rpc("plugins.setMarketplaceAutoUpdate", { name: m.name, autoUpdate })); }} className="accent-[var(--accent)]" />
+                Update its plugins automatically
+              </label>
+            )}
           </div>
           <div className="flex shrink-0 flex-wrap justify-end gap-1">
             {m.name !== "local" && (
@@ -555,9 +577,9 @@ function Marketplaces() {
               <button
                 type="button"
                 className="sw-tool !h-[22px] !min-w-[22px]"
-                title="Remove the marketplace (its installed plugins stay)"
+                title="Remove the marketplace and uninstall its plugins"
                 disabled={busy[m.name]}
-                onClick={() => confirmAction(`Remove "${m.name}"?`, <p>Plugins installed from it stay installed but no longer get updates.</p>, "Remove", true).then((ok) => { if (ok) void run(m.name, () => rpc("plugins.removeMarketplace", { name: m.name })); })}
+                onClick={() => confirmAction(`Remove "${m.name}"?`, <p>Plugins installed from it are uninstalled too. Their data folders stay.</p>, "Remove", true).then((ok) => { if (ok) void run(m.name, () => rpc("plugins.removeMarketplace", { name: m.name })); })}
               >
                 <IconCancel size={10} />
               </button>

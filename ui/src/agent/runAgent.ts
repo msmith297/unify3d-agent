@@ -217,6 +217,7 @@ export interface AgentRunOptions {
   skills?: IndexedSkill[];
   agents?: AgentInfo[];
   mcpInstructions?: { server: string; text: string }[];
+  sessionContext?: string[];
   /** A sub-agent run: its own system prompt and no local tools. */
   system?: string;
   localTools?: ToolDef[];
@@ -303,6 +304,7 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
       skills: opts.skills,
       agents: opts.agents,
       mcpInstructions: opts.mcpInstructions,
+      sessionContext: opts.sessionContext,
     });
   let malformedRetries = 0;
   let stallRetries = 0;

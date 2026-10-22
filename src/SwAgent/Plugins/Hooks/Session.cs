@@ -48,9 +48,9 @@ namespace SwAgent.Plugins.Hooks
         public static string ProjectDir => Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
         /// <summary>%APPDATA%\SwAgent\plugins (SWAGENT_DATA_DIR redirects it in tests).</summary>
-        public static string PluginsDir => Path.Combine(Paths.RoamingDir, "plugins");
+        public static string PluginsDir => Paths.PluginsDir;
 
-        public static string TranscriptDir => Path.Combine(Paths.LocalDir, "plugins", "transcripts");
+        public static string TranscriptDir => Paths.PluginTranscriptDir;
 
         public string TranscriptPath => Path.Combine(TranscriptDir, Id + ".jsonl");
 
@@ -60,7 +60,7 @@ namespace SwAgent.Plugins.Hooks
         /// <summary>The PC's session id from plugins\session.json (created on first use), or a temporary one if it is in use.</summary>
         public static Session Open()
         {
-            var file = Path.Combine(PluginsDir, "session.json");
+            var file = Paths.PluginSessionFile;
             // Per data folder, so tests (SWAGENT_DATA_DIR) never take the id of a running SolidWorks.
             var name = @"Local\Unify3DAgent.Session." + Hash(file.ToLowerInvariant());
             Mutex mutex = null;
