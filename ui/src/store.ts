@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { on, rpc } from "./lib/bridge";
+import { questionTimerStep } from "./lib/questionTimeout";
 import { syncRibbonIcons } from "./lib/toolIcons";
 import { DEFAULT_SETTINGS, EFFORTS, MODELS, SETTINGS_VERSION, modelFromAlias, tierModel } from "./lib/models";
 import type {
@@ -116,6 +117,8 @@ export interface RunState {
     form?: FormSpec;
     /** ask_selection: the user picks in SolidWorks and presses Done (answerSelection). */
     selection?: Omit<SelectionAsk, "prompt">;
+    /** When an unanswered question gives the agent NO_ANSWER (epoch ms); undefined = it waits for the user. */
+    deadline?: number;
     resolve: (answer: string) => void;
   } | null;
   controller: AbortController;
@@ -251,6 +254,8 @@ interface State {
   stop(threadId?: string): void;
   answerApproval(threadId: string, d: ApprovalDecision): void;
   answerQuestion(threadId: string, answer: string): void;
+  /** The pending question waits for the user (no timeout). */
+  keepWaiting(threadId: string): void;
   /**
    * ask_selection: Done (done=true) snapshots the selection and answers with [S#] refs merged into the chat; Skip
    * answers with nothing. A typed or spoken answer while the card is open counts as Done with that note.
@@ -599,6 +604,15 @@ function hookResult(r: Partial<HookResult> | null | undefined): HookResult | nul
 /** ask_selection cards whose Done is being processed (a double click must not answer twice). */
 const answeringSelection = new Set<string>();
 
+/** What the agent gets when a question goes unanswered (the user asked for exactly this wording). */
+export const NO_ANSWER = "No response. Use your skills to make the best decision possible.";
+
+/** How long a question (ask_user / ask_form) waits: Settings > questionTimeoutSec (default 60 s, 0 = forever). */
+export function questionTimeoutMs(settings: Pick<Settings, "questionTimeoutSec">): number {
+  const sec = settings.questionTimeoutSec ?? 60;
+  return Number.isFinite(sec) && sec > 0 ? sec * 1000 : 0;
+}
+
 /** 3D models being read by the add-in, by attachment id (send waits for them). */
 const describing = new Map<string, Promise<void>>();
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
@@ -655,6 +669,21 @@ export const useStore = create<State>((set, get) => {
 
   const updateRun = (threadId: string, patch: Partial<RunState>) => {
     set((s) => (s.runs[threadId] ? { runs: { ...s.runs, [threadId]: { ...s.runs[threadId], ...patch } } } : {}));
+  };
+
+  /**
+   * Answer a pending question with NO_ANSWER once its deadline passes. Typing an answer pushes the deadline back (nobody is
+   * cut off mid-sentence); "Keep waiting" clears it; answering, Stop or a newer question ends this timer.
+   */
+  const armQuestionTimeout = (threadId: string, toolUseId: string, timeout: number) => {
+    const check = () => {
+      const q = get().runs[threadId]?.question;
+      const step = questionTimerStep(q, toolUseId, get().answerDrafts[threadId] ?? "", Date.now(), timeout);
+      if (step.kind === "extend" && q) updateRun(threadId, { question: { ...q, deadline: step.deadline } });
+      if (step.kind === "extend" || step.kind === "wait") setTimeout(check, step.wait);
+      else if (step.kind === "answer") get().answerQuestion(threadId, NO_ANSWER);
+    };
+    setTimeout(check, timeout);
   };
 
   const loadChat = async (docKey: string) => {
@@ -827,7 +856,9 @@ export const useStore = create<State>((set, get) => {
           onStatus: (text) => updateRun(threadId, { status: text }),
           ask: (toolUseId, question, options, form) =>
             new Promise<string>((resolve) => {
-              updateRun(threadId, { question: { toolUseId, question, options, form, resolve } });
+              const timeout = questionTimeoutMs(get().settings);
+              updateRun(threadId, { question: { toolUseId, question, options, form, resolve, deadline: timeout ? Date.now() + timeout : undefined } });
+              if (timeout) armQuestionTimeout(threadId, toolUseId, timeout);
               void revealRun(docKey, threadId);
             }),
           askSelection: (toolUseId, ask) =>
@@ -2340,6 +2371,11 @@ export const useStore = create<State>((set, get) => {
       run?.question?.resolve(answer);
       updateRun(threadId, { question: null });
       set((s) => ({ answerDrafts: { ...s.answerDrafts, [threadId]: "" } }));
+    },
+
+    keepWaiting(threadId) {
+      const q = get().runs[threadId]?.question;
+      if (q) updateRun(threadId, { question: { ...q, deadline: undefined } });
     },
 
     async answerSelection(threadId, done, note) {

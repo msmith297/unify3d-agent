@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { IconQuestion } from "./SwIcons";
 import { Answered } from "./Answered";
+import { QuestionTimer } from "./QuestionTimer";
 import { useStore, type RunState } from "../store";
 import type { FormField, FormSpec } from "../lib/types";
 import type { ToolCall } from "./ToolCard";
@@ -25,7 +26,12 @@ export function FormCard({ call, threadId, run }: { call: ToolCall; threadId: st
   const fields = spec.fields ?? [];
   const pending = run?.question?.toolUseId === call.id;
   const [values, setValues] = useState<Record<string, Value>>(() => Object.fromEntries(fields.map((f) => [f.id, initial(f)])));
-  const set = (id: string, v: Value) => setValues((s) => ({ ...s, [id]: v }));
+  const keepWaiting = useStore((s) => s.keepWaiting);
+  // The user is filling the form in: it no longer times out (QuestionTimer)
+  const set = (id: string, v: Value) => {
+    setValues((s) => ({ ...s, [id]: v }));
+    if (run?.question?.deadline !== undefined) keepWaiting(threadId);
+  };
   const missing = fields.filter((f) => f.required && (values[f.id] === "" || (Array.isArray(values[f.id]) && (values[f.id] as string[]).length === 0)));
 
   let answered: Record<string, unknown> | null = null;
@@ -110,6 +116,11 @@ export function FormCard({ call, threadId, run }: { call: ToolCall; threadId: st
           );
         })}
       </div>
+      {pending && run?.question?.deadline !== undefined && (
+        <div className="px-2.5 pb-1.5">
+          <QuestionTimer threadId={threadId} run={run} />
+        </div>
+      )}
       {pending ? (
         <div className="sw-etch flex items-center justify-end gap-1.5 bg-card-2 px-2 py-1.5">
           {missing.length > 0 && <span className="mr-auto text-[11px] text-text-3">Fill in the required fields</span>}

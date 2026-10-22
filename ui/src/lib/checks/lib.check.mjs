@@ -20,6 +20,7 @@ import { matcherMatches, hasHook, hookToolResponse, HOOK_RESPONSE_CAP, hookConte
 import { modelFromAlias } from "../models.ts";
 import { formatNumber, parseNumber, stepNumber, visibleGroups, chipText, takesText, acceptText, tableHint } from "../toolFormLogic.ts";
 import { mockOpenToolForm, mockToolForm } from "../toolFormMock.ts";
+import { questionTimerStep } from "../questionTimeout.ts";
 
 let n = 0;
 const t = (name, fn) => {
@@ -565,6 +566,18 @@ t("the mock form cascades, fills, switches units and hands over on OK", () => {
   assert.deepEqual(mockToolForm("toolForm.ok", { formId: form.formId }, emit), { closed: true });
   assert.deepEqual(mockToolForm("toolForm.list", {}, emit), []);
   assert.throws(() => mockToolForm("toolForm.change", { formId: form.formId, id: "cavities", value: 2 }, emit), /closed/);
+});
+
+// ---- questions time out (ask_user / ask_form: no answer in time -> the agent decides) ----
+t("an unanswered question times out; typing or Keep waiting holds it", () => {
+  const q = { toolUseId: "tu1", deadline: 60_000 };
+  assert.deepEqual(questionTimerStep(q, "tu1", "", 30_000, 60_000), { kind: "wait", wait: 30_000 });
+  assert.deepEqual(questionTimerStep(q, "tu1", "", 60_000, 60_000), { kind: "answer" });
+  assert.deepEqual(questionTimerStep(q, "tu1", "  ", 61_000, 60_000), { kind: "answer" }); // blank draft is no answer
+  assert.deepEqual(questionTimerStep(q, "tu1", "lay it fl", 61_000, 60_000), { kind: "extend", deadline: 121_000, wait: 60_000 });
+  assert.deepEqual(questionTimerStep({ toolUseId: "tu1" }, "tu1", "", 99_000, 60_000), { kind: "stop" }); // Keep waiting
+  assert.deepEqual(questionTimerStep(null, "tu1", "", 99_000, 60_000), { kind: "stop" }); // answered or stopped
+  assert.deepEqual(questionTimerStep({ toolUseId: "tu2", deadline: 1 }, "tu1", "", 99_000, 60_000), { kind: "stop" }); // a newer question
 });
 
 console.log(`${n} checks passed`);

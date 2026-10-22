@@ -4,6 +4,7 @@ import { IconCancel, IconCopy, IconDocs, IconEdit, IconError, IconEye, IconMic, 
 import { Code, Markdown } from "./Markdown";
 import { BrandLogo } from "./Brand";
 import { FormCard } from "./FormCard";
+import { QuestionTimer } from "./QuestionTimer";
 import { SelectionCard } from "./SelectionCard";
 import { Answered } from "./Answered";
 import { RestartCard } from "./Recovery";
@@ -1091,6 +1092,7 @@ function QuestionCard({ call, threadId, run }: { call: ToolCall; threadId: strin
               Answer
             </button>
           </form>
+          <QuestionTimer threadId={threadId} run={run} />
         </div>
       ) : answered ? (
         <div className="pl-[22px] text-[12px] text-text-2">

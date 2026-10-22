@@ -170,6 +170,8 @@ export interface Settings {
   pluginEventsInChat?: boolean;
   /** Where a tool's inputs appear: a card in the chat panel (default) or the native PropertyManager page. */
   toolInputs?: "panel" | "page";
+  /** Seconds a question (ask_user / ask_form) waits for an answer before the agent decides on its own; 0 = never. Default 60. */
+  questionTimeoutSec?: number;
 }
 
 // ---- plugins (docs/plugins/design.md; RPCs implemented by the add-in's PluginsBridge, hooks and MCP runtime) ----

@@ -206,6 +206,20 @@ export function SettingsPanel() {
             label="Silence SolidWorks' rebuild-error sound"
             note="The agent often hits and fixes rebuild errors along the way. The sound comes back as soon as it finishes."
           />
+          <div className="mt-2 text-[11.5px] text-text-2">When the agent asks you something and you don't answer</div>
+          <Field label="After">
+            <Select<string>
+              value={String(settings.questionTimeoutSec ?? 60)}
+              onChange={(v) => saveSettings({ questionTimeoutSec: Number(v) })}
+              options={[
+                ["30", "30 seconds, it decides on its own"],
+                ["60", "1 minute, it decides on its own"],
+                ["120", "2 minutes, it decides on its own"],
+                ["300", "5 minutes, it decides on its own"],
+                ["0", "Never - it waits for my answer"],
+              ]}
+            />
+          </Field>
         </Rollout>
 
         <Rollout title="Chat history" icon={<IconHistory size={14} />}>

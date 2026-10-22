@@ -55,6 +55,7 @@ export const DEFAULT_SETTINGS: Settings = {
   pluginWakesPerHour: 20,
   pluginEventsInChat: true,
   toolInputs: "panel",
+  questionTimeoutSec: 60,
 };
 
 /** A command's or agent's `model` front matter (Claude Code aliases or a model id) as a model id; null: the chat's own. */
