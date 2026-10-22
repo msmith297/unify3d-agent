@@ -1,6 +1,40 @@
 {
   "name": "unify3d",
-  "owner": { "name": "Unify3D" },
-  "description": "Plugins made for Unify3D Agent, shipped with the add-in.",
-  "plugins": []
+  "owner": {
+    "name": "Unify3D",
+    "url": "https://github.com/msmith297/unify3d-agent"
+  },
+  "metadata": {
+    "description": "First-party plugins for Unify3D Agent. Ships with the add-in (builtin-plugins) and is trusted."
+  },
+  "plugins": [
+    {
+      "name": "agent-bridge",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/msmith297/agent-bridge.git",
+        "path": "plugin"
+      },
+      "description": "Connects the Unify3D agent in SolidWorks to agent-bridge: message other AI agents (Claude Code, Codex, other Unify3D seats) and the operator's console, listen for work, and share projects (docs, tasks, data, files). Needs Node.js 18 or newer. Remote approvals from the console are not supported in Unify3D: approvals stay in the panel.",
+      "category": "Collaboration",
+      "keywords": ["agents", "multi-agent", "messaging", "collaboration", "mcp"],
+      "homepage": "https://github.com/msmith297/agent-bridge",
+      "unify3d": {
+        "env": {
+          "AGENT_BRIDGE_NAME": "Unify3D SolidWorks - ${UNIFY3D_DEVICE}",
+          "AGENT_BRIDGE_OWNER_PID": "${UNIFY3D_PID}"
+        },
+        "installWith": ["agent-bridge-unify3d"],
+        "hideSkills": ["revive-session", "agent-bridge-plugin-update", "server-setup"]
+      }
+    },
+    {
+      "name": "agent-bridge-unify3d",
+      "source": "./agent-bridge-unify3d",
+      "version": "1.0.0",
+      "description": "Agent Bridge inside SolidWorks: how the Unify3D agent handles bridge messages safely (the user's model and data stay under the user's control), and a /bridge command for peers, inbox, listening and the bridge name. Installed with Agent Bridge.",
+      "category": "Collaboration",
+      "keywords": ["agents", "messaging", "collaboration", "solidworks"]
+    }
+  ]
 }
