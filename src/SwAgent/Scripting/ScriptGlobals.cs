@@ -133,6 +133,30 @@ namespace SwAgent.Scripting
 
         private SwAgent.Mold.Geometry.MoldApi _mold;
 
+        /// <summary>
+        /// Solid bodies, one checked feature per call (meters, degrees): Bodies.Move(body, dx, dy, dz),
+        /// Bodies.Rotate(body, "X"|"Y"|"Z"|vector, degrees, about?), Bodies.Copy(body, dx, dy, dz, n),
+        /// Bodies.Combine(target, tools), Bodies.Subtract(target, tools, keepTools), Bodies.Intersect(target, tools),
+        /// Bodies.Split(body, plane | "X", at), Bodies.ToFolder(bodies, name); Bodies.Last after each.
+        /// </summary>
+        public SwAgent.Scripting.Helpers.BodiesApi Bodies => _bodies ?? (_bodies = new SwAgent.Scripting.Helpers.BodiesApi(this));
+
+        private SwAgent.Scripting.Helpers.BodiesApi _bodies;
+
+        /// <summary>
+        /// Features from a sketch or edges, each checked (meters, degrees): Features.Extrude(sketch, depth, reverse, merge),
+        /// Features.Cut(sketch, depth | Features.ThroughAll, scope, reverse), Features.Revolve/RevolveCut(sketch, degrees),
+        /// Features.Fillet(edges, r), Features.ByName(name).
+        /// </summary>
+        public SwAgent.Scripting.Helpers.FeaturesApi Features => _features ?? (_features = new SwAgent.Scripting.Helpers.FeaturesApi(this));
+
+        private SwAgent.Scripting.Helpers.FeaturesApi _features;
+
+        /// <summary>Selection: Sel.Select(anything or a list, mark, append), Sel.Data(mark) (a SelectData), Sel.Get(i), Sel.Count(), Sel.Clear().</summary>
+        public SwAgent.Scripting.Helpers.SelApi Sel => _sel ?? (_sel = new SwAgent.Scripting.Helpers.SelApi(this));
+
+        private SwAgent.Scripting.Helpers.SelApi _sel;
+
         /// <summary>Millimeters to meters (the API's length unit).</summary>
         public double mm(double value) => value / 1000.0;
 

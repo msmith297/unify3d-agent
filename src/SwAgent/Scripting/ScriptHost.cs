@@ -109,7 +109,9 @@ namespace SwAgent.Scripting
             var errors = diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).ToList();
             if (errors.Count > 0)
             {
-                return ToolResult.Error("Compilation failed (nothing ran):\n" + string.Join("\n", errors.Take(30).Select(FormatDiagnostic)));
+                // Fix hints (reflection over the interop only, no SolidWorks calls): off the UI thread.
+                var hints = await Task.Run(() => CompileAdvisor.Advise(errors, script.GetCompilation()));
+                return ToolResult.Error("Compilation failed (nothing ran):\n" + string.Join("\n", errors.Take(30).Select(FormatDiagnostic)) + hints);
             }
 
             // 2. Run on this (UI) thread, as one undo step.
@@ -297,7 +299,8 @@ namespace SwAgent.Scripting
                     "System.Threading.Tasks", "System.Runtime.InteropServices",
                     "SolidWorks.Interop.sldworks", "SolidWorks.Interop.swconst",
                     // the design-compression-mold building blocks' types (MoldFrame, FlashOptions, PartAnalysisOptions, MoldBody)
-                    "SwAgent.Mold.Geometry")
+                    "SwAgent.Mold.Geometry",
+                    "SwAgent.Scripting.Extensions") // Model.FeatureByName, x.AsDoubles(), body.Volume(), Select2 with ISelectData ...
                 .WithOptimizationLevel(OptimizationLevel.Debug)
                 .WithEmitDebugInformation(false)
                 .WithAllowUnsafe(false);
