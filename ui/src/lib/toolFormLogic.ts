@@ -89,12 +89,31 @@ export function formatNumber(v: number | null | undefined, significant = 6): str
   return s.includes(".") ? s.replace(/0+$/, "").replace(/\.$/, "") : s;
 }
 
-/** What the user typed, as a number: "1.5", "1,5" (decimal comma), " 2 000 "; null when it isn't one. */
-export function parseNumber(text: string): number | null {
+let decimalCommaLocale: boolean | undefined;
+
+/** Whether the user's locale writes 1.5 as "1,5" (WebView2 reports the Windows display language). */
+export function localeUsesDecimalComma(): boolean {
+  if (decimalCommaLocale === undefined) {
+    try {
+      decimalCommaLocale = new Intl.NumberFormat((globalThis as { navigator?: { language?: string } }).navigator?.language).format(1.5).includes(",");
+    } catch {
+      decimalCommaLocale = false;
+    }
+  }
+  return decimalCommaLocale;
+}
+
+/**
+ * What the user typed, as a number: "1.5", "1,5" (decimal comma), " 2 000 "; null when it isn't one. With a point as
+ * well, commas are group separators. "2,000" (one comma, three digits after it) is 2000 unless the locale writes
+ * decimal commas, and "1,234,567" is always grouped: a US user typing 2,000 psi must not get 2 psi.
+ */
+export function parseNumber(text: string, decimalComma = localeUsesDecimalComma()): number | null {
   let t = text.trim().replace(/\s+/g, "");
   if (!t) return null;
-  // A lone comma is a decimal comma; with a point as well, commas are group separators.
-  t = t.includes(".") ? t.replace(/,/g, "") : t.replace(",", ".");
+  if (t.includes(".")) t = t.replace(/,/g, "");
+  else if (/^[-+]?\d{1,3}(,\d{3})+$/.test(t) && (!decimalComma || /,.*,/.test(t))) t = t.replace(/,/g, "");
+  else t = t.replace(",", ".");
   if (!/^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$/i.test(t)) return null;
   const n = Number(t);
   return Number.isFinite(n) ? n : null;

@@ -60,6 +60,13 @@ namespace SwAgent.Plugins
 
         public bool HasRuntime => Hooks.Properties().Any() || McpServers.Count > 0;
 
+        /// <summary>Its tools carry C# (macro.cs, preview.cs, ...), which runs inside SolidWorks: it needs the user's approval too.</summary>
+        public bool HasToolCode => ToolCodeFiles().Any();
+
+        /// <summary>Every .cs file in its tool folders (ordered): code that runs in SolidWorks when a tool runs or previews.</summary>
+        public IEnumerable<string> ToolCodeFiles() =>
+            Tools().SelectMany(t => Directory.GetFiles(t.Dir, "*.cs", SearchOption.AllDirectories)).OrderBy(f => f, StringComparer.OrdinalIgnoreCase);
+
         public static string ManifestPath(string root) => Path.Combine(root, ".claude-plugin", "plugin.json");
 
         /// <summary>Read a plugin folder. Never throws for content problems (see Findings); null when the folder is missing.</summary>
@@ -288,32 +295,49 @@ namespace SwAgent.Plugins
         }
 
         /// <summary>
-        /// The trust hash of the hooks and MCP servers (design critique 16): what the user approves before they run. "" when
-        /// the plugin has neither. extraFiles (a local plugin's other files, which its hooks may run) are hashed in too.
+        /// The trust hash (design critique 16): what the user approves before it runs - the hooks, the MCP servers and, with
+        /// toolCode, the C# of its tools (by content). "" when the plugin has none of them. extraFiles (a local plugin's other
+        /// files, which its hooks may run) are hashed in too. A plugin without tool code hashes exactly as before tool code
+        /// counted, so approvals given then still hold.
         /// </summary>
-        public string TrustHash(IEnumerable<string> extraFiles = null)
+        public string TrustHash(IEnumerable<string> extraFiles = null, bool toolCode = true)
         {
-            if (!HasRuntime) return "";
+            var code = toolCode ? ToolCodeFiles().ToList() : new List<string>();
+            if (!HasRuntime && code.Count == 0) return "";
             var sb = new StringBuilder();
             sb.Append(Canonical(Hooks)).Append('\n');
             sb.Append(Canonical(new JObject(McpServers.OrderBy(k => k.Key, StringComparer.Ordinal).Select(k => new JProperty(k.Key, k.Value))))).Append('\n');
-            foreach (var f in (extraFiles ?? Enumerable.Empty<string>()).OrderBy(f => f, StringComparer.OrdinalIgnoreCase))
+            foreach (var f in (extraFiles ?? Enumerable.Empty<string>()).OrderBy(f => f, StringComparer.OrdinalIgnoreCase)) AppendFile(sb, f);
+            if (code.Count > 0)
             {
-                sb.Append(f.Substring(Root.Length).Replace('\\', '/')).Append(':');
-                try
-                {
-                    using (var sha = SHA256.Create())
-                        sb.Append(Hex(sha.ComputeHash(File.ReadAllBytes(f))));
-                }
-                catch (IOException)
-                {
-                    sb.Append('?');
-                }
-                sb.Append('\n');
+                sb.Append("tool code\n");
+                foreach (var f in code) AppendFile(sb, f);
             }
             using (var sha = SHA256.Create())
                 return Hex(sha.ComputeHash(Encoding.UTF8.GetBytes(sb.ToString())));
         }
+
+        private void AppendFile(StringBuilder sb, string f)
+        {
+            sb.Append(f.Substring(Root.Length).Replace('\\', '/')).Append(':');
+            try
+            {
+                using (var sha = SHA256.Create())
+                    sb.Append(Hex(sha.ComputeHash(File.ReadAllBytes(f))));
+            }
+            catch (IOException)
+            {
+                sb.Append('?');
+            }
+            sb.Append('\n');
+        }
+
+        /// <summary>The tools whose C# runs in SolidWorks, "plugin:tool (macro.cs, preview.cs)" (for the trust dialog).</summary>
+        public IEnumerable<string> ToolCodeSummary() =>
+            Tools().Select(t => (t.Name, Files: Directory.GetFiles(t.Dir, "*.cs", SearchOption.AllDirectories)
+                    .Select(f => f.Substring(t.Dir.Length).TrimStart('\\', '/').Replace('\\', '/')).OrderBy(f => f, StringComparer.OrdinalIgnoreCase).ToList()))
+                .Where(t => t.Files.Count > 0)
+                .Select(t => $"{Name}:{t.Name} ({string.Join(", ", t.Files)})");
 
         /// <summary>JSON with object keys sorted, so the same content always hashes the same.</summary>
         internal static string Canonical(JToken t)

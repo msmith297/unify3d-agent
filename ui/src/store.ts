@@ -48,9 +48,9 @@ import type {
 import { recordSession } from "./lib/sessions";
 import { refBase, selectionAnswer, type SnapshotItem } from "./lib/selection";
 import { DEFAULT_STEPS, LONG_RUN_STEPS, clampSteps, runReportsDone, stickyState, withRunDoc } from "./lib/toolRun";
-import { WRITE_TOOLS, runAgent, type ApprovalDecision, type ApprovalRequest, type LiveBlock } from "./agent/runAgent";
+import { WRITE_TOOLS, runAgent, type ApprovalDecision, type ApprovalRequest, type LiveBlock, type SubAgentProgress } from "./agent/runAgent";
 import { BUILTIN_COMMANDS, commandHead, parseSlash, resolveSlash, tagLines, type CommandSources, type TagKind } from "./lib/commands";
-import { EVENT_TAG, HOOK_TAG, autoTurnAllowed, hasHook, hookContextText, systemEventText } from "./lib/hooks";
+import { EVENT_TAG, HOOK_TAG, autoTurnAllowed, hasHook, hookContextText, systemEventText, wakeApproval, wakesMayFollow } from "./lib/hooks";
 
 export interface ChatSlot {
   docKey: string;
@@ -93,6 +93,11 @@ export interface RunOverride {
   continuation?: boolean;
   /** Set by runSettings: this run continues a long tool run (the documents it activates become the run's too). */
   inToolRun?: boolean;
+  /**
+   * A turn a plugin started (a wake, or a Stop-hook continuation of one): a message from another agent, not the user.
+   * It never inherits auto-approval (a long tool run's, or "Always allow" in the chat): write tools ask, or follow read-only.
+   */
+  fromWake?: boolean;
 }
 
 /** Valid ask_selection kinds (the agent's input is checked loosely). */
@@ -123,6 +128,8 @@ export interface RunState {
   requestStartedAt?: number;
   /** A status line, e.g. a stalled connection being retried. */
   status?: string | null;
+  /** A run_agent sub-agent at work: its tool calls so far (shown in the run_agent card). */
+  subAgent?: SubAgentProgress | null;
 }
 
 /** The last ribbon tool run's outcome, shown briefly in the banner. */
@@ -567,8 +574,15 @@ const seenWakes = new Set<string>();
 let autoTimes: number[] = [];
 /** The tags of the message being sent: back on the composer with its text if a hook blocks it. */
 let sentTags: { text: string; tags: Tag[] } | null = null;
+/** SessionStart notices (session.info sessionNotices) already shown in the notice bar. */
+let shownSessionNotices = 0;
 /** The thread a run last started in: plugin wakes go there while it exists. */
 let lastActiveThread: string | null = null;
+/**
+ * Threads whose next run is being put together (prompt hooks, selection and view, saving) but isn't in `runs` yet. They
+ * count as busy: a wake arriving meanwhile is held and a send is queued, so two runs never start on one thread.
+ */
+const preparing = new Map<string, { token: object; release: () => void }>();
 
 /** hooks.fire's result with every field present (an older or partial add-in may leave some out). */
 function hookResult(r: Partial<HookResult> | null | undefined): HookResult | null {
@@ -732,12 +746,22 @@ export const useStore = create<State>((set, get) => {
     }
     const thread = get().chats[docKey]?.data.threads.find((t) => t.id === threadId);
     if (!thread) return;
+    if (get().runs[threadId]) {
+      // Never a second run on one thread: its Stop would only reach one of them (callers mark threads busy first).
+      console.warn("startRun: a run is already going in this chat; not starting another");
+      return;
+    }
 
     const controller = new AbortController();
     lastActiveThread = threadId;
     set((s) => ({
       runs: { ...s.runs, [threadId]: { docKey, threadId, live: null, runningToolId: null, approval: null, question: null, controller, inToolRun: !!run.inToolRun, ...extra } },
     }));
+    preparing.get(threadId)?.release(); // the run itself is the busy mark now
+    // A plugin's turn: write tools ask (or follow read-only), whatever this chat or a tool run allowed before.
+    const settings = get().settings;
+    const approval = run.fromWake ? wakeApproval(settings.approval) : run.autoApprove ? "auto" : settings.approval;
+    let allowedInWake = false; // "Always allow" chosen during this woken turn
     let stopHook: HookResult | null = null;
     const started = performance.now();
     let outcome = "end_turn";
@@ -757,7 +781,7 @@ export const useStore = create<State>((set, get) => {
         model: run.model ?? thread.model,
         effort: run.effort ?? thread.effort,
         tools: get().tools,
-        approval: run.autoApprove ? "auto" : get().settings.approval,
+        approval,
         realisticAppearance: get().settings.realisticAppearance,
         verbosity: get().settings.verbosity ?? "medium",
         userTools: get().userTools,
@@ -839,8 +863,13 @@ export const useStore = create<State>((set, get) => {
             set((s) => ({ queue: { ...s.queue, [threadId]: (s.queue[threadId] ?? []).filter((m) => !m.now) } }));
             return queuedBlocks(now);
           },
-          isAutoApproved: () => !!run.autoApprove || !!get().chats[docKey]?.data.threads.find((t) => t.id === threadId)?.autoApprove,
-          setAutoApproved: () => updateThread(docKey, threadId, (t) => ({ ...t, autoApprove: true })),
+          isAutoApproved: () =>
+            run.fromWake ? allowedInWake : !!run.autoApprove || !!get().chats[docKey]?.data.threads.find((t) => t.id === threadId)?.autoApprove,
+          setAutoApproved: () => {
+            allowedInWake = true;
+            updateThread(docKey, threadId, (t) => ({ ...t, autoApprove: true }));
+          },
+          setSubAgent: (subAgent) => updateRun(threadId, { subAgent }),
           hook: (event, call) => fireHook(event, docKey, threadId, call),
         },
       });
@@ -881,8 +910,10 @@ export const useStore = create<State>((set, get) => {
       await persist(docKey);
       speakReply(docKey, threadId, outcome);
       // A Stop hook that blocks continues the turn (queued follow-ups go with it); otherwise the queue, then plugin wakes.
+      // Wakes only after a turn that ended by itself: after Stop or an error they wait for the user's next message (a
+      // wake must not restart what the user just stopped, nor retry a failed request at once).
       const continued = !!stopHook?.block && stopHook.continue && continueAfterStop(docKey, threadId, stopHook.reason ?? "", run);
-      if (!continued && !flushQueue(docKey, threadId, outcome)) flushWakes(threadId);
+      if (!continued && !flushQueue(docKey, threadId, outcome) && wakesMayFollow(outcome)) flushWakes(threadId);
     }
   };
 
@@ -956,7 +987,8 @@ export const useStore = create<State>((set, get) => {
     const n = q.findIndex((m) => m.staged || m.run);
     const batch = n < 0 ? q : q.slice(0, n);
     set((s) => ({ queue: { ...s.queue, [threadId]: n < 0 ? [] : q.slice(n) } }));
-    const next: RunOverride = { model: run.model, effort: run.effort, autoApprove: run.autoApprove, label: run.label, maxSteps: run.maxSteps, longRun: run.longRun, continuation: true };
+    const next: RunOverride = { model: run.model, effort: run.effort, autoApprove: run.autoApprove, label: run.label, maxSteps: run.maxSteps, longRun: run.longRun, continuation: true, fromWake: run.fromWake };
+    const release = beginPreparing(docKey, threadId);
     void (async () => {
       const blocks: ContentBlockParam[] = [{ type: "text", text: systemEventText("stop", "Stop hook", reason || "A plugin's Stop hook asked you to continue.") }];
       let refs: Record<string, string> = {};
@@ -974,7 +1006,7 @@ export const useStore = create<State>((set, get) => {
         }
       }
       await submitBlocks(docKey, threadId, blocks, refs, next);
-    })();
+    })().finally(release);
     return true;
   };
 
@@ -1014,7 +1046,8 @@ export const useStore = create<State>((set, get) => {
       updateSlot(WORKSPACE, (d) => ({ ...d, threads: [created, ...d.threads], activeThreadId: d.activeThreadId ?? created.id }));
       threadId = created.id;
     }
-    if (get().runs[threadId]) {
+    // Busy (a run, or one being prepared), or its last turn was stopped or failed: held, shown in the composer.
+    if (busy(threadId) || endsOnUser(threadId)) {
       const id = threadId;
       set((s) => ({ wakes: { ...s.wakes, [id]: [...(s.wakes[id] ?? []), w] } }));
       return;
@@ -1022,26 +1055,65 @@ export const useStore = create<State>((set, get) => {
     await deliverWakes(threadId, [w]);
   };
 
-  /** After a run: the wakes that waited for it go out together. */
+  /** After a run that ended by itself: the wakes that waited for it go out together. */
   const flushWakes = (threadId: string) => {
     const list = get().wakes[threadId] ?? [];
-    if (!list.length || get().runs[threadId]) return;
+    if (!list.length || busy(threadId) || endsOnUser(threadId)) return;
     set((s) => ({ wakes: { ...s.wakes, [threadId]: [] } }));
     void deliverWakes(threadId, list);
   };
 
   /**
+   * A thread whose next run is being put together; the returned function ends that (startRun ends it as the run
+   * starts). If no run started after all (a hook blocked the prompt, no API key), what was held meanwhile goes now:
+   * messages the user sent, then wakes.
+   */
+  const beginPreparing = (docKey: string, threadId: string): (() => void) => {
+    const token = {};
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      if (preparing.get(threadId)?.token !== token) return;
+      preparing.delete(threadId);
+      if (!busy(threadId) && !flushQueue(docKey, threadId, "end_turn")) flushWakes(threadId);
+    };
+    preparing.set(threadId, { token, release });
+    return release;
+  };
+
+  /** A run is going in the thread, or about to start. */
+  const busy = (threadId: string) => !!get().runs[threadId] || preparing.has(threadId);
+
+  /** The workspace chat ends on a user message: its last turn was stopped or failed before the agent answered. */
+  const endsOnUser = (threadId: string) => {
+    const t = get().chats[WORKSPACE]?.data.threads.find((x) => x.id === threadId);
+    return t?.messages[t.messages.length - 1]?.role === "user";
+  };
+
+  const wakeBlocks = (list: Wake[]): ContentBlockParam[] => list.map((w) => ({ type: "text", text: systemEventText("wake", w.plugin || w.source, w.text) }));
+
+  /** Wakes saved in a chat are acked: the add-in stops handing them over again. */
+  const ackWakes = (list: Wake[]) => {
+    for (const w of list) rpc("session.ackWake", { id: w.id }).catch(() => {});
+  };
+
+  /**
    * Wakes into a chat as one system-event message, acked once it is saved there (a reload before that gets them handed
    * over again), then a turn - unless automatic turns are paused: then they wait in the chat for the user's next
-   * message. Never through send(): that would answer a pending question, or end up in the composer on Stop.
+   * message. Never through send(): that would answer a pending question, or end up in the composer on Stop. The turn is
+   * marked fromWake: another agent's message never runs write tools without the user's OK.
    */
   const deliverWakes = async (threadId: string, list: Wake[]) => {
-    const blocks: ContentBlockParam[] = list.map((w) => ({ type: "text", text: systemEventText("wake", w.plugin || w.source, w.text) }));
-    const ack = () => {
-      for (const w of list) rpc("session.ackWake", { id: w.id }).catch(() => {});
-    };
+    const blocks = wakeBlocks(list);
+    const ack = () => ackWakes(list);
     if (allowAutoTurn()) {
-      await submitBlocks(WORKSPACE, threadId, blocks, {}, {}, ack);
+      const release = beginPreparing(WORKSPACE, threadId);
+      try {
+        await submitBlocks(WORKSPACE, threadId, blocks, {}, { autoApprove: false, fromWake: true }, ack);
+      } finally {
+        release();
+      }
       return;
     }
     updateThread(WORKSPACE, threadId, (t) => {
@@ -1295,12 +1367,24 @@ export const useStore = create<State>((set, get) => {
 
   /** Add a prompt (text, attachments, the user's selection and view) to a thread and run the agent. */
   const submitPrompt = async (docKey: string, threadId: string, trimmed: string, attachments: Attachment[], run: RunOverride = {}) => {
+    const release = beginPreparing(docKey, threadId);
+    try {
+      await preparePrompt(docKey, threadId, trimmed, attachments, run);
+    } finally {
+      release();
+    }
+  };
+
+  const preparePrompt = async (docKey: string, threadId: string, trimmed: string, attachments: Attachment[], run: RunOverride) => {
     // Plugins see the prompt first (UserPromptSubmit): a block puts it back into the composer.
     const hook = await promptHook(docKey, threadId, trimmed);
     if (hook.blocked) {
       restoreBlocked(docKey, threadId, run.input ?? trimmed, attachments, hook.blocked);
       return;
     }
+    // Plugin events held for this chat (it was busy, or its last turn was stopped or failed) go with the user's message.
+    const held = get().wakes[threadId] ?? [];
+    if (held.length) set((s) => ({ wakes: { ...s.wakes, [threadId]: [] } }));
     // The agent's drawings on the view belong to the conversation so far: a new message starts clean.
     if (get().overlayCount > 0) get().clearOverlay();
     const blocks: ContentBlockParam[] = [];
@@ -1327,7 +1411,7 @@ export const useStore = create<State>((set, get) => {
       noView: hasVoice,
     });
     blocks.push(...ctx.blocks);
-    await submitBlocks(docKey, threadId, blocks, { ...voiceRefs, ...ctx.refs }, run);
+    await submitBlocks(docKey, threadId, [...wakeBlocks(held), ...blocks], { ...voiceRefs, ...ctx.refs }, run, held.length ? () => ackWakes(held) : undefined);
   };
 
   /**
@@ -1335,17 +1419,22 @@ export const useStore = create<State>((set, get) => {
    * the reason); what the hooks add goes after the tool's head line.
    */
   const submitStaged = async (docKey: string, threadId: string, blocks: ContentBlockParam[], refs: Record<string, string>, run: RunOverride): Promise<boolean> => {
-    const head = blocks[0]?.type === "text" ? blocks[0].text : "";
-    const hook = await promptHook(docKey, threadId, head);
-    if (hook.blocked) {
-      set({ notice: `${run.label ?? "The tool"} didn't run: ${hook.blocked}` });
-      // A chat made just for this run goes away again.
-      if (get().chats[docKey]?.data.threads.find((t) => t.id === threadId)?.messages.length === 0)
-        updateSlot(docKey, (d) => ({ ...d, threads: d.threads.filter((t) => t.id !== threadId), activeThreadId: d.activeThreadId === threadId ? null : d.activeThreadId }));
-      return false;
+    const release = beginPreparing(docKey, threadId);
+    try {
+      const head = blocks[0]?.type === "text" ? blocks[0].text : "";
+      const hook = await promptHook(docKey, threadId, head);
+      if (hook.blocked) {
+        set({ notice: `${run.label ?? "The tool"} didn't run: ${hook.blocked}` });
+        // A chat made just for this run goes away again.
+        if (get().chats[docKey]?.data.threads.find((t) => t.id === threadId)?.messages.length === 0)
+          updateSlot(docKey, (d) => ({ ...d, threads: d.threads.filter((t) => t.id !== threadId), activeThreadId: d.activeThreadId === threadId ? null : d.activeThreadId }));
+        return false;
+      }
+      await submitBlocks(docKey, threadId, [...blocks.slice(0, 1), ...hook.blocks, ...blocks.slice(1)], refs, run);
+      return true;
+    } finally {
+      release();
     }
-    await submitBlocks(docKey, threadId, [...blocks.slice(0, 1), ...hook.blocks, ...blocks.slice(1)], refs, run);
-    return true;
   };
 
   /**
@@ -1516,7 +1605,19 @@ export const useStore = create<State>((set, get) => {
       // The first session.info of a session starts its SessionStart hooks (the add-in fires them once).
       rpc<SessionInfo | null>("session.info").catch(() => null),
     ]);
-    set({ plugins, marketplaces, commands, skills, agents, mcpServers, session });
+    set({ plugins, marketplaces, commands, skills, agents, mcpServers });
+    applySession(session);
+  };
+
+  /** A new session.info: kept, and SessionStart notices for the user (systemMessage) not shown yet go to the notice bar. */
+  const applySession = (session: SessionInfo | null) => {
+    if (!session) return;
+    set({ session });
+    const notices = session.sessionNotices ?? [];
+    if (notices.length > shownSessionNotices) {
+      set({ notice: notices.slice(shownSessionNotices).join(" ") });
+      shownSessionNotices = notices.length;
+    }
   };
 
   /**
@@ -1744,7 +1845,7 @@ export const useStore = create<State>((set, get) => {
       // SessionStart context arrived, plugins or servers changed (hook events, MCP instructions), or a wake was held back.
       on("session.changed", () => {
         rpc<SessionInfo | null>("session.info")
-          .then((session) => session && set({ session }))
+          .then(applySession)
           .catch(() => {});
       });
       // The panel is ready: plugin state (its first session.info starts the session's hooks), then any waiting wakes.
@@ -2056,9 +2157,9 @@ export const useStore = create<State>((set, get) => {
         set((s) => ({ drafts: { ...s.drafts, [dKey]: "" }, attachments: { ...s.attachments, [dKey]: [] } }));
         return;
       }
-      if (thread && get().runs[thread.id]) {
-        // The agent is working: queue it (sent when the turn ends, or at the next step with "Send now"; a workflow run
-        // keeps its own settings and waits for the turn to end).
+      if (thread && busy(thread.id)) {
+        // The agent is working, or a run is being put together (a wake, a queued message): queue it (sent when the turn
+        // ends, or at the next step with "Send now"; a workflow run keeps its own settings and waits for the turn to end).
         const queued: QueuedMessage = { id: uid(), text: trimmed, attachments, ...(ownRun ? { run: opts } : {}) };
         const id = thread.id;
         set((s) => ({
@@ -2108,7 +2209,7 @@ export const useStore = create<State>((set, get) => {
       // A queued tool or workflow run brings its own settings (model, steps, approval, a long run's follow-ups), which a
       // run already under way can't take on: it waits for the turn to end (the list offers no "Send now" for it).
       if (item?.staged || item?.run) {
-        if (!get().runs[threadId]) flushQueue(get().viewKey, threadId, "end_turn");
+        if (!busy(threadId)) flushQueue(get().viewKey, threadId, "end_turn");
         return;
       }
       if (asked && !asked.form && item?.text) {
@@ -2118,7 +2219,7 @@ export const useStore = create<State>((set, get) => {
         else get().answerQuestion(threadId, item.text);
         return;
       }
-      if (!get().runs[threadId]) {
+      if (!busy(threadId)) {
         // Nothing running (e.g. the turn failed): send the queue now (tool runs one at a time, as at a turn's end).
         flushQueue(get().viewKey, threadId, "end_turn");
         return;
@@ -2336,7 +2437,7 @@ export const useStore = create<State>((set, get) => {
       const longRun = payload.longRun ?? tool?.longRun ?? false;
       const maxSteps = clampSteps(payload.maxSteps ?? tool?.maxSteps ?? (longRun ? LONG_RUN_STEPS : DEFAULT_STEPS));
       const run: RunOverride = { model, effort, autoApprove: true, label, maxSteps, longRun, tool: name };
-      if (get().runs[threadId]) {
+      if (busy(threadId)) {
         // The agent is busy in this chat: the tool run waits in the queue like a follow-up.
         const queued: QueuedMessage = { id: uid(), text: `Run ${label}`, attachments: [], staged: { blocks: staged.blocks, refs: staged.refs, run } };
         set((s) => ({

@@ -97,10 +97,11 @@ async function approveTrust(p: PluginInfo, req: TrustRequest, verb: string): Pro
     message: (
       <div className="flex flex-col gap-2">
         <p>
-          <b className="text-text">{label(p)}</b> runs these programs on this PC, outside SolidWorks, with your Windows account's rights. Only continue if you trust {by}.
+          <b className="text-text">{label(p)}</b> runs code on this PC with your Windows account's rights. Only continue if you trust {by}.
         </p>
-        {list("Hooks", "Run when something happens: you send a message, the agent uses a tool or finishes.", req.hooks)}
-        {list("MCP servers", "Give the agent extra tools; they run while the plugin is on.", req.mcp)}
+        {list("Hooks", "Programs that run outside SolidWorks when something happens: you send a message, the agent uses a tool or finishes.", req.hooks)}
+        {list("MCP servers", "Programs that run outside SolidWorks while the plugin is on and give the agent extra tools.", req.mcp)}
+        {list("Tools with code", "C# that runs inside SolidWorks, with full access to your models, when the tool runs or shows a preview.", req.tools ?? [])}
         <p className="text-[11px] text-text-3">If an update changes these, Unify3D asks again before they run.</p>
       </div>
     ),

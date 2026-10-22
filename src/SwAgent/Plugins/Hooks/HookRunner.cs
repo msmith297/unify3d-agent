@@ -72,7 +72,9 @@ namespace SwAgent.Plugins.Hooks
                         {
                             Plugin = p,
                             Template = template,
-                            Command = Session.Expand(p, template, env),
+                            // bash expands $VAR and ${VAR} from the environment itself, as in Claude Code (a path put into
+                            // the text would lose its backslashes outside quotes); only ${user_config.KEY} isn't a variable.
+                            Command = HookShell.Bash != null ? p.ExpandOptions?.Invoke(template) ?? template : Session.Expand(p, template, env),
                             Env = env,
                             TimeoutSeconds = Math.Max(1, (int?)Num(h["timeout"]) ?? DefaultTimeoutSeconds),
                             Async = (bool?)h["async"] == true || (bool?)h["asyncRewake"] == true,

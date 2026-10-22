@@ -44,11 +44,15 @@ namespace SwAgent.Plugins
         public IDictionary<string, string> Env { get; set; }
 
         /// <summary>
-        /// Expands ${CLAUDE_PLUGIN_ROOT}, ${UNIFY3D_PLUGIN_ROOT}, ${CLAUDE_PLUGIN_DATA}, ${UNIFY3D_DEVICE}, ${UNIFY3D_PID},
-        /// ${user_config.KEY} and ${ENV_VAR} / ${ENV_VAR:-default} (unknown ones become empty). For command lines: a
-        /// sensitive option expands to "" here (read it from CLAUDE_PLUGIN_OPTION_&lt;KEY&gt; in Env instead).
+        /// Expands ${CLAUDE_PLUGIN_ROOT}, ${UNIFY3D_PLUGIN_ROOT}, ${CLAUDE_PLUGIN_DATA}, ${UNIFY3D_DEVICE}, ${UNIFY3D_PID} and
+        /// ${user_config.KEY}; anything else (${ENV_VAR}, ${ENV_VAR:-default}) is left as written, for Session.Expand to fill
+        /// from the program's own environment. Command and skill text uses only this. A sensitive option expands to "" here
+        /// (read it from CLAUDE_PLUGIN_OPTION_&lt;KEY&gt; in Env instead).
         /// </summary>
         public Func<string, string> Expand { get; set; }
+
+        /// <summary>Only ${user_config.KEY} (non-sensitive): hook commands run by bash, which expands the rest from Env.</summary>
+        public Func<string, string> ExpandOptions { get; set; }
 
         /// <summary>
         /// Normalized hooks: { "Event": [ { "matcher": "...", "hooks": [ { "type", "command", "timeout", "async",

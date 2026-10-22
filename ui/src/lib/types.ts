@@ -249,6 +249,8 @@ export interface MarketplaceInfo {
 export interface TrustRequest {
   hooks: string[];
   mcp: string[];
+  /** Tools whose C# runs inside SolidWorks: "plugin:tool (macro.cs, preview.cs)". */
+  tools?: string[];
 }
 
 /** plugins.install / plugins.enable / plugins.update: needsTrust is set when the user must approve first (call again with trustHash: hash). */
@@ -313,8 +315,10 @@ export interface SessionInfo {
   hookEvents: Partial<Record<HookEvent, string[]>>;
   /** Server instructions from initialize; plugin is null for a server from the user's mcp.json. */
   mcpInstructions: { server: string; plugin?: string | null; text: string }[];
-  /** SessionStart hooks' additionalContext and systemMessages (the system prompt carries them). */
+  /** SessionStart hooks' additionalContext and plain stdout (the system prompt carries them). */
   sessionContext?: string[];
+  /** SessionStart hooks' systemMessage and exit-2 text: for the user only (the notice bar), never the model. */
+  sessionNotices?: string[];
   /** Wakes held back by the hourly limit; they go in with the next prompt. */
   heldWakes?: number;
 }

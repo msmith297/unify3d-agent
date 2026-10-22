@@ -156,7 +156,7 @@ namespace SwAgent.Tests.Plugins
         }
 
         [NodeFact]
-        public async Task Hooks_run_under_exactly_one_cmd_exe_so_solidworks_is_the_grandparent()
+        public async Task Hooks_run_under_exactly_one_shell_so_solidworks_is_the_grandparent()
         {
             var dir = TempDir();
             var file = Path.Combine(dir, "ppid.txt");
@@ -166,7 +166,8 @@ namespace SwAgent.Tests.Plugins
                 await Fire(host, HookEvents.Stop);
                 Assert.True(await Until(() => File.Exists(file) && File.ReadAllText(file).Contains(" "), TimeSpan.FromSeconds(15)));
                 var ids = File.ReadAllText(file).Split(' ').Select(int.Parse).ToArray();
-                Assert.Equal("cmd", Process.GetProcessById(ids[1]).ProcessName);
+                // Git Bash's bash.exe as in Claude Code, or cmd.exe without Git for Windows (PluginReviewTests runs both).
+                Assert.Equal(HookShell.Bash == null ? "cmd" : "bash", Process.GetProcessById(ids[1]).ProcessName);
                 Assert.Equal(Process.GetCurrentProcess().Id, ParentOf(ids[1]));
             }
             Directory.Delete(dir, true);

@@ -1,4 +1,4 @@
-import type { HookEvent, SessionInfo } from "./types";
+import type { ApprovalMode, HookEvent, SessionInfo } from "./types";
 
 /**
  * Plugin hooks as the panel sees them (docs/plugins/design.md 4.5). The add-in runs the hook programs (hooks.fire);
@@ -45,16 +45,19 @@ export function parseTagged(raw: string): { tag: "hook" | "event"; attrs: Record
 }
 
 /**
- * Whether a hook matcher matches a tool name, as in Claude Code: "" or "*" match everything; otherwise the matcher is
- * a regular expression that must match the whole name ("Write|Edit", "mcp__.*"). An invalid one matches exactly.
+ * Whether a hook matcher matches a tool name, exactly as the add-in's HookEvents.Matches (and Claude Code): "" or "*"
+ * match everything; letters, digits, _ and | are exact names ("Write|Edit"); anything else is a regular expression
+ * searched in the name ("mcp__plugin_x_.*", "mcp__.*__send"). An invalid one matches nothing. The two must agree:
+ * the panel skips hooks.fire when nothing matches.
  */
 export function matcherMatches(matcher: string | null | undefined, toolName: string): boolean {
-  const m = (matcher ?? "").trim();
+  const m = matcher ?? "";
   if (!m || m === "*") return true;
+  if (/^[A-Za-z0-9_|]+$/.test(m)) return m.split("|").includes(toolName);
   try {
-    return new RegExp(`^(?:${m})$`).test(toolName);
+    return new RegExp(m).test(toolName);
   } catch {
-    return m === toolName;
+    return false;
   }
 }
 
@@ -89,4 +92,21 @@ export function autoTurnAllowed(times: number[], now: number, perHour: number): 
   const recent = times.filter((t) => now - t < AUTO_WINDOW_MS);
   const limit = Number.isFinite(perHour) && perHour >= 0 ? Math.floor(perHour) : 20;
   return { allowed: recent.length < limit, recent };
+}
+
+/**
+ * Wakes held while a chat was busy go out when its turn ended by itself; after Stop or an error they wait for the user's
+ * next message (a wake must not restart what the user just stopped, nor retry a failed request at once).
+ */
+export function wakesMayFollow(outcome: string): boolean {
+  return outcome !== "aborted" && outcome !== "error";
+}
+
+/**
+ * The approval mode of a turn a plugin started (a wake, or a Stop-hook continuation of one): a message from another agent
+ * is not the user's OK, so write tools always ask - whatever the setting, a tool run or "Always allow" said - unless the
+ * user chose read-only.
+ */
+export function wakeApproval(mode: ApprovalMode): ApprovalMode {
+  return mode === "read_only" ? "read_only" : "ask";
 }

@@ -94,6 +94,26 @@ namespace SwAgent.Tools
             _selections[f.Id] = list;
         }
 
+        /// <summary>
+        /// A selection box that follows the SolidWorks selection, as a PropertyManager box does: what was just picked is
+        /// added after what it holds, each entity once (by persistent reference, else the same object); a box for one
+        /// entity takes the newest instead.
+        /// </summary>
+        internal static List<ToolInputs.SelectedItem> Merge(IReadOnlyList<ToolInputs.SelectedItem> held, IReadOnlyList<ToolInputs.SelectedItem> picked, bool multiple)
+        {
+            if (picked.Count == 0) return held.ToList();
+            if (!multiple) return new List<ToolInputs.SelectedItem> { picked[picked.Count - 1] };
+            var result = held.ToList();
+            foreach (var item in picked)
+            {
+                if (!result.Any(h => SameEntity(h, item))) result.Add(item);
+            }
+            return result;
+        }
+
+        private static bool SameEntity(ToolInputs.SelectedItem a, ToolInputs.SelectedItem b) =>
+            !string.IsNullOrEmpty(a.Ref) && !string.IsNullOrEmpty(b.Ref) ? a.Ref == b.Ref : a.Entity != null && ReferenceEquals(a.Entity, b.Entity);
+
         /// <summary>Files added to a files input (a single-file input keeps the last one; the same path is listed once).</summary>
         public void AddFiles(string id, IEnumerable<string> paths)
         {
@@ -470,7 +490,8 @@ namespace SwAgent.Tools
         {
             public ToolFormSession Session;
             public IModelDoc2 Model;
-            public readonly TaskCompletionSource<ToolInputs> Done = new TaskCompletionSource<ToolInputs>();
+            // Asynchronous continuations: ToolRunner never carries on inside the caller (e.g. a document's destroy event).
+            public readonly TaskCompletionSource<ToolInputs> Done = new TaskCompletionSource<ToolInputs>(TaskCreationOptions.RunContinuationsAsynchronously);
             public Action<string> TierChanged;
             public ScriptRunner<object> Preview;
             public bool PreviewRunning;
@@ -502,7 +523,7 @@ namespace SwAgent.Tools
             bridge.RegisterAsync("toolForm.pick", async p =>
             {
                 var open = Current(p);
-                Pick(open, (string)p["id"]);
+                Pick(open, (string)p["id"], follow: (bool?)p["follow"] == true);
                 await PreviewAsync(open, force: false);
                 return open == _open ? (object)open.Session.State() : null;
             });
@@ -572,10 +593,17 @@ namespace SwAgent.Tools
             _bridge?.Emit("toolForm.closed", new JObject { ["formId"] = open.Session.FormId, ["reason"] = reason });
         }
 
-        /// <summary>The form's document closed: its preview bodies are gone with it, and the form is cancelled.</summary>
+        /// <summary>
+        /// The form's document closed: its preview bodies are gone with it, and the form is cancelled. This runs inside the
+        /// document's destroy event, so nothing here calls SolidWorks: the bodies are only forgotten, not hidden.
+        /// </summary>
         public void DocumentClosed(IModelDoc2 model)
         {
-            if (_open != null && model != null && ReferenceEquals(_open.Model, model)) CancelPending("The document was closed.");
+            var open = _open;
+            if (open == null || model == null || !ReferenceEquals(open.Model, model)) return;
+            open.Shown.Clear();
+            open.Preview = null;
+            CancelPending("The document was closed.");
         }
 
         private void Close(Open open, ToolInputs result)
@@ -644,8 +672,12 @@ namespace SwAgent.Tools
             }
         }
 
-        /// <summary>"Use selection" (or a selection change while the input is focused), or a files input's Add.</summary>
-        private void Pick(Open open, string id)
+        /// <summary>
+        /// "Use selection" (replaces the list with what is selected), a selection change while the input is focused (follow:
+        /// adds to the list, like a PropertyManager selection box - clicking empty space or an entity the input doesn't take
+        /// leaves the list as it is), or a files input's Add.
+        /// </summary>
+        private void Pick(Open open, string id, bool follow = false)
         {
             var f = open.Session.Form.Get(id) ?? throw new InvalidOperationException($"The tool has no input '{id}'.");
             if (f.Type == "files")
@@ -654,13 +686,34 @@ namespace SwAgent.Tools
                 return;
             }
             if (f.Type != "selection") throw new InvalidOperationException($"'{id}' takes no selection.");
+            // The same gates as tools.run: never after a native fault, never while the user is in a SolidWorks command.
+            if (NativeFault.Tripped != null)
+            {
+                open.Session.Message = "SolidWorks needs a restart before this form can read the selection: " + NativeFault.RestartAdvice;
+                return;
+            }
+            if (SwBusy.State(_app.Sw).Blocking)
+            {
+                open.Session.Message = "The selection is read once the command open in SolidWorks is finished.";
+                return;
+            }
             var allowed = new HashSet<int>(ToolPage.SelectFilters(f.Spec.Filter));
-            var current = ToolPage.CurrentSelection(open.Model);
-            var matches = current.Where(p => p.Entity != null && (allowed.Count == 0 || allowed.Contains(p.Type))).ToList();
-            open.Session.SetSelection(f.Id, matches.Select(m => Capture(open.Model, m)));
-            open.Session.Message = current.Count > 0 && matches.Count == 0
+            var picked = NativeFault.Run("tool form selection", () =>
+            {
+                var current = ToolPage.CurrentSelection(open.Model);
+                var matches = current.Where(p => p.Entity != null && (allowed.Count == 0 || allowed.Contains(p.Type))).ToList();
+                return (Count: current.Count, Items: matches.Select(m => Capture(open.Model, m)).ToList());
+            });
+            open.Session.Message = picked.Count > 0 && picked.Items.Count == 0
                 ? $"Nothing selected fits '{f.Spec.Label ?? f.Id}'" + (allowed.Count > 0 ? $" (it takes {string.Join(", ", f.Spec.Filter)})." : ".")
                 : null;
+            if (!follow)
+            {
+                open.Session.SetSelection(f.Id, picked.Items);
+                return;
+            }
+            if (picked.Items.Count == 0) return;
+            open.Session.SetSelection(f.Id, ToolFormSession.Merge(open.Session.Selected(f.Id), picked.Items, f.Spec.Multiple != false));
         }
 
         /// <summary>An entity with what the agent needs to refer to it later (and to find it again at OK): its persistent reference.</summary>
@@ -745,6 +798,11 @@ namespace SwAgent.Tools
                 session.PreviewMessage = "Preview is available in part documents.";
                 return;
             }
+            if (NativeFault.Tripped != null)
+            {
+                session.PreviewMessage = "No preview: SolidWorks needs a restart (a fault earlier: " + NativeFault.Tripped + ").";
+                return;
+            }
             if (SwBusy.State(_app.Sw).Blocking)
             {
                 session.PreviewMessage = "The preview waits until the command open in SolidWorks is finished.";
@@ -768,8 +826,9 @@ namespace SwAgent.Tools
                 using (CrashGuard.Enter("preview", session.Spec.Name, session.Spec.Title, session.Spec.Preview))
                 {
                     var globals = new ScriptGlobals { swApp = _app.Sw, Model = open.Model, Inputs = inputs };
-                    await open.Preview(globals);
-                    if (_open == open) open.Shown.AddRange(PreviewDisplay.Show(open.Model, globals.PreviewBodies));
+                    // An access violation in the part that runs now becomes an error (and blocks model tools), as in tools.run.
+                    await NativeFault.Run("tool form preview", () => open.Preview(globals));
+                    if (_open == open) open.Shown.AddRange(NativeFault.Run("tool form preview", () => PreviewDisplay.Show(open.Model, globals.PreviewBodies)));
                 }
                 session.PreviewMessage = null;
             }

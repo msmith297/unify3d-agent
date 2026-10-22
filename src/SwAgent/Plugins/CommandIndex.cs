@@ -28,7 +28,7 @@ namespace SwAgent.Plugins
             ["name"] = Name,
             ["plugin"] = Plugin,
             ["description"] = Description,
-            ["argumentHint"] = Front.Get("argument-hint"),
+            ["argumentHint"] = Front.Text("argument-hint"),
             ["model"] = Front.Get("model"),
             ["allowedTools"] = Front.List("allowed-tools") is string[] t ? new JArray(t) : null,
             ["disableModelInvocation"] = Front.Flag("disable-model-invocation"),
@@ -118,6 +118,7 @@ namespace SwAgent.Plugins
         }
 
         private static readonly Regex Shell = new Regex(@"!`[^`\n]+`");
+        private static readonly Regex Arguments = new Regex(@"\$(ARGUMENTS|[1-9])(?![0-9])");
         private static readonly Regex FileRef = new Regex(@"(?<=^|[\s(])@([A-Za-z0-9_][A-Za-z0-9_./\\-]*[A-Za-z0-9_])");
 
         /// <summary>The expansion itself (headless; tested).</summary>
@@ -127,10 +128,11 @@ namespace SwAgent.Plugins
             // ${...} first, so the user's arguments are never expanded as variables
             if (expand != null) text = expand(text);
             var positional = SplitArgs(args);
-            var referenced = text.Contains("$ARGUMENTS") || Regex.IsMatch(text, @"\$[1-9](?![0-9])");
-            text = text.Replace("$ARGUMENTS", args);
-            text = Regex.Replace(text, @"\$([1-9])(?![0-9])", m =>
+            var referenced = Arguments.IsMatch(text);
+            // One pass: what the user typed ("why does $1 cost more than $2") is put in, never scanned again.
+            text = Arguments.Replace(text, m =>
             {
+                if (m.Groups[1].Value == "ARGUMENTS") return args;
                 var i = int.Parse(m.Groups[1].Value) - 1;
                 return i < positional.Count ? positional[i] : "";
             });

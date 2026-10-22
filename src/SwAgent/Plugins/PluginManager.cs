@@ -247,24 +247,41 @@ namespace SwAgent.Plugins
             return Installed().FirstOrDefault(p => p.Id == key) ?? Installed().FirstOrDefault(p => p.Name == key);
         }
 
-        /// <summary>The folder of a plugin's tool ("tool" of "plugin:tool") when the plugin is enabled and has it; else null.</summary>
+        /// <summary>
+        /// The folder of a plugin's tool ("tool" of "plugin:tool") when the plugin is enabled and has it; else null. A tool
+        /// with C# of a plugin the user hasn't approved (in this exact form) isn't found: its macro and preview would run
+        /// inside SolidWorks (ribbon, panel form, run_tool_macro, test_tool all look tools up here).
+        /// </summary>
         public string ToolDir(string plugin, string tool)
         {
             var p = EnabledPlugins().FirstOrDefault(x => x.Name == plugin);
-            return p?.Manifest.Tools().Where(t => t.Name == tool).Select(t => t.Dir).FirstOrDefault();
+            return p == null ? null : UsableTools(p).Where(t => t.Name == tool).Select(t => t.Dir).FirstOrDefault();
+        }
+
+        /// <summary>A plugin's tools that may run: all of them once it is approved; before that only those without C#.</summary>
+        public IEnumerable<(string Name, string Dir)> UsableTools(LoadedPlugin p)
+        {
+            var tools = p.Manifest?.Tools().ToList() ?? new List<(string, string)>();
+            if (tools.Count == 0 || IsTrusted(p)) return tools;
+            return tools.Where(t => !Directory.EnumerateFiles(t.Dir, "*.cs", SearchOption.AllDirectories).Any()).ToList();
         }
 
         /// <summary>A folder holding installed (not local) plugin files: read-only, replaced on update.</summary>
         public bool IsReadOnlyDir(string dir) => dir != null && PluginManifest.IsInside(CacheDir, dir);
 
-        /// <summary>The current trust hash: hooks + MCP servers, and for a local plugin every file too (its hooks may run them).</summary>
+        /// <summary>
+        /// The current trust hash: hooks + MCP servers + its tools' C#, and for a local plugin with hooks or MCP servers every
+        /// file too (its hooks may run them). A local plugin's tools are the user's own (made in Unify3D, like the tools in
+        /// %APPDATA%\SwAgent\tools), so on their own they need no approval.
+        /// </summary>
         internal string CurrentHash(LoadedPlugin p)
         {
-            if (p.Manifest == null || !p.Manifest.HasRuntime) return "";
+            if (p.Manifest == null) return "";
+            if (!p.Manifest.HasRuntime && (p.Local || !p.Manifest.HasToolCode)) return "";
             var files = p.Local && Directory.Exists(p.Root)
                 ? Directory.GetFiles(p.Root, "*", SearchOption.AllDirectories).Where(f => !f.Substring(p.Root.Length).Replace('\\', '/').Contains("/.git/"))
                 : null;
-            return p.Manifest.TrustHash(files);
+            return p.Manifest.TrustHash(files, toolCode: !p.Local);
         }
 
         public bool IsTrusted(LoadedPlugin p)
@@ -349,18 +366,28 @@ namespace SwAgent.Plugins
                 DataDir = dataDir,
                 Env = env,
                 Expand = forCommands,
+                ExpandOptions = text => ExpandOptions(text, options),
                 Hooks = (JObject)m.Hooks.DeepClone(),
                 McpServers = servers,
                 TrustHash = CurrentHash(p),
             };
         }
 
-        /// <summary>The Anthropic key never reaches a plugin process, not even through ${ANTHROPIC_API_KEY}.</summary>
-        private static bool IsBlockedEnv(string name) => string.Equals(name, "ANTHROPIC_API_KEY", StringComparison.OrdinalIgnoreCase);
+        /// <summary>
+        /// Environment names a plugin may not set (unify3d.env, an MCP server's env): the Anthropic key and every other
+        /// ANTHROPIC_* secret, and CLAUDE_CODE_* (the runtime sets CLAUDE_CODE_SESSION_ID itself), as ChildEnv.Hidden.
+        /// </summary>
+        private static bool IsBlockedEnv(string name) =>
+            name.StartsWith("ANTHROPIC_", StringComparison.OrdinalIgnoreCase) || name.StartsWith("CLAUDE_CODE_", StringComparison.OrdinalIgnoreCase);
 
         private static readonly Regex Placeholder = new Regex(@"\$\{([^}]+)\}");
 
-        /// <summary>${CLAUDE_PLUGIN_ROOT} and friends, ${user_config.KEY}, ${ENV} and ${ENV:-default}; unknown ones become "".</summary>
+        /// <summary>
+        /// ${CLAUDE_PLUGIN_ROOT} and friends and ${user_config.KEY}; secrets (${ANTHROPIC_*}) become "". Anything else is left
+        /// as written: never this process's environment. Command and skill text (which goes to the model, from plugins that
+        /// may need no approval) gets nothing else; a hook or MCP command line then gets ${ENV} and ${ENV:-default} from its
+        /// own child environment (Session.Expand), which holds no secrets.
+        /// </summary>
         internal static string Expand(string text, IDictionary<string, string> vars, IDictionary<string, (string Value, bool Sensitive)> options, bool withSecrets)
         {
             if (string.IsNullOrEmpty(text)) return text;
@@ -373,16 +400,21 @@ namespace SwAgent.Plugins
                     if (!options.TryGetValue(key.Substring(12), out var o)) return "";
                     return o.Sensitive && !withSecrets ? "" : o.Value ?? "";
                 }
-                string fallback = null;
-                var dash = key.IndexOf(":-", StringComparison.Ordinal);
-                if (dash > 0)
-                {
-                    fallback = key.Substring(dash + 2);
-                    key = key.Substring(0, dash);
-                }
-                if (IsBlockedEnv(key)) return "";
-                var env = Environment.GetEnvironmentVariable(key);
-                return string.IsNullOrEmpty(env) ? fallback ?? "" : env;
+                // ${CLAUDE_CODE_SESSION_ID} stays: the child environment has the runtime's own.
+                if (key.StartsWith("ANTHROPIC_", StringComparison.OrdinalIgnoreCase)) return "";
+                return m.Value;
+            });
+        }
+
+        /// <summary>Only ${user_config.KEY} (sensitive ones become ""): for hook commands bash expands itself.</summary>
+        internal static string ExpandOptions(string text, IDictionary<string, (string Value, bool Sensitive)> options)
+        {
+            if (string.IsNullOrEmpty(text) || text.IndexOf("${user_config.", StringComparison.Ordinal) < 0) return text;
+            return Placeholder.Replace(text, m =>
+            {
+                var key = m.Groups[1].Value.Trim();
+                if (!key.StartsWith("user_config.", StringComparison.Ordinal)) return m.Value;
+                return options.TryGetValue(key.Substring(12), out var o) && !o.Sensitive ? o.Value ?? "" : "";
             });
         }
 
@@ -925,7 +957,7 @@ namespace SwAgent.Plugins
                 if (enabled && hash != "" && trustHash == hash) r.TrustedHash = hash;
                 return 0;
             });
-            if (enabled && !trusted) outcome.Warnings.Add("Its hooks and MCP servers won't run until you approve them in Plugins.");
+            if (enabled && !trusted) outcome.Warnings.Add("Its hooks, MCP servers and tools with code won't run until you approve them in Plugins.");
             Log.Info($"Plugin {p.Id} {(enabled ? "enabled" : "disabled")}");
             outcome.Ok = true;
             outcome.Plugin = Find(p.Id);
@@ -1078,7 +1110,10 @@ namespace SwAgent.Plugins
             }
         }
 
-        /// <summary>What the trust dialog shows: each hook command and MCP server command line (sensitive options left out).</summary>
+        /// <summary>
+        /// What the trust dialog shows: each hook command and MCP server command line (sensitive options left out), and the
+        /// tools whose C# runs inside SolidWorks.
+        /// </summary>
         private JObject TrustList(PluginManifest m, string root)
         {
             var vars = new Dictionary<string, string>(StringComparer.Ordinal)
@@ -1097,6 +1132,7 @@ namespace SwAgent.Plugins
                     var args = (kv.Value["args"] as JArray ?? new JArray()).Select(a => Fetcher.QuoteArg(Expand((string)a ?? "", vars, none, false)));
                     return $"{kv.Key}: {string.Join(" ", new[] { Expand(cmd, vars, none, false) }.Concat(args))}";
                 })),
+                ["tools"] = new JArray(m.ToolCodeSummary()),
             };
         }
 
@@ -1284,7 +1320,7 @@ namespace SwAgent.Plugins
                 ["keywords"] = new JArray(e.Keywords),
                 ["installed"] = false,
                 ["enabled"] = false,
-                ["trusted"] = m == null || !m.HasRuntime,
+                ["trusted"] = m == null || (!m.HasRuntime && !m.HasToolCode),
                 ["local"] = false,
                 ["components"] = new JObject
                 {

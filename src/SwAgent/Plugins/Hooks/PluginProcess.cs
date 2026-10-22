@@ -22,8 +22,9 @@ namespace SwAgent.Plugins.Hooks
     /// cmd.exe and leaves node and its PowerShell children running). The process is created suspended and only resumed
     /// once it is in both jobs: otherwise cmd.exe can start node before the assignment and node escapes the job. Only its
     /// three pipe ends are inherited (PROC_THREAD_ATTRIBUTE_HANDLE_LIST), so parallel hooks never hold each other's
-    /// stdin open. Hook commands run through exactly one cmd.exe (/d /s /c: no AutoRun, quotes kept), so SolidWorks is
-    /// the hook's grandparent; MCP servers that resolve to an .exe start directly, so SolidWorks is their parent
+    /// stdin open. Hook commands run through exactly one shell (Git Bash's usr\bin\bash.exe -c, as Claude Code; without Git
+    /// for Windows cmd.exe /d /s /c: no AutoRun, quotes kept), so SolidWorks is the hook's grandparent; MCP servers that
+    /// resolve to an .exe start directly, so SolidWorks is their parent
     /// (agent-bridge binds its hooks to its MCP peer by those pids). stdout and stderr are read as UTF-8 on their own
     /// threads, so a full pipe never stalls the program.
     /// </summary>
@@ -37,14 +38,14 @@ namespace SwAgent.Plugins.Hooks
         private readonly TaskCompletionSource<bool> _exited = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         private int _killed;
 
-        private PluginProcess(int id, IntPtr process, Stream input, StreamReader output, StreamReader error, bool captureStdout, int captureLimit)
+        private PluginProcess(int id, IntPtr process, Stream input, StreamReader output, StreamReader error, bool captureStdout, int captureLimit, bool keepTail)
         {
             Id = id;
             _handle = new ProcessWait(process);
             Input = input;
             Output = captureStdout ? null : output;
-            if (captureStdout) _stdout = new OutputCapture(output, captureLimit, "stdout");
-            _stderr = new OutputCapture(error, captureLimit, "stderr");
+            if (captureStdout) _stdout = new OutputCapture(output, captureLimit, "stdout", false);
+            _stderr = new OutputCapture(error, captureLimit, "stderr", keepTail);
         }
 
         public int Id { get; }
@@ -82,27 +83,40 @@ namespace SwAgent.Plugins.Hooks
 
         private const uint StillActive = 259;
 
-        /// <summary>A hook command line, run through one cmd.exe: cmd.exe /d /s /c "&lt;command&gt;".</summary>
+        /// <summary>
+        /// A hook command line, run the way Claude Code runs it on Windows: bash.exe -c "&lt;command&gt;" with Git Bash when Git
+        /// for Windows is installed (so $VAR, ${VAR:-x}, 2&gt;/dev/null, .sh scripts and single quotes work), else one
+        /// cmd.exe /d /s /c "&lt;command&gt;". Either way the shell is the hook's parent and SolidWorks its grandparent.
+        /// </summary>
         public static PluginProcess StartShell(string command, IDictionary<string, string> env, string cwd, int captureLimit = 1 << 20) =>
-            Start(CmdExe, "/d /s /c \"" + command + "\"", env, cwd, true, captureLimit);
+            StartShell(command, env, cwd, HookShell.Bash, captureLimit);
+
+        /// <summary>The same with a given shell: a bash.exe, or null for cmd.exe (tests run both).</summary>
+        internal static PluginProcess StartShell(string command, IDictionary<string, string> env, string cwd, string bash, int captureLimit)
+        {
+            return bash == null
+                ? Start(CmdExe, "/d /s /c \"" + command + "\"", env, cwd, true, captureLimit)
+                : Start(bash, "-c " + QuoteArg(command, always: true), HookShell.BashEnv(env, bash), cwd, true, captureLimit);
+        }
 
         /// <summary>
         /// A program and its arguments (an MCP server). An .exe starts directly; a .cmd/.bat (npx, ...) needs cmd.exe.
-        /// `env` must hold PATH (ChildEnv.Base), which is where the command is looked up.
+        /// `env` must hold PATH (ChildEnv.Base), which is where the command is looked up. Its stderr keeps the last 64 KB:
+        /// a server that runs for days and then dies must report why, not what it said at start-up.
         /// </summary>
         public static PluginProcess StartProgram(string command, IEnumerable<string> args, IDictionary<string, string> env, string cwd, bool captureStdout)
         {
             env.TryGetValue("PATH", out var path);
             var resolved = ChildEnv.Resolve(command, path, cwd) ?? throw new FileNotFoundException($"'{command}' was not found on PATH.");
-            var argLine = string.Join(" ", args.Select(QuoteArg));
+            var argLine = string.Join(" ", args.Select(a => QuoteArg(a)));
             var ext = Path.GetExtension(resolved).ToLowerInvariant();
-            if (ext == ".exe" || ext == ".com") return Start(resolved, argLine, env, cwd, captureStdout, 1 << 16);
-            return Start(CmdExe, "/d /s /c \"" + QuoteArg(resolved) + (argLine.Length > 0 ? " " + argLine : "") + "\"", env, cwd, captureStdout, 1 << 16);
+            if (ext == ".exe" || ext == ".com") return Start(resolved, argLine, env, cwd, captureStdout, 1 << 16, keepTail: true);
+            return Start(CmdExe, "/d /s /c \"" + QuoteArg(resolved) + (argLine.Length > 0 ? " " + argLine : "") + "\"", env, cwd, captureStdout, 1 << 16, keepTail: true);
         }
 
         private static string CmdExe => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "cmd.exe");
 
-        private static PluginProcess Start(string file, string arguments, IDictionary<string, string> env, string cwd, bool captureStdout, int captureLimit)
+        private static PluginProcess Start(string file, string arguments, IDictionary<string, string> env, string cwd, bool captureStdout, int captureLimit, bool keepTail = false)
         {
             cwd = Directory.Exists(cwd) ? cwd : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             SafeFileHandle inRead = null, inWrite = null, outRead = null, outWrite = null, errRead = null, errWrite = null;
@@ -181,7 +195,7 @@ namespace SwAgent.Plugins.Hooks
                 new FileStream(inWrite, FileAccess.Write, 4096, false),
                 new StreamReader(new FileStream(outRead, FileAccess.Read, 4096, false), utf8),
                 new StreamReader(new FileStream(errRead, FileAccess.Read, 4096, false), utf8),
-                captureStdout, captureLimit) { _job = job };
+                captureStdout, captureLimit, keepTail) { _job = job };
             pp._registration = ThreadPool.RegisterWaitForSingleObject(pp._handle, (state, timedOut) => pp._exited.TrySetResult(true), null, Timeout.Infinite, true);
             return pp;
         }
@@ -279,11 +293,14 @@ namespace SwAgent.Plugins.Hooks
             }
         }
 
-        /// <summary>One argument quoted the way CommandLineToArgvW (and node) splits it again.</summary>
-        internal static string QuoteArg(string arg)
+        /// <summary>
+        /// One argument quoted the way CommandLineToArgvW (and node, and the MSYS runtime of Git Bash) splits it again.
+        /// `always` quotes even a plain word (MSYS would expand wildcards in an unquoted one).
+        /// </summary>
+        internal static string QuoteArg(string arg, bool always = false)
         {
             if (string.IsNullOrEmpty(arg)) return "\"\"";
-            if (arg.IndexOfAny(new[] { ' ', '\t', '\n', '\v', '"' }) < 0) return arg;
+            if (!always && arg.IndexOfAny(new[] { ' ', '\t', '\n', '\v', '"' }) < 0) return arg;
             var sb = new StringBuilder("\"");
             for (var i = 0; i < arg.Length; i++)
             {
@@ -304,13 +321,16 @@ namespace SwAgent.Plugins.Hooks
             return sb.Append('"').ToString();
         }
 
-        /// <summary>Reads one output stream on its own thread, keeping the first `limit` characters and draining the rest.</summary>
+        /// <summary>
+        /// Reads one output stream on its own thread, keeping the first `limit` characters and draining the rest, or with
+        /// keepTail the last `limit` characters (a long-running server's stderr: the newest lines say why it stopped).
+        /// </summary>
         private sealed class OutputCapture
         {
             private readonly StringBuilder _text = new StringBuilder();
             private readonly TaskCompletionSource<bool> _done = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-            public OutputCapture(StreamReader reader, int limit, string name)
+            public OutputCapture(StreamReader reader, int limit, string name, bool keepTail)
             {
                 new Thread(() =>
                 {
@@ -322,7 +342,12 @@ namespace SwAgent.Plugins.Hooks
                         {
                             lock (_text)
                             {
-                                if (_text.Length < limit) _text.Append(buffer, 0, Math.Min(n, limit - _text.Length));
+                                if (keepTail)
+                                {
+                                    _text.Append(buffer, 0, n);
+                                    if (_text.Length > limit) _text.Remove(0, _text.Length - limit);
+                                }
+                                else if (_text.Length < limit) _text.Append(buffer, 0, Math.Min(n, limit - _text.Length));
                             }
                         }
                     }
@@ -438,13 +463,91 @@ namespace SwAgent.Plugins.Hooks
         private static readonly Regex Placeholder = new Regex(@"\$\{([^}]+)\}", RegexOptions.Compiled);
 
         /// <summary>
-        /// Replaces every ${NAME} with the variable's value (case-insensitive; unknown names become empty). cmd.exe doesn't
-        /// expand ${...}, so the runtime does it before anything runs.
+        /// Replaces every ${NAME} with the variable's value (case-insensitive; unknown or empty names become empty, or the
+        /// default of ${NAME:-default}). cmd.exe doesn't expand ${...}, so the runtime does it before anything runs.
         /// </summary>
         public static string Expand(string text, IDictionary<string, string> vars)
         {
             if (string.IsNullOrEmpty(text) || text.IndexOf("${", StringComparison.Ordinal) < 0) return text;
-            return Placeholder.Replace(text, m => vars.TryGetValue(m.Groups[1].Value, out var v) ? v ?? "" : "");
+            return Placeholder.Replace(text, m =>
+            {
+                var key = m.Groups[1].Value;
+                string fallback = null;
+                var dash = key.IndexOf(":-", StringComparison.Ordinal);
+                if (dash > 0)
+                {
+                    fallback = key.Substring(dash + 2);
+                    key = key.Substring(0, dash);
+                }
+                return vars.TryGetValue(key.Trim(), out var v) && !string.IsNullOrEmpty(v) ? v : fallback ?? "";
+            });
+        }
+    }
+
+    /// <summary>
+    /// The shell hook commands run in. Claude Code on Windows runs them with Git Bash (bash -c), and plugins are written for
+    /// that: $CLAUDE_PLUGIN_ROOT without braces, ${VAR:-x}, 2&gt;/dev/null, .sh scripts, single quotes. So Unify3D does the
+    /// same when Git for Windows is installed, and falls back to cmd.exe (with ${...} expanded beforehand) when it isn't.
+    /// usr\bin\bash.exe is started directly - bin\bash.exe is a launcher that would put one more process between the hook
+    /// and SolidWorks (agent-bridge finds its MCP peer through the hook's parent and grandparent) - with Git's tool folders
+    /// in front of PATH, as Git Bash has them.
+    /// </summary>
+    internal static class HookShell
+    {
+        private static readonly Lazy<string> Found = new Lazy<string>(() =>
+        {
+            var bash = FindGitBash();
+            Log.Info(bash == null ? "Plugin hooks run with cmd.exe (Git for Windows not found)" : "Plugin hooks run with " + bash);
+            return bash;
+        });
+
+        /// <summary>The bash.exe hooks run with, or null for cmd.exe.</summary>
+        public static string Bash => Found.Value;
+
+        /// <summary>Git Bash's usr\bin\bash.exe: from CLAUDE_CODE_GIT_BASH_PATH (as Claude Code), git.exe on PATH, or the usual install folders.</summary>
+        internal static string FindGitBash()
+        {
+            var starts = new List<string>();
+            var set = Environment.GetEnvironmentVariable("CLAUDE_CODE_GIT_BASH_PATH");
+            if (!string.IsNullOrWhiteSpace(set)) starts.Add(set.Trim().Trim('"'));
+            var git = ChildEnv.Resolve("git", ChildEnv.FreshPath(), null);
+            if (git != null) starts.Add(git);
+            foreach (var pf in new[] { "ProgramW6432", "ProgramFiles", "ProgramFiles(x86)" })
+            {
+                var dir = Environment.GetEnvironmentVariable(pf);
+                if (!string.IsNullOrEmpty(dir)) starts.Add(Path.Combine(dir, "Git", "cmd", "git.exe"));
+            }
+            starts.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "Git", "cmd", "git.exe"));
+            foreach (var start in starts)
+            {
+                try
+                {
+                    // ...\Git\cmd\git.exe, ...\Git\bin\bash.exe, ...\Git\mingw64\bin\git.exe: the Git root is a few levels up.
+                    var dir = Path.GetDirectoryName(Path.GetFullPath(start));
+                    for (var i = 0; i < 3 && dir != null; i++, dir = Path.GetDirectoryName(dir))
+                    {
+                        var bash = Path.Combine(dir, "usr", "bin", "bash.exe");
+                        if (File.Exists(bash)) return bash;
+                    }
+                }
+                catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is IOException)
+                {
+                    // A malformed path: try the next.
+                }
+            }
+            return set != null && File.Exists(set.Trim().Trim('"')) ? Path.GetFullPath(set.Trim().Trim('"')) : null;
+        }
+
+        /// <summary>The hook's environment with Git's mingw64\bin and usr\bin in front of PATH (cat, sed, grep... as in Git Bash).</summary>
+        public static Dictionary<string, string> BashEnv(IDictionary<string, string> env, string bash)
+        {
+            var result = new Dictionary<string, string>(env, StringComparer.OrdinalIgnoreCase);
+            var usrBin = Path.GetDirectoryName(bash);
+            var root = Path.GetDirectoryName(Path.GetDirectoryName(usrBin) ?? "");
+            var front = new[] { root == null ? null : Path.Combine(root, "mingw64", "bin"), usrBin }.Where(d => d != null && Directory.Exists(d)).ToList();
+            result.TryGetValue("PATH", out var path);
+            result["PATH"] = string.Join(";", front.Concat((path ?? "").Split(';').Where(p => p.Length > 0 && !front.Contains(p, StringComparer.OrdinalIgnoreCase))));
+            return result;
         }
     }
 

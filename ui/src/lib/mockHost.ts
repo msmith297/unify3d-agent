@@ -560,7 +560,11 @@ const TRUST: Record<string, TrustRequest> = {
     ],
     mcp: [`node "${ROOT}\\cache\\agent-bridge\\3f9c2e1\\client\\mcp.mjs"`],
   },
-  "mold-sim@acme-tools": { hooks: [], mcp: [`"${ROOT}\\cache\\mold-sim\\0.3.1\\bin\\moldsim-mcp.exe" --stdio`] },
+  "mold-sim@acme-tools": {
+    hooks: [],
+    mcp: [`"${ROOT}\\cache\\mold-sim\\0.3.1\\bin\\moldsim-mcp.exe" --stdio`],
+    tools: ["mold-sim:fill-check (macro.cs, preview.cs)"],
+  },
 };
 
 const BASE_PLUGINS: PluginInfo[] = [
@@ -761,6 +765,7 @@ function mockSession(): SessionInfo {
         ]
       : [],
     sessionContext: [],
+    sessionNotices: [],
     heldWakes: 0,
   };
 }

@@ -17,7 +17,7 @@ namespace SwAgent.Plugins.Hooks
     /// The plugin runtime: hooks and MCP servers of the runnable plugins (IPluginRuntimeSource) and of the user's mcp.json,
     /// the session they share, and the panel's RPCs for them:
     ///   hooks.fire(event, ...)  the panel-side events (UserPromptSubmit, PreToolUse, PostToolUse, Stop)
-    ///   session.info()          { sessionId, hookEvents, mcpInstructions, sessionContext, heldWakes }
+    ///   session.info()          { sessionId, hookEvents, mcpInstructions, sessionContext, sessionNotices, heldWakes }
     ///   session.takeWakes()     wakes not yet confirmed;  session.ackWake(id) confirms one
     ///   mcp.status(), mcp.restart(plugin, server)
     /// and events tools.changed, session.wake (a nudge: the wake itself is fetched with takeWakes) and session.changed.
@@ -37,6 +37,9 @@ namespace SwAgent.Plugins.Hooks
         private bool _sessionStartQueued;
         private bool _shutDown;
         private JArray _sessionContext = new JArray();
+
+        /// <summary>SessionStart systemMessage and exit-2 text: for the user (the panel's notice bar), never the model.</summary>
+        private JArray _sessionNotices = new JArray();
 
         /// <summary>Set when the first sync after Start has put the MCP servers in place (SessionStart waits for them).</summary>
         private readonly TaskCompletionSource<bool> _firstSync = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -227,14 +230,19 @@ namespace SwAgent.Plugins.Hooks
                 }
             }
             if (queue) _ = Task.Run(FireSessionStartAsync);
-            JArray context;
-            lock (_sync) context = new JArray(_sessionContext);
+            JArray context, notices;
+            lock (_sync)
+            {
+                context = new JArray(_sessionContext);
+                notices = new JArray(_sessionNotices);
+            }
             return new JObject
             {
                 ["sessionId"] = Session.Id,
                 ["hookEvents"] = HookRunner.Matchers(HookPlugins),
                 ["mcpInstructions"] = Mcp.Instructions(),
                 ["sessionContext"] = context,
+                ["sessionNotices"] = notices,
                 ["heldWakes"] = Session.HeldCount,
             };
         }
@@ -253,7 +261,7 @@ namespace SwAgent.Plugins.Hooks
                 lock (_sync)
                 {
                     foreach (var c in outcome.AdditionalContext) _sessionContext.Add(c);
-                    foreach (var m in outcome.SystemMessages) _sessionContext.Add(m);
+                    foreach (var m in outcome.SystemMessages) _sessionNotices.Add(m);
                 }
                 if (outcome.AdditionalContext.Count + outcome.SystemMessages.Count > 0) _emit("session.changed", null);
             }

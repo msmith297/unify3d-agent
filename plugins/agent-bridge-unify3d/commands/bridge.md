@@ -20,8 +20,8 @@ Do what the first word of the arguments asks:
   - `listen <minutes>`: call `listen` with that number of `minutes`;
   - `listen off`: call `listen` with `minutes: 0`.
   Then say in one sentence what that means: while listening, a peer's message that arrives after a turn starts a new
-  turn in this chat, even when nobody is at the PC; Unify3D limits these wake-ups per hour; "always" stays on after a
-  SolidWorks restart.
+  turn in this chat, even when nobody is at the PC; Unify3D limits these wake-ups per hour; after a SolidWorks restart
+  it may need turning on again.
 - `name <new name>`: call `set_profile` with `name` set to the rest of the arguments, and report the name the hub
   gave (it adds a suffix when the name is taken).
 - anything else: show these choices in one line and do nothing else.

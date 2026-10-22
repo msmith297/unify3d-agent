@@ -2,7 +2,7 @@
 
 This document is for a coding agent picking up this project with no previous context. Read it all before changing anything. You have access to the same project folder the previous agent worked in, described below.
 
-Written 2026-10-20 at the end of a long session. Its last step, a multi-angle review of the new mold tool, was stopped by a usage limit.
+Written 2026-10-20 at the end of a long session. Its last step, a multi-angle review of the new mold tool, was stopped by a usage limit. Updated 2026-10-21: plugins were built and reviewed (section 7).
 
 ---
 
@@ -23,7 +23,7 @@ The owner (GitHub `msmith297`) runs a PU / resin compression-molding shop. They 
 | What | Where |
 |---|---|
 | **Your working folder** (a normal git checkout) | `C:\Users\msmit\Desktop\Software Projects\Unify3D Agent` |
-| Its branch | `claude/awesome-blackburn-350fc3`. **46 commits ahead of `origin`, not pushed.** origin is at `d6fc975`. |
+| Its branch | `claude/awesome-blackburn-350fc3`. **Not pushed:** 84 commits ahead of `origin` on 2026-10-21 (mold tool, plugins). origin is at `d6fc975`. |
 | `main` | A local branch in the same repo, at `d51979b` (switch with `git switch main`). Main has everything up to `d6fc975` (PR #1, merged). It has **neither** the built-in-tools refactor (`f299941`) nor the mold tool. |
 | **What SolidWorks actually loads** | `<working folder>\src\SwAgent\bin\Release\net48\SwAgent.dll`. The COM code base is registered there. **Installed 2026-10-20: commit `29cf6a3`** (the mold tool plus the review fixes), for the user's SolidWorks checks; not yet confirmed in SolidWorks. The previous build (2026-10-17, `f299941`) is backed up at `C:\Users\msmit\Documents\Unify3D Agent backups\Release-net48-2026-10-17-f299941`: to roll back, close SolidWorks and copy it over `bin\Release\net48`. The dev tool `tools/dev/page-test` is copied to `%APPDATA%\SwAgent\tools\page-test` for the page checks; remove it after. |
 | Old location (stale) | Until 2026-10-20 the project lived in `C:\Users\msmit\Documents\Claude Code\SolidWorks Agent Plugin`, with the work in the worktree `.claude\worktrees\awesome-blackburn-350fc3`. It was copied here whole (git history, build outputs, `ui\node_modules`, the gitignored `MECAGENT_TEARDOWN.md`). The old folder is a stale copy: don't work there. The user may delete it. The six merged parallel-build branches (`worktree-wf_71b3d5bb-873-N`) were deleted here. |
@@ -38,7 +38,7 @@ All commands run from the working folder.
 | Purpose | Command |
 |---|---|
 | Debug build | `"/c/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/MSBuild.exe" src/SwAgent/SwAgent.csproj -restore -nologo -v:minimal -p:Configuration=Debug` |
-| Tests | `dotnet test tests/SwAgent.Tests`. Expect **412 passed, 0 failed, 3 skipped**. The skipped three are the long FE sweeps; run them with `MOLD_SWEEP=1`. Tests set `SWAGENT_DATA_DIR` through `tests/SwAgent.Tests/test.runsettings`, so they never touch the user's real data. Keep it that way. |
+| Tests | `dotnet test tests/SwAgent.Tests`. Expect **541 passed, 0 failed, 4 skipped** (2026-10-21, with the plugins; about 8 minutes). The skipped four are the long FE sweeps; run them with `MOLD_SWEEP=1`. Some plugin tests need node, Git for Windows or a local agent-bridge clone and skip without them (section 7). Tests set `SWAGENT_DATA_DIR` through `tests/SwAgent.Tests/test.runsettings`, so they never touch the user's real data. Keep it that way. |
 | UI | `cd ui && npx tsc -b && npm run build` (node_modules is installed). Panel logic checks: `node ui/src/lib/checks/lib.check.mjs`. |
 | Mold data generators | `python -I tools/dev/mold-data/<gen>.py --check`. Each must report that its output matches the shipped files. See `tools/dev/mold-data/README.md`. |
 | FE sweeps / Monte Carlo | `tools/dev/MoldSweep` (README inside). Build it in Release **from a scratch copy**, never into `src/SwAgent/bin/Release`. |
@@ -185,7 +185,88 @@ To read a future SolidWorks crash dump: unzip the newest `%LOCALAPPDATA%\SolidWo
 | Smart Rebuild | `tools/builtin/smart-rebuild/TOOL.md`, `Tools/RebuildTools.cs`, `Tools/DesignSnapshot.cs` |
 | Release and installer | `.github/workflows/release.yml`, `installer/Unify3DAgent.iss`, `NIGHTLY_NOTES.md`, `RELEASE_NOTES.md` |
 
-## 7. How the previous agent worked (it worked well)
+## 7. Plugins (built 2026-10-21; review fixes applied the same day)
+
+**What it is.** Claude Code compatible plugins for the add-in, plus Unify3D tools inside plugins: a plugin store, `/`
+commands and `@` tags in the composer, skills, sub-agents (`run_agent`), hooks (Claude Code protocol), MCP servers
+(stdio), and tool inputs as a form in the chat panel instead of the PropertyManager page. The first plugin is Agent
+Bridge (the real agent-bridge plugin, installed by reference, plus the `agent-bridge-unify3d` overlay). Read
+`docs/plugins/design.md` (the design, with review notes) and `docs/plugins/authoring.md` (what a plugin author sees,
+including the known limitations in sections 6, 8 and 10).
+
+**State.** Built in five tracks (merge commits `65e5afb`..`ae33ca6`, integration `42c0722`), then a review (compat,
+safety, panel lenses) whose findings were applied in one commit with regression tests. Everything is tested headless
+only. **Nothing has run in SolidWorks, and the live agent-bridge acceptance (design section 6) has not been done.** Not
+installed: the Release build SolidWorks loads is still `29cf6a3` (section 2).
+
+| Area | Where |
+|---|---|
+| Plugin core: manifest, marketplaces (git or GitHub zip), install/update/enable, trust, options (DPAPI), indexes, agent tools (`list_plugins`, `use_skill`, `plugin_create` ... `plugin_validate`), `plugins.*` RPCs | `src/SwAgent/Plugins/*.cs` (`PluginManager`, `PluginManifest`, `Marketplaces`, `PluginTools`, `CommandIndex`, `SkillIndex`, `AgentIndex`, `FrontMatter`, `PluginsBridge`) |
+| Runtime: hooks (`hooks.fire`, SessionStart/End, async + asyncRewake wakes, hourly guard), the session (`plugins\session.json`, one id per PC), plugin processes (job objects, Git Bash or cmd.exe) | `src/SwAgent/Plugins/Hooks/*.cs` (`RuntimeHost`, `HookRunner`, `HookEvents`, `Session`, `PluginProcess` with `ChildEnv`, `HookShell`, `Jobs`) |
+| MCP client and host (stdio; `mcp__<server>__<tool>` in `tools.list`/`tools.run`; user servers in `%APPDATA%\SwAgent\mcp.json`) | `src/SwAgent/Mcp/McpClient.cs`, `McpHost.cs` |
+| Tool forms in the panel | `src/SwAgent/Tools/ToolFormBridge.cs` (`ToolFormSession`), the `ToolRunner` branch; `ui/src/components/ToolFormCard.tsx`, `ui/src/lib/toolForm.ts`, `toolFormLogic.ts`, `toolFormMock.ts`; setting "Tool inputs: Panel / PropertyManager page" |
+| Panel | `ui/src/components/PluginsScreen.tsx`, `SlashMenu.tsx`, `Composer.tsx` (slash/@ popups, narrow row), `ui/src/store.ts` (plugin state, hooks around turns, wakes, `run_agent`), `ui/src/agent/runAgent.ts`, `ui/src/lib/hooks.ts`, `commands.ts`, `mockHost.ts` |
+| Content | `plugins/.claude-plugin/marketplace.json` (built-in "unify3d" marketplace, copied to `builtin-plugins\`), `plugins/agent-bridge-unify3d/`, `tools/builtin/create-plugin/` |
+| User data (per PC; tests redirect it with `SWAGENT_DATA_DIR`) | `%APPDATA%\SwAgent\plugins\` (`installed.json`, `marketplaces\`, `cache\`, `local\`, `data\`, `secrets\`, `session.json`), `%APPDATA%\SwAgent\mcp.json`, `%LOCALAPPDATA%\SwAgent\plugins\transcripts` |
+
+**How to test.**
+- Headless: `dotnet test tests/SwAgent.Tests` (plugin tests are in `tests/SwAgent.Tests/Plugins/`, collection "Plugins",
+  not parallel). `NodeFact` tests need node; `GitBashFact` tests need Git for Windows; `AgentBridgeEndToEndTests` and
+  `AgentBridgeHookTests` need a local agent-bridge clone (Claude Code's marketplace copy under
+  `~/.claude*/plugins/marketplaces/agent-bridge`, or `AGENT_BRIDGE_REPO_DIR`) and run it unpaired against a closed
+  local port: no network. The review's regressions are in `PluginReviewTests.cs`.
+- Panel logic: `node ui/src/lib/checks/lib.check.mjs` (matchers, wake rules, number parsing, ...).
+- Panel in a browser: `npm --prefix ui run dev` uses `ui/src/lib/mockHost.ts` (no SolidWorks). `window.__agentStore`
+  is the store, `window.__mockWake()` sends a plugin wake (`?wake` in the URL does it after 5 s). There is no API key in
+  the mock: set `localStorage["swagent-mock:apiKey"]` to any test string and stub `window.fetch` for
+  `api.anthropic.com` (the review did this to check wakes, Stop, sub-agent approvals and Ctrl+Enter in tool forms).
+
+**Review fixes (2026-10-21), all with tests where headless:**
+- Tool code needs approval: a plugin tool's `.cs` files count in the trust hash (`PluginManifest.HasToolCode`,
+  `TrustHash`), the trust dialog lists them, and `PluginManager.ToolDir`/`UsableTools` hide tools with code until the
+  plugin is approved (so ribbon, palette, panel form, `run_tool_macro`, `test_tool` can't run them). Plugins without
+  tool code hash as before (approvals hold). Local plugins' tools need no approval (the user's own).
+- Command and skill text no longer reads SolidWorks' environment (`PluginManager.Expand` leaves `${ENV}` as written;
+  hook and MCP command lines fill it from the child environment, `${VAR:-x}` included). Plugins can't set `ANTHROPIC_*`
+  or `CLAUDE_CODE_*` env.
+- Hooks run with Git Bash (`usr\bin\bash.exe -c`, as Claude Code), cmd.exe without Git; `plugin_validate` warns about
+  bash-only syntax.
+- Panel: matchers match like `HookEvents.Matches`; woken turns never auto-approve (`RunOverride.fromWake`) and
+  `run_tool_macro` is a write tool; wakes held during a turn wait for the user after Stop or an error (never merged into
+  the stopped prompt; they go with the next message); a thread preparing a run counts as busy (no second run; `startRun`
+  refuses one); sub-agent approvals show under the `run_agent` card with the code, and its steps show while it runs;
+  Ctrl+Enter in a tool form commits the box being typed in first; "2,000" is 2000 unless the locale writes decimal
+  commas; narrow-panel overflow of unit dropdowns and the Watch bar fixed.
+- Add-in: SessionStart `systemMessage` goes to the user (`session.info` `sessionNotices`, notice bar), not the prompt;
+  `$1` in typed arguments isn't expanded again; `argument-hint: [message]` keeps its brackets; MCP stderr keeps the last
+  64 KB; tool-form selection boxes add to their list like a PropertyManager box ("Use selection" still replaces), and
+  `toolForm.pick`/previews check `NativeFault` and the busy gate; closing the form's document doesn't call SolidWorks
+  from the destroy event.
+
+**What is open, in order:**
+1. **SolidWorks-side checks by hand** (none were possible here): the Plugins screen; installing Agent Bridge (trust
+   dialog, Node check); a plugin tool on the ribbon and in the palette; tool inputs in the panel form for Smart Rebuild,
+   the mold tool and the user's own tools (selection boxes following the selection, live preview, OK and Cancel,
+   closing the document while a form is open); MCP tools through `tools.run`; hooks (SessionStart at boot, Stop
+   `--listen`, wakes into the chat); the narrow composer at 280 px.
+2. **The live agent-bridge acceptance, design section 6**, with the real hub: the agent shows in `list_peers` as
+   "Unify3D SolidWorks - <device>"; a console message arrives (UserPromptSubmit context, or a wake when idle); it
+   replies with `send_message`; "listen always" survives a SolidWorks restart - **this last one fails until item 3**.
+3. **agent-bridge needs a change** (not made: it is another repository, and changing it means a push): its
+   `client/mcp.mjs` trusts `CLAUDE_CODE_SESSION_ID` only for clients named "claude". Proposed: in `register()`,
+   `SESSION_ID = kind === 'claude' || process.env.UNIFY3D === '1' ? CLAUDE_SESSION_ID : null;` (or the hub's
+   `requirePeer` re-links a stale row for any kind but Claude, as it does for Codex). Until then, after a SolidWorks or
+   server restart the hooks can stay bound to the old offline row: no mail injection, no wakes, name and listening lost.
+   Renaming Unify3D's MCP client to something with "claude" is not the fix (it would join the user's Claude app on the
+   hub: account, Bridge Manager, revive requests). Also decide whether Unify3D should listen "always" by default
+   (`"AGENT_BRIDGE_LISTEN": "always"` in the marketplace entry's `unify3d.env`); it is off now.
+4. **Known limitation:** with agent-bridge on a local hub, the broker `mcp.mjs` starts lands in the add-in's job objects
+   and dies with that MCP server or SolidWorks (documented in authoring.md section 10).
+5. Smaller items left from the review: MCP server stderr isn't streamed to the log (only its last lines on exit); a
+   slash command's `@file` includes and `` !`cmd` `` note still scan the typed arguments too (only `$` expansion was
+   made one-pass).
+
+## 8. How the previous agent worked (it worked well)
 
 - **Big features ran as workflows:**
   1. parallel research streams;

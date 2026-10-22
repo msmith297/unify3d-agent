@@ -358,6 +358,20 @@ namespace SwAgent.Plugins
         private static readonly string[] OptionTypes = { "string", "number", "boolean", "directory", "file" };
 
         /// <summary>plugin_validate's findings ("error: ..." / "warning: ..."), for any installed plugin.</summary>
+        /// <summary>What in a hook command only bash understands (cmd.exe, the fallback without Git for Windows, would fail).</summary>
+        internal static List<string> BashOnly(string command)
+        {
+            var found = new List<string>();
+            var c = command ?? "";
+            if (Regex.IsMatch(c, @"\$[A-Za-z_]")) found.Add("$NAME without braces");
+            if (Regex.IsMatch(c, @"\$\{[^}]*:-")) found.Add("${NAME:-default}");
+            if (c.Contains("$(") || c.Contains("`")) found.Add("command substitution");
+            if (c.Contains("/dev/null")) found.Add("/dev/null");
+            if (Regex.IsMatch(c, @"\.sh\b", RegexOptions.IgnoreCase)) found.Add("a .sh script");
+            if (c.Contains("'")) found.Add("single quotes");
+            return found;
+        }
+
         internal static List<string> Validate(PluginManager.LoadedPlugin p)
         {
             var m = p.Manifest;
@@ -437,6 +451,10 @@ namespace SwAgent.Plugins
                 if (ev == "PermissionRequest") f.Add("warning: PermissionRequest hooks don't run in Unify3D (its own approval cards are used).");
                 else if (!new[] { "PreToolUse", "PostToolUse", "UserPromptSubmit", "Stop", "SessionStart", "SessionEnd" }.Contains(ev))
                     f.Add($"warning: {ev} hooks don't run in Unify3D.");
+                var bash = BashOnly(command);
+                if (bash.Count > 0)
+                    f.Add($"warning: {ev} hook \"{command}\" needs Git Bash ({string.Join(", ", bash)}): it runs as in Claude Code where Git for Windows is " +
+                          "installed, but fails with cmd.exe on a PC without it. Use \"${CLAUDE_PLUGIN_ROOT}\" in double quotes and a node script to work everywhere.");
             }
             foreach (var kv in m.McpServers)
             {

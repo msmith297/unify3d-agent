@@ -16,7 +16,7 @@ import {
 } from "../toolRun.ts";
 import { paletteSections, categoryNames } from "../toolGroups.ts";
 import { slashQuery, slashRows, parseSlash, resolveSlash, splitArgs, substituteArgs, fileRefs, atQuery, tagRows, tagLines, commandHead } from "../commands.ts";
-import { matcherMatches, hasHook, hookToolResponse, HOOK_RESPONSE_CAP, hookContextText, systemEventText, parseTagged, autoTurnAllowed, AUTO_WINDOW_MS } from "../hooks.ts";
+import { matcherMatches, hasHook, hookToolResponse, HOOK_RESPONSE_CAP, hookContextText, systemEventText, parseTagged, autoTurnAllowed, AUTO_WINDOW_MS, wakesMayFollow, wakeApproval } from "../hooks.ts";
 import { modelFromAlias } from "../models.ts";
 import { formatNumber, parseNumber, stepNumber, visibleGroups, chipText, takesText, acceptText, tableHint } from "../toolFormLogic.ts";
 import { mockOpenToolForm, mockToolForm } from "../toolFormMock.ts";
@@ -411,19 +411,26 @@ t("model aliases of commands and agents", () => {
 
 // ---- hooks (lib/hooks.ts) ----
 
-t("matchers: empty and * match all; otherwise a whole-name regex; invalid ones match exactly", () => {
+t("matchers as the add-in's HookEvents.Matches: * all, simple names exact, else a regex searched in the name", () => {
   assert.equal(matcherMatches("", "execute_csharp"), true);
   assert.equal(matcherMatches("*", "x"), true);
   assert.equal(matcherMatches(undefined, "x"), true);
   assert.equal(matcherMatches("execute_csharp", "execute_csharp"), true);
-  assert.equal(matcherMatches("execute", "execute_csharp"), false); // whole name
+  assert.equal(matcherMatches("execute", "execute_csharp"), false); // simple names are exact
   assert.equal(matcherMatches("Write|Edit", "Edit"), true);
-  assert.equal(matcherMatches("mcp__.*", "mcp__plugin_agent-bridge_agent-bridge__send_message"), true);
-  assert.equal(matcherMatches("(", "("), true);
+  assert.equal(matcherMatches("Write|Edit", "Edit2"), false);
+  const send = "mcp__plugin_agent-bridge_agent-bridge__send_message";
+  assert.equal(matcherMatches("mcp__.*", send), true);
+  // Regexes are searched, not anchored (the review's examples: the add-in selects these hooks, so the panel must fire).
+  assert.equal(matcherMatches("mcp__plugin_agent-bridge", send), true);
+  assert.equal(matcherMatches("mcp__.*__send", send), true);
+  assert.equal(matcherMatches("^mcp__.*__send$", send), false);
+  assert.equal(matcherMatches("(", "("), false); // an invalid regex matches nothing
   assert.equal(matcherMatches("(", "x"), false);
   const info = { hookEvents: { PostToolUse: ["mcp__.*"], Stop: [""], UserPromptSubmit: [] } };
   assert.equal(hasHook(info, "PostToolUse", "mcp__a__b"), true);
   assert.equal(hasHook(info, "PostToolUse", "execute_csharp"), false);
+  assert.equal(hasHook({ hookEvents: { PreToolUse: ["mcp__plugin_agent-bridge"] } }, "PreToolUse", send), true);
   assert.equal(hasHook(info, "PreToolUse", "x"), false);
   assert.equal(hasHook(info, "Stop"), true);
   assert.equal(hasHook(info, "UserPromptSubmit"), false);
@@ -455,6 +462,15 @@ t("hook blocks: context and system events round-trip; the guard counts the last 
   assert.equal(autoTurnAllowed([], now, NaN).allowed, true); // a bad setting falls back to 20
 });
 
+t("wakes: never after Stop or an error, and never auto-approved", () => {
+  for (const o of ["end_turn", "stop_sequence", "hook_stop", "iteration_limit", "max_tokens"]) assert.equal(wakesMayFollow(o), true, o);
+  assert.equal(wakesMayFollow("aborted"), false); // Stop: the wake must not re-run the stopped prompt
+  assert.equal(wakesMayFollow("error"), false); // a 429: no instant retry behind the user's back
+  assert.equal(wakeApproval("auto"), "ask");
+  assert.equal(wakeApproval("ask"), "ask");
+  assert.equal(wakeApproval("read_only"), "read_only");
+});
+
 // ---- tool forms in the panel (ToolFormCard) ----
 
 t("number boxes show and read numbers as people write them", () => {
@@ -475,6 +491,13 @@ t("number boxes show and read numbers as people write them", () => {
   assert.equal(parseNumber(""), null);
   assert.equal(parseNumber("12 mm"), null);
   assert.equal(parseNumber("abc"), null);
+  // "2,000" psi: thousands where the point is the decimal mark, 2 where the comma is (review: it was always 2).
+  assert.equal(parseNumber("2,000", false), 2000);
+  assert.equal(parseNumber("2,000", true), 2);
+  assert.equal(parseNumber("1,234,567", true), 1234567);
+  assert.equal(parseNumber("-12,500", false), -12500);
+  assert.equal(parseNumber("1,5", false), 1.5); // not three digits: still a decimal comma
+  assert.equal(parseNumber("12,50", false), 12.5);
   assert.equal(stepNumber(0.1, 0.2, 1), 0.3);
   assert.equal(stepNumber(1, 1, -1, 1), 1); // stays at the minimum
   assert.equal(stepNumber(63, undefined, 1, 1, 64), 64);

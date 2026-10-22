@@ -22,7 +22,8 @@ interface ToolFormStore {
   /** Rollouts the user opened or closed, by group id (per form; the add-in's "expanded" otherwise). */
   groupOpen: Record<string, boolean>;
   change(change: ToolFormChange): Promise<void>;
-  pick(id: string): Promise<void>;
+  /** Selection inputs: "Use selection" replaces the list; follow (the input is focused and the selection changed) adds to it. */
+  pick(id: string, follow?: boolean): Promise<void>;
   ok(): Promise<void>;
   cancel(): Promise<void>;
   setFocused(id: string | null): void;
@@ -31,19 +32,26 @@ interface ToolFormStore {
 
 /** Only the newest answer is shown: a slow reply to an earlier change must not undo a later one. */
 let seq = 0;
+/** Changes on their way to the add-in: OK waits for them, so the tool runs with what the user typed last. */
+const inflight = new Set<Promise<void>>();
 
 export const useToolForm = create<ToolFormStore>((set, get) => {
   /** Send to the add-in and show the state it answers with (when it is still this form and the newest request). */
-  const send = async (method: string, params: Record<string, unknown>) => {
+  const send = (method: string, params: Record<string, unknown>): Promise<void> => {
     const form = get().form;
-    if (!form) return;
+    if (!form) return Promise.resolve();
     const mine = ++seq;
-    try {
-      const state = await rpc<ToolFormState | null>(method, { formId: form.formId, ...params });
-      if (mine === seq && state && get().form?.formId === state.formId) set({ form: state, error: null });
-    } catch (err: any) {
-      if (mine === seq) set({ error: err?.message ?? String(err) });
-    }
+    const p = (async () => {
+      try {
+        const state = await rpc<ToolFormState | null>(method, { formId: form.formId, ...params });
+        if (mine === seq && state && get().form?.formId === state.formId) set({ form: state, error: null });
+      } catch (err: any) {
+        if (mine === seq) set({ error: err?.message ?? String(err) });
+      }
+    })();
+    inflight.add(p);
+    void p.finally(() => inflight.delete(p));
+    return p;
   };
 
   return {
@@ -53,11 +61,18 @@ export const useToolForm = create<ToolFormStore>((set, get) => {
     focused: null,
     groupOpen: {},
     change: (change) => send("toolForm.change", change),
-    pick: (id) => send("toolForm.pick", { id }),
+    pick: (id, follow) => send("toolForm.pick", follow ? { id, follow: true } : { id }),
     async ok() {
       const form = get().form;
       if (!form || get().closing) return;
       set({ closing: "ok" });
+      // A value just committed (a box left by clicking OK, or Ctrl+Enter) must reach the add-in before OK does.
+      await Promise.all([...inflight]);
+      if (get().form?.formId !== form.formId) return;
+      if (!get().form?.okEnabled) {
+        set({ closing: false }); // the value just sent left something to fix: the form says what
+        return;
+      }
       seq++;
       try {
         const r = await rpc<{ closed: boolean; form?: ToolFormState }>("toolForm.ok", { formId: form.formId });
@@ -110,12 +125,13 @@ on("toolForm.closed", ({ formId, reason }: { formId: string; reason?: string }) 
   if (reason && !/^Another tool/.test(reason)) useStore.setState({ notice: `${form.title}: ${reason}` });
 });
 
-// A focused selection input follows what the user selects in SolidWorks (the add-in reads the selection in the RPC).
+// A focused selection input follows what the user selects in SolidWorks (the add-in reads the selection in the RPC): new
+// entities are added, as in a PropertyManager selection box; clicking empty space or an entity it doesn't take keeps the list.
 on("selection.changed", () => {
   const { form, focused, pick, closing } = useToolForm.getState();
   if (!form || !focused || closing) return;
   const input = form.groups.flatMap((g) => g.inputs).find((i) => i.id === focused);
-  if (input?.type === "selection" && input.visible) void pick(focused);
+  if (input?.type === "selection" && input.visible) void pick(focused, true);
 });
 
 // After a panel reload the add-in may still be waiting on a form (ToolRunner): show it again.

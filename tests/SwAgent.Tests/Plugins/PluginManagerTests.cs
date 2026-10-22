@@ -199,7 +199,9 @@ namespace SwAgent.Tests.Plugins
                 Assert.Equal("s3cret-value", (string)rt.McpServers["api"]["env"]["TOKEN"]); // env does
                 Assert.Equal("", (string)rt.McpServers["api"]["env"]["LEAK"]);
                 Assert.False(rt.Env.ContainsKey("ANTHROPIC_API_KEY"));
-                Assert.Equal("fallback", rt.Expand("${SWAGENT_SURELY_UNSET_VAR:-fallback}"));
+                // ${ENV} is left for the program's own environment (Session.Expand), never this process's.
+                Assert.Equal("${SWAGENT_SURELY_UNSET_VAR:-fallback}", rt.Expand("${SWAGENT_SURELY_UNSET_VAR:-fallback}"));
+                Assert.Equal("fallback", SwAgent.Plugins.Hooks.Session.Expand(rt, "${SWAGENT_SURELY_UNSET_VAR:-fallback}", rt.Env));
 
                 var json = env.Pm.PluginJson(env.Pm.Find("configured"));
                 Assert.True((bool)json["userConfig"]["token"]["sensitive"]);

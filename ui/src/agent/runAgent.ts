@@ -19,8 +19,11 @@ import type {
 } from "../lib/types";
 import { clampSteps } from "../lib/toolRun";
 
-/** Tools that change the model; gated by the approval setting. */
-export const WRITE_TOOLS = new Set(["execute_csharp", "undo", "rebuild"]);
+/**
+ * Tools that change the model; gated by the approval setting. run_tool_macro runs a tool's macro.cs (or C# the agent
+ * passes as `code`) inside SolidWorks, so it is gated like execute_csharp.
+ */
+export const WRITE_TOOLS = new Set(["execute_csharp", "undo", "rebuild", "run_tool_macro"]);
 
 /** Handled in the UI: a questionnaire card in the chat; the answers come back as JSON. */
 export const ASK_FORM_TOOL: ToolDef = {
@@ -169,6 +172,15 @@ export interface ApprovalRequest {
   toolUseId: string;
   name: string;
   input: any;
+  /** A sub-agent's call: toolUseId is then the parent's run_agent call (the card shows under it), this is the real one. */
+  sub?: { agent: string; toolUseId: string; name: string; input: any };
+}
+
+/** A sub-agent's tool calls so far, shown inside the parent's run_agent card while it runs. */
+export interface SubAgentProgress {
+  toolUseId: string;
+  agent: string;
+  steps: { id: string; name: string; state: "running" | "ok" | "error" }[];
 }
 
 export type ApprovalDecision = { decision: "run" | "always" | "reject"; note?: string };
@@ -193,6 +205,8 @@ export interface AgentCallbacks {
   runTool(name: string, input: unknown, toolUseId?: string): Promise<ToolRunResult>;
   isAutoApproved(): boolean;
   setAutoApproved(): void;
+  /** run_agent's progress for the parent's tool card (null when the sub-agent is done). */
+  setSubAgent?(progress: SubAgentProgress | null): void;
   /**
    * Plugin hooks around a tool call (PreToolUse before validation and approval, PostToolUse after it ran); null when
    * no hook handles this tool.
@@ -590,36 +604,53 @@ async function runSubAgent(tu: Anthropic.Beta.Messages.BetaToolUseBlock, opts: A
   if (!agent) return err(`Unknown agent '${wanted}'. Available: ${agents.map((a) => a.id).join(", ") || "none"}.`);
 
   const messages: MessageParam[] = [{ role: "user", content: [{ type: "text", text: String(input.prompt ?? "") }] }];
-  const steps: string[] = [];
-  const res = await runAgent({
-    ...opts,
-    model: modelFromAlias(agent.model) ?? opts.model,
-    tools: subAgentTools(agent.tools, opts.tools),
-    maxSteps: SUB_AGENT_STEPS,
-    longRun: false,
-    agents: [],
-    localTools: [],
-    system: buildAgentPrompt(agent),
-    cb: {
-      ...cb,
-      getMessages: () => messages,
-      append: async (m) => {
-        messages.push(m);
-        if (m.role === "assistant" && typeof m.content !== "string") for (const b of m.content) if (b.type === "tool_use") steps.push(b.name);
+  const steps: SubAgentProgress["steps"] = [];
+  const report = () => cb.setSubAgent?.({ toolUseId: tu.id, agent: agent.id, steps: steps.map((s) => ({ ...s })) });
+  let res: AgentRunResult;
+  try {
+    res = await runAgent({
+      ...opts,
+      model: modelFromAlias(agent.model) ?? opts.model,
+      tools: subAgentTools(agent.tools, opts.tools),
+      maxSteps: SUB_AGENT_STEPS,
+      longRun: false,
+      agents: [],
+      localTools: [],
+      system: buildAgentPrompt(agent),
+      cb: {
+        ...cb,
+        getMessages: () => messages,
+        append: async (m) => {
+          messages.push(m);
+          if (typeof m.content === "string") return;
+          for (const b of m.content) {
+            if (b.type === "tool_use") steps.push({ id: b.id, name: b.name, state: "running" });
+            else if (b.type === "tool_result") {
+              const step = steps.find((s) => s.id === b.tool_use_id);
+              if (step) step.state = b.is_error ? "error" : "ok";
+            }
+          }
+          report();
+        },
+        // Its approvals show under the parent's run_agent card: the sub-agent's own tool_use ids are in no chat message.
+        approve: (req) => cb.approve({ toolUseId: tu.id, name: req.name, input: req.input, sub: { agent: agent.id, toolUseId: req.toolUseId, name: req.name, input: req.input } }),
+        setLive: () => {},
+        setRunningTool: () => {},
+        setSubAgent: undefined,
+        takeSteering: undefined,
+        onRequest: undefined,
+        onStatus: undefined,
+        ask: async () => "(A sub-agent can't ask the user.)",
+        askSelection: async () => "(A sub-agent can't ask the user.)",
       },
-      setLive: () => {},
-      setRunningTool: () => {},
-      takeSteering: undefined,
-      onRequest: undefined,
-      onStatus: undefined,
-      ask: async () => "(A sub-agent can't ask the user.)",
-      askSelection: async () => "(A sub-agent can't ask the user.)",
-    },
-  });
+    });
+  } finally {
+    cb.setSubAgent?.(null);
+  }
   const last = [...messages].reverse().find((m) => m.role === "assistant");
   const text = last && typeof last.content !== "string" ? last.content.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join("\n\n").trim() : "";
   const content: ContentBlockParam[] = [{ type: "text", text: text || "(The sub-agent ended without a reply.)" }];
-  if (steps.length) content.push({ type: "text", text: `[${agent.id}: ${steps.length} step${steps.length === 1 ? "" : "s"} - ${steps.join(", ")}]` });
+  if (steps.length) content.push({ type: "text", text: `[${agent.id}: ${steps.length} step${steps.length === 1 ? "" : "s"} - ${steps.map((s) => s.name).join(", ")}]` });
   if (res.error) content.push({ type: "text", text: `[The sub-agent stopped: ${res.error}]` });
   return { type: "tool_result", tool_use_id: tu.id, content: content as ToolResultBlockParam["content"], ...(res.stop === "end_turn" ? {} : { is_error: true }) };
 }

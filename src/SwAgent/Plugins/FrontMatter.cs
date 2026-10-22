@@ -16,6 +16,9 @@ namespace SwAgent.Plugins
         /// <summary>Keys (case-insensitive) to a JValue string or a JArray of strings.</summary>
         public readonly Dictionary<string, JToken> Values = new Dictionary<string, JToken>(StringComparer.OrdinalIgnoreCase);
 
+        /// <summary>Keys to the text after the colon as written (quotes removed), for values on one line.</summary>
+        private readonly Dictionary<string, string> _raw = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
         /// <summary>The text after the closing "---" (the whole text when there is no front matter).</summary>
         public string Body = "";
 
@@ -34,6 +37,12 @@ namespace SwAgent.Plugins
             var s = v is JArray a ? string.Join(", ", a.Select(x => (string)x)) : (string)v;
             return string.IsNullOrWhiteSpace(s) ? null : s.Trim();
         }
+
+        /// <summary>
+        /// A one-line value exactly as written (quotes removed), for keys that are text, never lists: Claude Code's own
+        /// examples write "argument-hint: [pr-number] [priority]" and "argument-hint: [message]". Else as Get.
+        /// </summary>
+        public string Text(string key) => _raw.TryGetValue(key, out var r) && !string.IsNullOrWhiteSpace(r) ? r.Trim() : Get(key);
 
         /// <summary>A value as a list: a YAML list, or a comma-separated string ("Read, Grep"); null when absent.</summary>
         public string[] List(string key)
@@ -98,7 +107,7 @@ namespace SwAgent.Plugins
                 {
                     fm.Values[key] = new JArray(block.Where(b => b.Trim().Length > 0).Select(b => Unquote(b.TrimStart().Substring(1).Trim())));
                 }
-                else if (rest.StartsWith("[") && rest.EndsWith("]"))
+                else if (rest.StartsWith("[") && rest.EndsWith("]") && rest.Substring(1, rest.Length - 2).IndexOfAny(new[] { '[', ']' }) < 0)
                 {
                     fm.Values[key] = new JArray(SplitInline(rest.Substring(1, rest.Length - 2)).Select(Unquote).Where(s => s.Length > 0));
                 }
@@ -108,6 +117,7 @@ namespace SwAgent.Plugins
                     var all = new[] { rest }.Concat(block.Select(b => b.Trim())).Where(s => s.Length > 0);
                     fm.Values[key] = Unquote(string.Join(" ", all));
                 }
+                if (block.Count == 0 && rest.Length > 0) fm._raw[key] = Unquote(rest);
             }
             return fm;
         }

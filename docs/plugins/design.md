@@ -29,8 +29,9 @@ Written 2026-10-21. Status: design for the build. Read with `HANDOFF.md` (sectio
 3. **Same safety rules as today.** No SolidWorks API calls from timers, hook processes or background threads; everything
    that touches the model still goes through `tools.run` (busy gate, NativeFault). Plugin processes (hooks, MCP servers)
    run outside SolidWorks; they only ever reach the model through agent tools.
-4. **Trust is explicit.** Hooks and MCP servers run programs on the user's PC. Installing a plugin that has them shows
-   what it will run and asks once. The built-in marketplace is trusted.
+4. **Trust is explicit.** Hooks and MCP servers run programs on the user's PC, and plugin tools' C# (`macro.cs`,
+   `preview.cs`) runs inside SolidWorks. Installing a plugin that has any of them shows what it will run and asks once
+   (review 2026-10-21: tool code was missing from the gate). The built-in marketplace is trusted.
 
 ## 2. Plugin format
 
@@ -78,7 +79,8 @@ Variables expanded in hook commands, MCP `command`/`args`/`env` and command bodi
   updates;
 - `${UNIFY3D_DEVICE}`: the hostname;
 - `${user_config.<key>}`: the user's value for a `userConfig` key (a sensitive value is stored DPAPI-encrypted);
-- and environment variables.
+- and environment variables - of the hook or MCP server only: command and skill text never reads SolidWorks'
+  environment (it goes to the model; review 2026-10-21).
 
 ## 3. Where things live (per PC, `%APPDATA%\SwAgent\plugins\`)
 
@@ -212,7 +214,9 @@ MCP tools are named `mcp__<server>__<tool>`, as in Claude Code.
 
 **Running a hook.**
 
-- `type: "command"` only. It runs through `cmd.exe /c` on Windows, with:
+- `type: "command"` only. It runs as Claude Code runs it on Windows: through Git Bash (`usr\bin\bash.exe -c`) when Git
+  for Windows is installed, else through `cmd.exe /c` (then bash syntax such as `$NAME`, `2>/dev/null` or `.sh`
+  scripts fails; `plugin_validate` warns). With:
   - the plugin env;
   - `CLAUDE_PLUGIN_ROOT`, `CLAUDE_PROJECT_DIR`;
   - `CLAUDE_CODE_SESSION_ID` (= the session id, so plugins that expect Claude Code find it);
@@ -270,7 +274,10 @@ counter; then a notice.
   cancel support (`notifications/cancelled`).
 - **Environment:** the plugin's MCP servers get the same env as its hooks, including `CLAUDE_CODE_SESSION_ID`.
   agent-bridge's `mcp.mjs` registers its peer under that id, and its hooks find the same peer through `session_id` on
-  stdin.
+  stdin. **Not yet true (review 2026-10-21):** `mcp.mjs` trusts `CLAUDE_CODE_SESSION_ID` only for clients named
+  "claude", and Unify3D (`unify3d-agent`) must not claim to be Claude Code (it would join the user's Claude app on the
+  hub). Until agent-bridge also trusts it for Unify3D (`UNIFY3D=1`), the peer is bound by process id only, and a
+  restart loses the binding, the name and "listen always" (docs/plugins/authoring.md section 10).
 - **User-level servers:** `%APPDATA%\SwAgent\mcp.json` (the same `mcpServers` shape) adds user servers outside
   plugins, as planned in `docs/compression-mold/design.md` §4.5. The compression-mold tool's simulator hooks H1/H2
   will find their `sim_*` tools this way later.

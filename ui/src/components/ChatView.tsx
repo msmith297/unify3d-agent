@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, X } from "lucide-react";
 import { IconCancel, IconCopy, IconDocs, IconEdit, IconError, IconEye, IconMic, IconModelFile, IconOk, IconPlugin, IconQuestion, IconResend, IconShield, IconWatch, ToolIcon } from "./SwIcons";
-import { Markdown } from "./Markdown";
+import { Code, Markdown } from "./Markdown";
 import { BrandLogo } from "./Brand";
 import { FormCard } from "./FormCard";
 import { SelectionCard } from "./SelectionCard";
@@ -20,7 +20,7 @@ import { ask } from "./Dialog";
 import { rpc } from "../lib/bridge";
 import { modelOption } from "../lib/models";
 import type { ContentBlockParam, ImageBlockParam, MessageParam, Thread, ToolResultBlockParam, TurnMeta } from "../lib/types";
-import type { LiveBlock } from "../agent/runAgent";
+import type { LiveBlock, SubAgentProgress } from "../agent/runAgent";
 
 /**
  * A 3D model or "Watch me" log attached to a prompt (its text block and the images that follow it), what a plugin hook
@@ -140,6 +140,7 @@ function renderItem(item: Item, thread: Thread, run: RunState | undefined, onIma
           <ToolCard call={item.call} status={statusFor(item.call, run)} onImage={onImage}>
             {run?.approval?.toolUseId === item.call.id && <ApprovalCard threadId={thread.id} />}
           </ToolCard>
+          {run?.subAgent?.toolUseId === item.call.id && <SubAgentSteps progress={run.subAgent} />}
         </>
       );
     case "question":
@@ -969,15 +970,38 @@ function TurnFooter({ turn, isLast, running }: { turn: TurnMeta; isLast: boolean
   );
 }
 
+/** A run_agent sub-agent's tool calls so far, under its card while it works. */
+function SubAgentSteps({ progress }: { progress: SubAgentProgress }) {
+  return (
+    <div className="-mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 pl-2 text-[11px] text-text-3" title={`${progress.agent}: ${progress.steps.length} step(s)`}>
+      <span className="text-text-2">{progress.agent}</span>
+      {progress.steps.length === 0 && <span className="shimmer">thinking</span>}
+      {progress.steps.map((s) => (
+        <span key={s.id} className={`inline-flex items-center gap-0.5 ${s.state === "running" ? "shimmer" : s.state === "error" ? "text-err" : ""}`}>
+          {s.state === "ok" ? <IconOk size={10} /> : s.state === "error" ? <IconError size={10} /> : null}
+          {toolTitle(s.name, undefined, undefined)}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function ApprovalCard({ threadId }: { threadId: string }) {
   const answer = useStore((s) => s.answerApproval);
+  // A sub-agent's call: the card sits under the run_agent card, so it says whose call it is and shows the code.
+  const sub = useStore((s) => s.runs[threadId]?.approval?.sub);
   const [rejecting, setRejecting] = useState(false);
   const [note, setNote] = useState("");
   return (
     <div className="rounded-[3px] border border-accent/60 bg-accent-soft px-2 py-1.5 shadow-[inset_0_1px_0_var(--bevel-hi)]">
       <div className="mb-1.5 flex items-center gap-1.5 text-[12px] font-semibold text-text">
-        <IconShield size={14} /> Run this code in SolidWorks?
+        <IconShield size={14} /> {sub ? `The sub-agent ${sub.agent} wants to run ${sub.name}. Run it in SolidWorks?` : "Run this code in SolidWorks?"}
       </div>
+      {sub && (typeof sub.input?.code === "string" ? (
+        <Code code={sub.input.code} className="mb-1.5 max-h-[240px]" />
+      ) : (
+        <pre className="selectable sw-input mb-1.5 max-h-[120px] overflow-auto px-2 py-1 font-mono text-[11px] text-text-2">{JSON.stringify(sub.input ?? {}, null, 1)}</pre>
+      ))}
       {!rejecting ? (
         <div className="flex flex-wrap gap-1.5">
           <button autoFocus onClick={() => answer(threadId, { decision: "run" })} className="sw-btn">

@@ -62,7 +62,10 @@ function Card({ form }: { form: ToolFormState }) {
       void cancel();
     } else if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
-      if (form.okEnabled) void ok();
+      // Leaving the box commits what was typed in it (number and text boxes wait for a pause); ok() waits for that change.
+      const focused = document.activeElement;
+      if (focused instanceof HTMLElement && e.currentTarget.contains(focused)) focused.blur();
+      void ok(); // checks okEnabled once that change is in
     }
   };
 
@@ -228,7 +231,7 @@ function Control({ input }: { input: ToolFormInput }) {
     case "number":
     case "integer":
       return (
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           <NumberBox input={input} value={typeof input.value === "number" ? input.value : null} onCommit={(v) => void change({ id: input.id, value: v })} />
           <Unit input={input} />
         </div>
@@ -293,7 +296,7 @@ function Unit({ input }: { input: ToolFormInput }) {
   const change = useToolForm((s) => s.change);
   if (input.unitChoices && input.unitChoices.length > 1) {
     return (
-      <select value={input.unit ?? ""} onChange={(e) => void change({ id: input.id, unit: e.target.value })} className="sw-input h-[22px] px-1 text-[12px]" title={`Unit of ${input.label}`}>
+      <select value={input.unit ?? ""} onChange={(e) => void change({ id: input.id, unit: e.target.value })} className="sw-input h-[22px] min-w-0 max-w-full px-1 text-[12px]" title={`Unit of ${input.label}`}>
         {input.unitChoices.map((u) => (
           <option key={u} value={u}>
             {u}
@@ -349,7 +352,7 @@ function NumberBox({ input, value, onCommit, narrow, title }: { input: ToolFormI
           onCommit(next);
         }
       }}
-      className={`sw-input h-[22px] px-1.5 text-right text-[12px] tabular-nums ${narrow ? "w-[64px]" : "w-[96px]"} ${bad || input.error ? "!border-err" : ""}`}
+      className={`sw-input h-[22px] px-1.5 text-right text-[12px] tabular-nums ${narrow ? "w-[64px]" : "w-[96px] min-w-0 max-w-full"} ${bad || input.error ? "!border-err" : ""}`}
     />
   );
 }

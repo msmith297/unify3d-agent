@@ -33,12 +33,13 @@ Agent Bridge comes as two plugins that the store shows and installs together:
 Or just ask the agent: "ask the CAM agent which end mill it wants for the pocket", "tell the planner the mold base is
 done".
 
-**Your bridge name** is "Unify3D SolidWorks - <PC name>" until you rename it. A new name is remembered for this PC,
-also after a SolidWorks restart.
+**Your bridge name** is "Unify3D SolidWorks - <PC name>" until you rename it. A new name lasts while SolidWorks runs;
+after a restart it can be back to the default until agent-bridge keeps Unify3D's session across restarts.
 
 **Listening** is off until you turn it on. While it is on, a message that arrives after the agent's turn starts a new
 turn in your chat (shown with an "agent-bridge:" chip), even when you are away from the PC. Unify3D limits these
-automatic turns per hour (Options > Plugins > Automatic wakes per hour). "Listen always" stays on after a restart.
+automatic turns per hour (Options > Plugins > Automatic wakes per hour). After a SolidWorks restart, turn listening on
+again if it is off (agent-bridge doesn't yet keep Unify3D's session across restarts).
 
 ## What the agent does with messages
 

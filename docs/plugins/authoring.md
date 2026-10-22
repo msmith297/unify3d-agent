@@ -77,7 +77,7 @@ Everything except `.claude-plugin/plugin.json` is optional.
 | Commands | yes | yes: `$ARGUMENTS`, `$1`-`$9`, `@path`, `description`, `argument-hint`, `model`; `allowed-tools` is advisory; `` !`cmd` `` is **not run** (left as text, with a note) |
 | Skills | yes | yes: listed in the agent's skills index, loaded with `use_skill`, extra files read with `read_plugin_file` |
 | Agents | yes | yes, through `run_agent`; tool names Unify3D doesn't have (`Read`, `Bash`, `Edit` ...) are dropped, and an agent left with none gets read-only tools |
-| Hooks | yes | `type: "command"` only, six events (section 6) |
+| Hooks | yes | `type: "command"` only, six events (section 6); run with Git Bash as in Claude Code, or `cmd.exe` on a PC without Git for Windows |
 | MCP servers | stdio, HTTP, SSE | stdio only (section 7) |
 | Output styles, LSP servers, `settings.json`, status line | yes | ignored |
 | `tools/` (Unify3D tools) | ignored | yes (section 3) |
@@ -145,7 +145,7 @@ tool's inputs page), `macro.cs`, `preview.cs`, `icon.svg` / `icon.png`, and any 
 
 ## 4. Variables
 
-Expanded in hook commands, MCP `command` / `args` / `env`, `unify3d.env` values and command bodies:
+Expanded in hook commands, MCP `command` / `args` / `env`, `unify3d.env` values, and command and skill text:
 
 | Variable | Value |
 |---|---|
@@ -154,10 +154,13 @@ Expanded in hook commands, MCP `command` / `args` / `env`, `unify3d.env` values 
 | `${UNIFY3D_DEVICE}` | This PC's name |
 | `${UNIFY3D_PID}` | The process id of SolidWorks (`SLDWORKS.exe`) |
 | `${user_config.<key>}` | The user's value for a `userConfig` key |
-| `${NAME}` | Any environment variable |
+| `${NAME}`, `${NAME:-default}` | An environment variable of the hook or MCP server (section 5); **not** in command and skill text |
 
-Unify3D expands them itself before starting a process (`cmd.exe` does not expand `${...}`). Keep `sensitive`
-`userConfig` values off command lines and out of `args`: read them from the environment (section 5).
+Command and skill text goes to the model, so it gets only the plugin variables and non-sensitive `userConfig` values:
+any other `${...}` stays as written, and SolidWorks' environment is never read into it. Hook commands run by Git Bash
+are left for bash to expand (only `${user_config.<key>}` is put in first), exactly as in Claude Code; with `cmd.exe`,
+Unify3D expands `${...}` itself from the hook's environment. Keep `sensitive` `userConfig` values off command lines and
+out of `args`: read them from the environment (section 5).
 
 ## 5. The environment of hooks and MCP servers
 
@@ -223,9 +226,14 @@ Claude Code's hook format and protocol (`hooks/hooks.json`, or `hooks` in `plugi
 
 ### Running
 
-- Commands run as `cmd.exe /d /s /c "<command>"`, with no window, in the plugin's environment (section 5), outside
-  SolidWorks and off the UI thread. A hook never touches SolidWorks; to change the model it would have to go through
-  the agent.
+- Commands run as Claude Code runs them on Windows: with Git Bash (`<Git>\usr\bin\bash.exe -c "<command>"`, found
+  through `CLAUDE_CODE_GIT_BASH_PATH`, `git.exe` on `PATH` or the usual install folders, with Git's `usr\bin` and
+  `mingw64\bin` in front of `PATH`), so `$CLAUDE_PLUGIN_ROOT`, `${VAR:-x}`, `2>/dev/null`, `.sh` scripts and single
+  quotes work. On a PC without Git for Windows they run as `cmd.exe /d /s /c "<command>"`, where that bash syntax
+  fails (the hook exits non-zero, a logged, non-blocking error); `plugin_validate` warns about it. The form that works
+  with both: `node "${CLAUDE_PLUGIN_ROOT}/hooks/x.mjs"`. No window either way, in the plugin's environment (section
+  5), outside SolidWorks and off the UI thread; the shell is the hook's parent and SolidWorks its grandparent. A hook
+  never touches SolidWorks; to change the model it would have to go through the agent.
 - stdin: one JSON object, UTF-8 without BOM, then stdin is closed. Common fields: `session_id`, `transcript_path`,
   `cwd`, `hook_event_name`, `permission_mode: "default"`. There is no `turn_id` (scripts that support Codex treat
   `turn_id` as Codex). `transcript_path` is a JSONL export of the chat the event belongs to, under
@@ -316,12 +324,19 @@ This is how agent-bridge's background listener (`Stop` / `SessionStart` with `--
 
 ## 8. Trust and safety
 
-Hooks and MCP servers run programs on the user's PC. Unify3D runs them only for plugins whose current hooks and MCP
-configuration the user approved:
+Hooks and MCP servers run programs on the user's PC, and a tool's `macro.cs` / `preview.cs` (any `.cs` in its folder)
+runs C# inside SolidWorks. Unify3D runs them only for plugins whose current hooks, MCP configuration and tool code the
+user approved:
 
-- Installing or enabling a plugin with hooks or MCP servers shows every command line it will run, and asks once.
-- The approval is for exactly those commands. An update, or an edit of a local plugin, that changes them stops them
-  until the user approves again.
+- Installing or enabling a plugin with hooks, MCP servers or tools with C# shows every command line it will run and
+  every tool with code, and asks once.
+- The approval is for exactly those commands and that code (by content). An update, or an edit of a local plugin's
+  hooks or MCP servers, that changes them stops them until the user approves again; a tool whose code changed isn't
+  offered (ribbon, palette, panel form, `run_tool_macro`, `test_tool`) until then. Tools without C# need no approval,
+  and neither do the tools of the user's own plugins in `plugins\local` (they are made in Unify3D, like the user's
+  own tools).
+- Turns a plugin starts (a wake) never inherit auto-approval: write tools (`execute_csharp`, `run_tool_macro`, `undo`,
+  `rebuild`) show the approval card, unless the user chose read-only.
 - The agent cannot approve: its plugin tools (`plugin_create`, `plugin_write_file`, `plugin_enable` ...) never do.
 - The built-in "unify3d" marketplace is trusted. Third-party marketplaces don't auto-update by default.
 - Options > Plugins can turn all plugin hooks or all MCP servers off.
@@ -414,3 +429,16 @@ The built-in marketplace (`plugins/.claude-plugin/marketplace.json` in this repo
   agent. `PermissionRequest` (remote approvals) is never fired in Unify3D.
 - The companion `plugins/agent-bridge-unify3d` adds a skill for acting on bridge messages inside SolidWorks and the
   `/bridge` command; it has no hooks or MCP servers, so it needs no trust prompt.
+- **Known limitation (needs a change in agent-bridge).** Unify3D's MCP client calls itself `unify3d-agent`, and
+  agent-bridge's `mcp.mjs` only registers a peer under `CLAUDE_CODE_SESSION_ID` when its client is Claude Code. So the
+  Unify3D peer registers without the session id, and its hooks reach it only by binding through the process tree. After
+  a SolidWorks or server restart the hooks keep finding the session's old, offline row and never bind again: no mail is
+  injected, nothing wakes, and the bridge name and "listen always" set with `/bridge` are lost. Calling Unify3D
+  "claude" instead is not a fix: agent-bridge would count it as part of the user's Claude Code app (its account, its
+  Bridge Manager, revive requests). The fix belongs in agent-bridge, e.g. in `client/mcp.mjs` `register()`:
+  `SESSION_ID = kind === 'claude' || process.env.UNIFY3D === '1' ? CLAUDE_SESSION_ID : null;` (or the hub re-links a
+  stale row for any kind but Claude, as it does for Codex).
+- **A local hub's broker.** With agent-bridge set to a local hub, `mcp.mjs` starts its broker as a detached process.
+  Under Unify3D it lands in the add-in's job objects, so it ends when that MCP server is stopped (disable, Restart,
+  update) or SolidWorks closes; other agents on the PC that use the same local broker lose it until one of them starts
+  it again. Hosted hubs are not affected.

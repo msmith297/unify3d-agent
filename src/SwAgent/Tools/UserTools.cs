@@ -719,13 +719,14 @@ namespace SwAgent.Tools
             return result;
         }
 
-        /// <summary>The tools of enabled plugins, named "plugin:tool".</summary>
+        /// <summary>The tools of enabled plugins, named "plugin:tool" (tools with C# only once the user approved the plugin).</summary>
         private static IEnumerable<(string Name, string Dir, string Plugin)> PluginTools()
         {
             try
             {
-                return Plugins.PluginManager.Instance.EnabledPlugins()
-                    .SelectMany(p => p.Manifest.Tools().Select(t => (p.Name + ":" + t.Name, t.Dir, p.Name))).ToList();
+                var pm = Plugins.PluginManager.Instance;
+                return pm.EnabledPlugins()
+                    .SelectMany(p => pm.UsableTools(p).Select(t => (p.Name + ":" + t.Name, t.Dir, p.Name))).ToList();
             }
             catch (Exception ex)
             {

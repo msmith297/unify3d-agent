@@ -390,7 +390,8 @@ function QueuedList({ threadId, running }: { threadId: string; running: boolean 
           <div className="min-w-0 flex-1">
             <div className="line-clamp-2 break-words text-text">{wakes[wakes.length - 1].text}</div>
             <div className="text-[10.5px] text-text-3">
-              {wakes.length > 1 ? `${wakes.length} plugin events` : wakes[0].plugin} - goes to the agent when this turn ends
+              {wakes.length > 1 ? `${wakes.length} plugin events` : wakes[0].plugin} -{" "}
+              {running ? "goes to the agent when this turn ends" : "goes to the agent with your next message"}
             </div>
           </div>
         </div>
@@ -568,7 +569,7 @@ function MarkupBar() {
           </button>
         ))}
       </div>
-      <div className="flex items-center gap-0.5 px-1 pb-1 pt-0.5">
+      <div className="flex flex-wrap items-center gap-0.5 px-1 pb-1 pt-0.5">
         <button type="button" title="Undo last mark (Ctrl+Z)" onClick={markupUndo} className="sw-tool">
           <IconUndo size={14} />
         </button>
@@ -718,7 +719,7 @@ function WatchBar() {
           ))
         )}
       </div>
-      <div className="flex items-center gap-0.5 px-1 pb-1 pt-0.5">
+      <div className="flex flex-wrap items-center gap-0.5 px-1 pb-1 pt-0.5">
         <span className="px-1 text-[10.5px] text-text-3">
           {watch.entries.length} step{watch.entries.length === 1 ? "" : "s"}
         </span>
