@@ -185,7 +185,7 @@ namespace SwAgent.Mold
             else merged = Merge(existing, patch);
             var tmp = path + ".tmp";
             File.WriteAllText(tmp, merged.ToString());
-            if (File.Exists(path)) File.Replace(tmp, path, null); else File.Move(tmp, path);
+            Infrastructure.AtomicFile.Replace(tmp, path);
             return "saved " + string.Join(", ", values.Properties().Select(p => p.Name + " = " + p.Value.ToString(Newtonsoft.Json.Formatting.None))) + " to " + path;
         }
 

@@ -443,7 +443,7 @@ namespace SwAgent.Tools
                     try
                     {
                         File.Copy(match, tmp, true);
-                        File.Replace(tmp, path, null);
+                        AtomicFile.Replace(tmp, path); // SolidWorks can hold the file it just closed for a moment
                     }
                     catch (Exception ex)
                     {

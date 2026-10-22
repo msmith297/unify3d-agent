@@ -143,8 +143,7 @@ namespace SwAgent.Plugins
         {
             var tmp = InstalledFile + ".tmp";
             File.WriteAllText(tmp, JsonConvert.SerializeObject(s, Json), new UTF8Encoding(false));
-            if (File.Exists(InstalledFile)) File.Replace(tmp, InstalledFile, null);
-            else File.Move(tmp, InstalledFile);
+            AtomicFile.Replace(tmp, InstalledFile);
         }
 
         /// <summary>Read, change and write installed.json under the lock; then raise Changed.</summary>

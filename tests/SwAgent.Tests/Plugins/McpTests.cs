@@ -158,7 +158,8 @@ namespace SwAgent.Tests.Plugins
                 var first = host.Mcp.ProcessIdOf("echo");
                 await host.CallAsync("mcp__plugin_echoer_echo__crash", null, "t1", "tu");
                 Assert.True(await Until(() => State(host) == "running" && host.Mcp.ProcessIdOf("echo") != first, TimeSpan.FromSeconds(30)));
-                Assert.False((bool)(await host.CallAsync(Echo, new JObject { ["text"] = "back" }, "t1", "tu"))["isError"]);
+                var back = await host.CallAsync(Echo, new JObject { ["text"] = "back" }, "t1", "tu");
+                Assert.False((bool)back["isError"], back.ToString());
 
                 var second = host.Mcp.ProcessIdOf("echo");
                 Assert.True(host.Mcp.Restart("echoer", "echo"));
