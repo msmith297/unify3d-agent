@@ -60,12 +60,30 @@ namespace SwAgent.Plugins
 
         public bool HasRuntime => Hooks.Properties().Any() || McpServers.Count > 0;
 
-        /// <summary>Its tools carry C# (macro.cs, preview.cs, ...), which runs inside SolidWorks: it needs the user's approval too.</summary>
+        /// <summary>
+        /// Its tools carry C# (macro.cs, preview.cs, ...) or it ships helpers (helpers/*.cs): code that runs inside SolidWorks, so it
+        /// needs the user's approval too.
+        /// </summary>
         public bool HasToolCode => ToolCodeFiles().Any();
 
-        /// <summary>Every .cs file in its tool folders (ordered): code that runs in SolidWorks when a tool runs or previews.</summary>
+        /// <summary>
+        /// Every .cs file in its tool folders and its helpers folder (ordered): code that runs in SolidWorks when a tool runs or
+        /// previews, or when an agent cell calls a helper.
+        /// </summary>
         public IEnumerable<string> ToolCodeFiles() =>
-            Tools().SelectMany(t => Directory.GetFiles(t.Dir, "*.cs", SearchOption.AllDirectories)).OrderBy(f => f, StringComparer.OrdinalIgnoreCase);
+            Tools().SelectMany(t => Directory.GetFiles(t.Dir, "*.cs", SearchOption.AllDirectories)).Concat(HelperFiles()).OrderBy(f => f, StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>The folder of C# helpers for agent cells (default ./helpers, next to tools/; plugin.json unify3d.helpers overrides).</summary>
+        public string HelpersPath;
+
+        /// <summary>
+        /// Its helpers: helpers/&lt;ClassName&gt;.cs, each a public static class in namespace SwAgent.UserHelpers (compiled with the
+        /// agent's own helpers once the plugin is enabled and approved; see Scripting/UserHelpers.cs).
+        /// </summary>
+        public IEnumerable<string> HelperFiles() =>
+            HelpersPath != null && Directory.Exists(HelpersPath)
+                ? Directory.GetFiles(HelpersPath, "*.cs", SearchOption.TopDirectoryOnly).OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
+                : Enumerable.Empty<string>();
 
         public static string ManifestPath(string root) => Path.Combine(root, ".claude-plugin", "plugin.json");
 
@@ -104,6 +122,7 @@ namespace SwAgent.Plugins
             m.AgentPaths = ComponentPaths(m, "agents", "agents");
             m.SkillPaths = ComponentPaths(m, "skills", "skills");
             m.ToolsPath = Str(m.Unify3d["tools"]) is string tp ? m.Resolve(tp, "unify3d.tools") : Path.Combine(m.Root, "tools");
+            m.HelpersPath = Str(m.Unify3d["helpers"]) is string hp ? m.Resolve(hp, "unify3d.helpers") : Path.Combine(m.Root, "helpers");
 
             // Hooks: hooks/hooks.json, plus plugin.json "hooks" (a path, a list of paths or an inline object).
             var hookFile = Path.Combine(m.Root, "hooks", "hooks.json");
@@ -337,7 +356,8 @@ namespace SwAgent.Plugins
             Tools().Select(t => (t.Name, Files: Directory.GetFiles(t.Dir, "*.cs", SearchOption.AllDirectories)
                     .Select(f => f.Substring(t.Dir.Length).TrimStart('\\', '/').Replace('\\', '/')).OrderBy(f => f, StringComparer.OrdinalIgnoreCase).ToList()))
                 .Where(t => t.Files.Count > 0)
-                .Select(t => $"{Name}:{t.Name} ({string.Join(", ", t.Files)})");
+                .Select(t => $"{Name}:{t.Name} ({string.Join(", ", t.Files)})")
+                .Concat(HelperFiles().Any() ? new[] { $"{Name} helpers for agent code ({string.Join(", ", HelperFiles().Select(Path.GetFileName))})" } : new string[0]);
 
         /// <summary>JSON with object keys sorted, so the same content always hashes the same.</summary>
         internal static string Canonical(JToken t)

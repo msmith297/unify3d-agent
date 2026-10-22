@@ -44,6 +44,7 @@ import type {
   PluginInfo,
   SessionInfo,
   SkillInfo,
+  KnowledgeIndex,
   Wake,
 } from "./lib/types";
 import { recordSession } from "./lib/sessions";
@@ -209,6 +210,8 @@ interface State {
   agents: AgentInfo[];
   mcpServers: McpServerStatus[];
   session: SessionInfo | null;
+  /** The helpers cells can call and the saved API notes (knowledge.index), for the system prompt; null with older add-ins. */
+  knowledge: KnowledgeIndex | null;
   loadPlugins(): Promise<void>;
   pluginsTab: "discover" | "installed" | "marketplaces" | "create";
   setPluginsTab(tab: State["pluginsTab"]): void;
@@ -820,6 +823,7 @@ export const useStore = create<State>((set, get) => {
         agents: get().agents,
         mcpInstructions: get().session?.mcpInstructions ?? [],
         sessionContext: get().session?.sessionContext ?? [],
+        knowledge: get().knowledge,
         signal: controller.signal,
         cb: {
           getMessages: () => get().chats[docKey]?.data.threads.find((t) => t.id === threadId)?.messages ?? [],
@@ -1754,6 +1758,7 @@ export const useStore = create<State>((set, get) => {
     agents: [],
     mcpServers: [],
     session: null,
+    knowledge: null,
     pluginsTab: "discover",
     wakes: {},
 
@@ -1881,6 +1886,13 @@ export const useStore = create<State>((set, get) => {
       });
       // The panel is ready: plugin state (its first session.info starts the session's hooks), then any waiting wakes.
       void loadPluginState().then(() => pullWakes());
+      // The agent's helpers and API notes for the system prompt: at boot, and again when it saves one (or a plugin brings some).
+      const loadKnowledge = () =>
+        rpc<KnowledgeIndex | null>("knowledge.index")
+          .then((knowledge) => set({ knowledge: knowledge ?? null }))
+          .catch(() => {});
+      on("knowledge.changed", () => void loadKnowledge());
+      void loadKnowledge();
 
       on("doc.activated", (doc: DocInfo) => {
         set((s) => ({ docs: { ...s.docs, [doc.key]: doc }, activeDocKey: doc.key }));
@@ -2516,6 +2528,9 @@ export const useStore = create<State>((set, get) => {
         : `your code "${c.title ?? "a C# cell"}"`;
       const lines = [
         `SolidWorks closed unexpectedly (crashed) while running ${what}.${c.paused ? ` I paused the tool's ${c.paused} so it can't happen again until it's fixed.` : ""}`,
+        c.helpersDisabled?.length
+          ? `Your helper${c.helpersDisabled.length > 1 ? "s" : ""} ${c.helpersDisabled.map((h) => h.name).join(", ")} ${c.helpersDisabled.length > 1 ? "were" : "was"} disabled: involved in two crashes. Fix it with read_helper, save_helper and test_helper, or delete_helper.`
+          : "",
         c.builtIn
           ? "It is a built-in Unify3D tool (read-only, so it was not paused and can't be edited): find the likely cause, tell me how to avoid it, and what to report to Unify3D. If you need more, ask me for SolidWorks' crash log (it lists the last API calls)."
           : "Find the cause and fix it so this can't happen again. If you need more, ask me for SolidWorks' crash log (it lists the last API calls).",
@@ -2524,6 +2539,8 @@ export const useStore = create<State>((set, get) => {
         `what: ${c.kind}${c.tool ? ` of tool ${c.tool}` : ""}${c.title ? ` (${c.title})` : ""}`,
         c.at ? `started: ${c.at}` : "",
         c.code ? `code that was running:\n${c.code}` : "",
+        c.helpers?.length ? `helpers that code called: ${c.helpers.join(", ")}` : "",
+        ...(c.helpersDisabled ?? []).map((h) => `helper disabled now: ${h.name} - ${h.reason}`),
         c.logTail ? `last lines of the add-in log:\n${c.logTail}` : "",
         "</crash_report>",
       ].filter(Boolean);

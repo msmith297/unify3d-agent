@@ -47,6 +47,8 @@ const ICONS: Record<string, ReactNode> = {
   rebuild: <IconRebuild />,
 };
 
+const CODE_TOOLS = new Set(["execute_csharp", "save_helper", "test_helper"]);
+
 export function toolTitle(name: string, input: any, partial?: string): string {
   const field = (key: string): string | undefined => input?.[key] ?? (partial ? partialField(partial, key) : undefined);
   switch (name) {
@@ -72,6 +74,12 @@ export function toolTitle(name: string, input: any, partial?: string): string {
       return `Undo${input?.steps > 1 ? ` ${input.steps} steps` : ""}`;
     case "rebuild":
       return input?.force ? "Force rebuild" : "Rebuild";
+    case "save_helper":
+      return `Save helper ${field("name") ?? "..."}`;
+    case "test_helper":
+      return `Test helper ${field("name") ?? "..."}`;
+    case "save_api_note":
+      return `Save API note: ${field("topic") ?? "..."}`;
     case "describe_model_history":
       return "Read the full feature history";
     case "select_refs":
@@ -131,7 +139,8 @@ export function ToolCard({
   // Code isn't shown while it's being written or run - the card stays folded with a working indicator; click to watch.
   const expanded = open || status === "approval";
   const working = status === "running" || status === "streaming";
-  const code = call.name === "execute_csharp" ? (call.input?.code ?? (call.partial ? partialField(call.partial, "code") : undefined)) : undefined;
+  // Code cells, and the helpers the agent saves and tests (the code every later cell can call).
+  const code = CODE_TOOLS.has(call.name) ? (call.input?.code ?? (call.partial ? partialField(call.partial, "code") : undefined)) : undefined;
   const texts = resultTexts(call.result);
   const images = resultImages(call.result);
 

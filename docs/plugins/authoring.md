@@ -143,6 +143,21 @@ tool's inputs page), `macro.cs`, `preview.cs`, `icon.svg` / `icon.png`, and any 
 - `requires:` in `TOOL.md` names agent tools the tool needs. Use it for tools that need a newer add-in, or MCP tools
   of the plugin's own servers.
 
+### Helpers for the agent's code
+
+`helpers/<ClassName>.cs` (next to `tools/`; `"unify3d": { "helpers": "./other" }` moves it) holds C# helpers the
+agent's code cells can call, compiled together with the helpers the agent writes itself (`save_helper`):
+
+- One file per helper: `namespace SwAgent.UserHelpers { public static class <ClassName> { ... } }`, the class named
+  like the file. Extension methods are allowed (that is how a helper makes a wrong-interface call such as
+  `Model.FeatureByName(...)` work). Other types go inside the class. The cells' usings apply (System, Linq,
+  SolidWorks.Interop.sldworks / swconst, ...).
+- Optional header lines: `// summary: <one line for the agent's helper index>` (else the class's XML summary) and
+  `// wraps: IModelDocExtension.InsertMoveCopyBody2, ...` (a cell that calls one of these raw is told to use the helper).
+- Helpers are code that runs inside SolidWorks: they count as tool code for trust (section 8), so they run only once
+  the user approved this exact code. A helper that doesn't compile, or clashes with another, is skipped; the others
+  still work. Plugin helpers win a name clash with the agent's own, and the agent can't change or delete them.
+
 ## 4. Variables
 
 Expanded in hook commands, MCP `command` / `args` / `env`, `unify3d.env` values, and command and skill text:

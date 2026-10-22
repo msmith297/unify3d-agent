@@ -25,6 +25,8 @@ namespace SwAgent.Infrastructure
             "edit_user_tool", "clear_overlay", "design_library", "list_open_documents", "get_selection",
             // plugins: skills, plugin files and the plugin creator
             "use_skill", "read_plugin_file", "list_plugins", "read_plugin",
+            // the agent's own knowledge: API notes and helper files (test_helper runs a cell, so it isn't here)
+            "save_api_note", "list_api_notes", "save_helper", "read_helper", "list_helpers", "delete_helper",
         };
 
         /// <summary>
