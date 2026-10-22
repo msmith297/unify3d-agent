@@ -1,0 +1,146 @@
+{
+  "budgetTokens": 3500,
+  "header": "SolidWorks API cheat sheet - exact signatures from the interop the add-in loads, as Interface.Member(params) : return. The interface named is the one that has the member: cast to it. Meters and radians.",
+  "groups": [
+    {
+      "title": "Document, rebuild, save",
+      "members": [
+        "IModelDoc2.Extension",
+        "IModelDoc2.FeatureManager",
+        "IModelDoc2.SketchManager",
+        { "member": "IModelDoc2.SelectionManager", "hint": "cast (ISelectionMgr)" },
+        "IModelDoc2.EditRebuild3",
+        "IModelDoc2.ForceRebuild3",
+        "IModelDocExtension.GetLastFeatureAdded",
+        "IModelDocExtension.SaveAs3",
+        "IModelDocExtension.DeleteSelection2"
+      ]
+    },
+    {
+      "title": "Select",
+      "members": [
+        "IModelDoc2.ClearSelection2",
+        { "member": "IModelDocExtension.SelectByID2", "hint": "Type \"PLANE\" \"FACE\" \"EDGE\" \"SKETCH\" \"BODYFEATURE\" \"SOLIDBODY\"; Callout null" },
+        { "member": "ISelectionMgr.CreateSelectData", "hint": "set .Mark" },
+        "IEntity.Select4",
+        { "member": "IBody2.Select2", "hint": "SelectData, not an int mark" },
+        "IFeature.Select2",
+        { "member": "ISelectionMgr.GetSelectedObjectCount2", "hint": "Mark -1 = any" },
+        { "member": "ISelectionMgr.GetSelectedObject6", "hint": "Index from 1" }
+      ]
+    },
+    {
+      "title": "Feature tree",
+      "members": [
+        { "member": "IPartDoc.FeatureByName", "hint": "not on IModelDoc2: ((IPartDoc)Model)" },
+        "IModelDoc2.FirstFeature",
+        "IFeature.GetNextFeature",
+        "IFeature.GetTypeName2",
+        "IFeature.Name",
+        "IFeature.GetSpecificFeature2",
+        { "member": "IFeature.GetErrorCode2", "hint": "0 = ok" },
+        "IFeature.GetDefinition",
+        "IFeature.ModifyDefinition",
+        "IFeatureManager.EditRollback"
+      ]
+    },
+    {
+      "title": "Sketch (sketch coordinates)",
+      "members": [
+        { "member": "ISketchManager.InsertSketch", "hint": "toggles: enters on the selected plane/face, exits when in a sketch" },
+        "ISketchManager.AddToDB",
+        "ISketchManager.ActiveSketch",
+        "ISketchManager.CreateLine",
+        "ISketchManager.CreateCircleByRadius",
+        { "member": "ISketchManager.CreateCenterRectangle", "hint": "centre, then a corner" },
+        "ISketchManager.CreateCornerRectangle",
+        "ISketchManager.SketchUseEdge3",
+        "ISketch.ModelToSketchTransform"
+      ]
+    },
+    {
+      "title": "Reference geometry",
+      "members": [
+        { "member": "IFeatureManager.InsertRefPlane", "hint": "references selected with marks 0, 1, 2" },
+        { "member": "swRefPlaneReferenceConstraints_e", "values": [ "swRefPlaneReferenceConstraint_Parallel", "swRefPlaneReferenceConstraint_Perpendicular", "swRefPlaneReferenceConstraint_Coincident", "swRefPlaneReferenceConstraint_Distance", "swRefPlaneReferenceConstraint_Angle" ] }
+      ]
+    },
+    {
+      "title": "Features (select the sketch first; a null return means it failed)",
+      "members": [
+        "IFeatureManager.FeatureExtrusion3",
+        "IFeatureManager.FeatureCut4",
+        "IFeatureManager.FeatureRevolve2",
+        { "member": "swEndConditions_e", "values": [ "swEndCondBlind", "swEndCondThroughAll", "swEndCondMidPlane", "swEndCondUpToSurface", "swEndCondOffsetFromSurface", "swEndCondThroughAllBoth" ] },
+        { "member": "swStartConditions_e", "values": [ "swStartSketchPlane", "swStartOffset" ] },
+        "IFeatureManager.FeatureFillet3",
+        "IFeatureManager.InsertFeatureChamfer",
+        "IFeatureManager.FeatureLinearPattern5",
+        "IFeatureManager.FeatureCircularPattern5",
+        "IFeatureManager.InsertMirrorFeature2"
+      ]
+    },
+    {
+      "title": "Bodies",
+      "members": [
+        { "member": "IPartDoc.GetBodies2", "hint": "not on IModelDoc2" },
+        { "member": "swBodyType_e", "values": [ "swSolidBody", "swSheetBody", "swAllBodies" ] },
+        "IBody2.Name",
+        { "member": "IBody2.Copy2", "hint": "temporary body, not in the part" },
+        "IBody2.Operations2",
+        { "member": "swBodyOperationType_e", "values": [ "SWBODYINTERSECT", "SWBODYCUT", "SWBODYADD" ] },
+        { "member": "IFeatureManager.InsertCombineFeature", "hint": "target Mark 1, tools Mark 2, pass (op, null, null)" },
+        { "member": "IFeatureManager.InsertMoveCopyBody2", "hint": "body Mark 1" },
+        { "member": "IFeatureManager.PreSplitBody2", "hint": "plane Mark 1, body Mark 2" },
+        "IFeatureManager.PostSplitBody2",
+        "IFeatureManager.InsertDeleteBody2",
+        "IBody2.GetFaces",
+        "IBody2.GetEdges",
+        "IFace2.GetBody",
+        "IEdge.GetBody",
+        "IBody2.HideBody"
+      ]
+    },
+    {
+      "title": "Body folders",
+      "members": [
+        { "member": "IFeatureManager.InsertSubFolder", "hint": "folds the selected bodies (IBody2.Select2(true, null)); rename the feature" },
+        "IBodyFolder.GetBodies",
+        "IBodyFolder.GetBodyCount"
+      ]
+    },
+    {
+      "title": "Transforms",
+      "members": [
+        "ISldWorks.GetMathUtility",
+        { "member": "IMathUtility.CreateTransform", "hint": "double[16]: 3x3 rotation, translation, scale, 3 unused" },
+        "IMathUtility.CreatePoint",
+        "IMathUtility.CreateVector",
+        "IMathPoint.MultiplyTransform",
+        "IMathVector.MultiplyTransform",
+        "IMathTransform.ArrayData",
+        "IMathTransform.Inverse",
+        "IMathTransform.Multiply",
+        "IBody2.ApplyTransform"
+      ]
+    },
+    {
+      "title": "Measure: mass, box, faces, edges",
+      "members": [
+        { "member": "IModelDocExtension.CreateMassProperty2", "hint": "cast (IMassProperty2)" },
+        "IMassProperty2.Volume",
+        "IMassProperty2.Mass",
+        "IMassProperty2.CenterOfMass",
+        { "member": "IBody2.GetMassProperties", "hint": "double[]: cx, cy, cz, volume, area, mass, ..." },
+        { "member": "IBody2.GetBodyBox", "hint": "double[6]: xmin, ymin, zmin, xmax, ymax, zmax" },
+        "IBody2.GetExtremePoint",
+        "IFace2.GetArea",
+        { "member": "IFace2.Normal", "hint": "double[3], planar faces" },
+        "IFace2.GetBox",
+        { "member": "IEdge.GetCurveParams3", "hint": "an object, not an array" },
+        "ICurveParamData.StartPoint",
+        "ICurveParamData.EndPoint"
+      ]
+    }
+  ]
+}

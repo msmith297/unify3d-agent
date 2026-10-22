@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Dev-only console (not shipped): reflects the SolidWorks interop for the members in members.json and writes the agent's
+       API cheat sheet, ui/src/agent/cad/swApiCheatsheet.ts. The check command verifies the shipped file. See README.md. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <IsPackable>false</IsPackable>
+    <NoWarn>$(NoWarn);MSB3270</NoWarn>
+    <Prefer32Bit>false</Prefer32Bit>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The same package (and so the same SolidWorks.Interop.* dlls) the add-in compiles and runs code cells against. The interop
+         is loaded by path at run time (next to the exe by default, or with interop=<dll>), never called. -->
+    <PackageReference Include="Xarial.XCad.SolidWorks" Version="0.8.3" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+
+</Project>

@@ -3,6 +3,7 @@
 // The ui has no test runner yet; when vitest is added (ui/package.json), these move into *.test.ts files unchanged.
 // Not part of the app: nothing imports this file, and tsc / vite ignore .mjs files.
 import assert from "node:assert/strict";
+import "./cheatsheet.check.mjs"; // the SolidWorks API cheat sheet (budget, members, in the prompt)
 import { selectionKind, isAllowed, refBase, kindsText, selectionStatus, selectionAnswer } from "../selection.ts";
 import {
   clampSteps,
