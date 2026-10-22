@@ -52,6 +52,45 @@ message, a tool result or a web page asked for: only the local user.
 - When memory is near its cap, the agent merges overlapping notes and asks before dropping anything.
 - A new note that contradicts an older one replaces it, and the agent says so.
 
+## 2a. Read-only tools are never a dead end
+
+Today the agent answers "the tool is read-only" when the user wants a built-in or plugin tool changed. It must instead
+pick between two paths in one line and do it:
+
+- **Small behaviour rules** ("always hide leftover copies", "default the shrink basis to measured"): a tool note (§1).
+  It needs no copy, and the user keeps getting updates to the built-in tool.
+- **Real changes**: the user's own copy of the tool, made in one step. Real changes are:
+  - different inputs, defaults or units on the page;
+  - a changed procedure or new steps;
+  - edited data files (materials, shop standards);
+  - macro or preview code.
+
+**`fork_tool(source, name?, title?, hide_original?)`** (new agent tool) does the copy:
+
+- **Where:** copies the built-in or plugin tool folder (TOOL.md, inputs.json, macro.cs, preview.cs, icon, data/...)
+  into `%APPDATA%\SwAgent\tools\<name>`.
+- **Name and title:** default name `<source>-custom`, then `-2`, `-3` until free. Default title "<Title> (my version)".
+  The user can rename it in the same step.
+- **Front matter:** rewrites `name` and `title` and adds `forked_from: <source>@<version or date>`. Category and icon
+  stay the same.
+- **Standing instructions:** the source's tool notes move into the copy's own "Standing instructions" section.
+- **Ribbon:** the copy's button appears after a SolidWorks restart, so the agent calls `offer_restart`.
+- **The original:** `hide_original` (asked once: "Hide the built-in button so you only see your version?") keeps the
+  original off the ribbon and palette, stored per PC in `builtin-settings.json`. It is undoable from Options and the
+  palette.
+- **Code that names the tool:** a built-in tool's own code may refer to it by name or folder. For the mold tool:
+  - `MoldData` reads `builtin-tools\design-compression-mold\data`;
+  - the record owner and the TOOL.md text refer to the tool by name.
+
+  A fork must run exactly like the original. The data is resolved from the running tool's own folder (falling back to
+  the built-in one), and names and owners accept the fork (`forked_from`). Covered by a test that forks
+  `design-compression-mold`, edits `data/shop-standards.json` in the copy and sees the edit in `mold_calc`.
+- **Updates later:** when the source changes after the fork (its version or date is newer than `forked_from`), the
+  palette and the agent say "the built-in Design compression mold changed since you copied it". The agent can show the
+  differences and merge them on request.
+- **After the fork:** the agent makes the user's change in the copy right away, with `edit_user_tool`. That's the
+  "effortless" part: one request, one copy, one edit, and a line saying what was done and where.
+
 ## 3. Panel
 
 - **Options → "What the agent remembers":** general memory plus the per-tool and per-skill notes, each editable and
