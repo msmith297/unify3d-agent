@@ -137,8 +137,8 @@ export function SettingsPanel() {
           <div className="flex flex-col">
             {(
               [
-                ["panel", "In the chat panel", "A card above the message box, like the agent's questions."],
-                ["page", "In a PropertyManager page", "SolidWorks' own page, as before."],
+                ["panel", "In the chat panel", "A form in the chat with the tool's inputs, units and choices."],
+                ["page", "In a PropertyManager page", "SolidWorks' own page, next to the feature tree."],
               ] as ["panel" | "page", string, string][]
             ).map(([id, label, note]) => (
               <label key={id} className="flex cursor-default items-start gap-2 rounded-[2px] px-1 py-1 hover:bg-card-2">

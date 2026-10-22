@@ -25,6 +25,7 @@ import type {
 } from "./types";
 import { emitLocal } from "./bridge";
 import { fileRefs, substituteArgs } from "./commands";
+import { mockOpenToolForm, mockToolForm } from "./toolFormMock";
 
 const DOC = { key: "mock-doc", title: "Mounting Bracket.SLDPRT", path: "C:\\Work\\Mounting Bracket.SLDPRT", type: "part" as const };
 
@@ -141,10 +142,9 @@ export async function mockRpc(method: string, params: any): Promise<unknown> {
     case "userTools.run": {
       // The add-in would show the tool's page, then hand the run to the panel (ToolRunner): do the hand-over.
       const t = mockUserTools().find((x) => x.name === params?.name);
-      // ?toolforms: the inputs open as a card in the panel (toolForm.show) instead of the native page.
-      if (t?.kind === "tool" && t.hasInputs && location.search.includes("toolforms")) {
-        mockForm = newForm(t);
-        setTimeout(() => emitLocal("toolForm.show", mockForm), 100);
+      // A tool with inputs opens its form in the panel (ToolFormBridge) unless the user chose the PropertyManager page.
+      if (t?.kind === "tool" && t.hasInputs && store.get<{ toolInputs?: string }>("settings", {}).toolInputs !== "page") {
+        setTimeout(() => mockOpenToolForm(emitLocal), 150);
         return null;
       }
       if (t?.kind === "tool")
@@ -177,6 +177,12 @@ export async function mockRpc(method: string, params: any): Promise<unknown> {
       setTimeout(() => emitLocal("userTools.changed", mockUserTools()), 50);
       return null;
     }
+    case "toolForm.list":
+    case "toolForm.change":
+    case "toolForm.pick":
+    case "toolForm.ok":
+    case "toolForm.cancel":
+      return mockToolForm(method, params, emitLocal);
     case "update.status":
     case "update.check":
       return MOCK_UPDATE;
@@ -299,21 +305,6 @@ export async function mockRpc(method: string, params: any): Promise<unknown> {
       await new Promise((r) => setTimeout(r, 800));
       return null;
 
-    // ---- tool forms in the panel (track D: ToolFormBridge) ----
-    case "toolForm.list":
-      return mockForm ? [mockForm] : [];
-    case "toolForm.change":
-    case "toolForm.pick":
-      return changeForm(method, params);
-    case "toolForm.ok": {
-      const f = mockForm;
-      mockForm = null;
-      if (f) setTimeout(() => emitLocal("command", { name: "runTool", args: { tool: f.tool, title: f.title, inputs: f.groups.flatMap((g) => g.inputs.map((i) => ({ id: i.id, label: i.label, type: i.type, value: i.value }))) } }), 100);
-      return null;
-    }
-    case "toolForm.cancel":
-      mockForm = null;
-      return null;
     default:
       return null;
   }
@@ -804,64 +795,6 @@ if (!(window as any).chrome?.webview) {
 }
 
 // ---- tool forms (track D): the state ToolForm would produce ----
-
-interface MockFormInput {
-  id: string;
-  type: string;
-  label: string;
-  value: unknown;
-  unit?: string;
-  choices?: string[];
-  visible: boolean;
-  enabled: boolean;
-}
-interface MockForm {
-  formId: string;
-  tool: string;
-  title: string;
-  groups: { id: string; title: string; expanded: boolean; inputs: MockFormInput[] }[];
-  okEnabled: boolean;
-  okReason: string | null;
-}
-let mockForm: MockForm | null = null;
-
-function newForm(t: UserToolInfo): MockForm {
-  return {
-    formId: `f${Date.now()}`,
-    tool: t.name,
-    title: t.title,
-    groups: [
-      {
-        id: "main",
-        title: "Inputs",
-        expanded: true,
-        inputs: [
-          { id: "face", type: "selection", label: "Cavity face", value: [], visible: true, enabled: true },
-          { id: "depth", type: "number", label: "Depth", value: 2, unit: "mm", visible: true, enabled: true },
-          { id: "material", type: "choice", label: "Material", value: "PU 90A", choices: ["PU 90A", "PU 70A", "EPDM"], visible: true, enabled: true },
-        ],
-      },
-    ],
-    okEnabled: false,
-    okReason: "Select the cavity face.",
-  };
-}
-
-function changeForm(method: string, p: any): MockForm | null {
-  if (!mockForm || mockForm.formId !== p?.formId) throw new Error("That form is closed.");
-  const f = mockForm;
-  for (const g of f.groups)
-    for (const i of g.inputs) {
-      if (i.id !== p.id) continue;
-      if (method === "toolForm.pick") i.value = [{ type: "Face", label: "Boss-Extrude1", ref: "bW9jay1mYWNl" }];
-      else if (p.value !== undefined) i.value = p.value;
-      if (p.unit !== undefined) i.unit = p.unit;
-    }
-  const face = f.groups[0].inputs[0].value as unknown[];
-  f.okEnabled = face.length > 0;
-  f.okReason = f.okEnabled ? null : "Select the cavity face.";
-  return f;
-}
 
 function mockImage() {
   const c = document.createElement("canvas");

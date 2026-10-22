@@ -237,25 +237,8 @@ namespace SwAgent.UI
         private static ToolForm CreateForm(ToolSpec spec, IModelDoc2 model, out bool imperial)
         {
             imperial = Units.IsImperial(model);
-            try
-            {
-                return new ToolForm(spec, ToolData.For(spec), imperial, RememberStore.Load(spec.Name));
-            }
-            catch (Exception ex)
-            {
-                // Bad data must never stop the page. A damaged remembered file is the likely cause (it is only rewritten on
-                // OK): try again without it, keeping the data choices; then fall back to the plain defaults.
-                Log.Error($"Tool '{spec.Name}': reading its page data failed", ex);
-            }
-            try
-            {
-                return new ToolForm(spec, ToolData.For(spec), imperial);
-            }
-            catch (Exception ex)
-            {
-                Log.Error($"Tool '{spec.Name}': reading its data files failed", ex);
-                return new ToolForm(spec, ToolData.None, imperial);
-            }
+            // Bad data must never stop the page (the same fallbacks as the panel's form).
+            return ToolFormSession.CreateForm(spec, imperial);
         }
 
         private void Quiet(Action a)
