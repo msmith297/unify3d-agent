@@ -111,6 +111,7 @@ Say the outcome and why in two or three lines, with your recommendation:
 | Know-how only (how to do X well, the shop's rules) | a **skill**, inside a plugin (a plugin with only a skill is fine) |
 | An outside program, service or data source (an MCP server, an API, a CLI) | a **plugin** with the MCP server, a skill that teaches when and how to use it in SolidWorks work, slash commands, and tools that combine its tools with SolidWorks if useful |
 | Several of the user's own tools that belong together | a **plugin that bundles tools** |
+| A built-in or plugin tool should work differently | no plugin: a **note** on that tool (a rule it always follows), a **profile** as its default (other input values every time) or the user's **own copy** with `fork_tool` (its page, steps, data or macro), as the Standing instructions rules say |
 
 Examples:
 
@@ -121,6 +122,9 @@ Examples:
 - "Use this guy's MCP server for part pricing" is an outside service: a **plugin** with that server, a skill, and a
   `/quote` command.
 - "Put my flash-grooves and mold-base tools together for my team" is a **plugin that bundles tools** (Step 9).
+- "Make a plugin so the mold tool always hides the leftover part copies" is a **note** on the mold tool (`remember`).
+  "... so the mold tool uses our own steel grades" is the user's **own copy** of it (`fork_tool`, then change its data).
+  Bundle that copy into a plugin only when they want to share it.
 
 When it isn't a plugin, offer the right flow and run it when the user agrees. If the user still wants a plugin, build
 the plugin.
@@ -230,7 +234,11 @@ You are a careful drawing checker ...
   system prompt.
 
 **Tools** (optional): the user's own tools with `plugin_add_tool` (Step 9), or a new tool that combines the server
-with SolidWorks.
+with SolidWorks. A tool can ship ready-made input values as `tools/<tool>/profiles/<name>.json` (locked for whoever
+installs it; `plugin_validate` checks each value against `inputs.json`).
+
+**Helpers** (optional): `helpers/<ClassName>.cs`, C# helpers the agent's code cells can call, in the same form as
+`save_helper` writes. They count as code the user approves in the trust dialog.
 
 **README.md**, always: what the plugin does, its commands, what it needs (Node.js, an account, a key and where to get
 one), its limits, and the project's link and licence.
@@ -261,8 +269,14 @@ whether to **copy** (the user keeps their own version too) or **move** them. The
 the user:
 
 - the name becomes `<plugin>:<tool>`; the ribbon, the Workflows menu and `[Run tool: ...]` use that name;
-- remembered inputs and per-PC settings start fresh;
+- remembered inputs and per-PC settings start fresh (a moved tool keeps the user's profiles);
 - new ribbon buttons appear after a SolidWorks restart (`offer_restart` at the end).
+
+`plugin_add_tool` says when the user has saved profiles of a tool: ask once whether to ship them with it
+(`profiles: true`); they may hold the shop's own values. A copy made with `fork_tool` bundles like any of the user's
+tools; its Standing instructions section goes with it, so check it for anything private. When a bundled tool or skill
+relies on a helper the agent saved (`list_helpers`), ship it: `read_helper`, then `plugin_write_file` with
+`helpers/<Name>.cs`.
 
 Read each bundled tool and fix what moving it broke: mentions of other tools by their old name, and paths to files on
 this PC (move the file into the tool folder, or make it an input).

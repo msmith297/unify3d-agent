@@ -342,7 +342,7 @@ namespace SwAgent.Tools
                 ["tool"] = spec.Name,
                 ["title"] = spec.Title,
                 ["builtIn"] = UserTools.IsBuiltIn(spec.Name),
-                ["notes"] = Memory.MemoryStore.Instance.OverlayText(spec.Name), // a read-only tool's standing instructions (docs/agent-memory.md)
+                ["notes"] = Memory.MemoryStore.Instance.RunNotes(spec.Name), // the tool's standing instructions (docs/agent-memory.md)
                 ["intelligence"] = spec.Intelligence,
                 ["maxSteps"] = spec.MaxSteps,
                 ["longRun"] = spec.LongRun,

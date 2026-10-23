@@ -454,7 +454,7 @@ Finish this case yourself.${p.builtIn ? "" : " If it is a case the macro should 
         : `The macro in the "${toolName}" tool failed - finish the job, then fix the macro (edit_user_tool) so the next run works:\n${c.failure.slice(0, 4000)}`,
     );
   if (c.macroOutput) contextLines.unshift(`Output of the macro in the "${toolName}" tool (already run):\n${c.macroOutput.slice(0, 6000)}`);
-  if (p.notes?.trim()) contextLines.unshift(p.notes.trim()); // a read-only tool's standing instructions (docs/agent-memory.md)
+  if (p.notes?.trim()) contextLines.unshift(p.notes.trim()); // the tool's standing instructions (docs/agent-memory.md)
   if (c.model) contextLines.push(`Model:\n${c.model}`);
   if (c.history) contextLines.push(`Feature history:\n${c.history}`);
 

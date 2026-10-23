@@ -88,6 +88,10 @@ namespace SwAgent.Plugins
 
             [ToolParam("true moves the tool into the plugin (it is then only \"plugin:tool\"); default false copies it.")]
             public bool? Move { get; set; }
+
+            [ToolParam("true ships the user's saved profiles of the tool with it (locked for whoever installs the plugin). Ask first: they " +
+                       "may hold the shop's own values.")]
+            public bool? Profiles { get; set; }
         }
 
         public sealed class EnableInput
@@ -261,11 +265,18 @@ namespace SwAgent.Plugins
             var to = Path.Combine(toolsDir, tool);
             if (Directory.Exists(to)) return ToolResult.Error($"The plugin already has a tool '{tool}'. Delete it with edit_user_tool / plugin_write_file first, or use another name.");
             Fetcher.CopyDirectory(from, to);
+            var id = p.Name + ":" + tool;
+            ToolProfiles.Retarget(to, id); // profiles in the tool folder (e.g. a fork's) name the plugin's tool
+            var mine = ToolProfiles.List(tool).Where(x => !x.Locked).Select(x => x.Name).ToList();
+            var shipped = input.Profiles == true ? ToolProfiles.Ship(tool, to, id) : new List<string>();
+            if (input.Move == true && shipped.Count == 0) ToolProfiles.CopyAll(tool, id); // the user keeps their profiles for the plugin's tool
             if (input.Move == true) UserTools.Delete(tool);
             pm.Invalidate();
             UserTools.NotifyChanged();
-            return ToolResult.Ok($"{(input.Move == true ? "Moved" : "Copied")} tool '{tool}' into plugin '{p.Name}'. When the plugin is enabled it is \"{p.Name}:{tool}\"" +
-                                 (input.Move == true ? "." : "; the user's own copy stays too."));
+            var note = shipped.Count > 0 ? $" It ships the profile{(shipped.Count == 1 ? "" : "s")} {string.Join(", ", shipped)}, locked for whoever installs it."
+                : mine.Count > 0 && input.Profiles == null ? $" The user has saved profiles of it ({string.Join(", ", mine)}): profiles: true ships them; ask first." : "";
+            return ToolResult.Ok($"{(input.Move == true ? "Moved" : "Copied")} tool '{tool}' into plugin '{p.Name}'. When the plugin is enabled it is \"{id}\"" +
+                                 (input.Move == true ? "." : "; the user's own copy stays too.") + note);
         }
 
         [AgentTool("plugin_validate", "Check a plugin: plugin.json, names, front matter of commands, skills and agents, hooks and MCP server definitions, tools. Returns the problems found.")]

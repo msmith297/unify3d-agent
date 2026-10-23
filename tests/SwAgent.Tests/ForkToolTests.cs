@@ -17,7 +17,7 @@ namespace SwAgent.Tests
         private static string Unique(string stem) => stem + "-" + Guid.NewGuid().ToString("N").Substring(0, 6);
 
         [Fact]
-        public void Forking_the_mold_tool_copies_it_renames_it_moves_the_notes_and_records_the_original()
+        public void Forking_the_mold_tool_copies_it_renames_it_copies_the_notes_and_records_the_original()
         {
             using (var env = new MemoryTestEnv())
             {
@@ -30,7 +30,7 @@ namespace SwAgent.Tests
                 var text = MemoryTestEnv.Text(r);
                 Assert.Contains("offer_restart", text);
                 Assert.Contains("edit_user_tool", text);
-                Assert.Contains("1 note on the original moved", text);
+                Assert.Contains("1 note on the original is copied", text);
 
                 var dir = Path.Combine(UserTools.Root, name);
                 foreach (var f in new[] { "inputs.json", "macro.cs", "data/materials.json", "data/shop-standards.json", "data/setup-sheet.html" })
@@ -44,7 +44,7 @@ namespace SwAgent.Tests
                 Assert.Equal("part", fm["icon"]);
                 Assert.Equal("mold_calc, mold_part, mold_bodies, mold_record", fm["requires"]);
                 Assert.Contains("Hide leftover part copies when done.", UserTools.StandingSection(File.ReadAllText(Path.Combine(dir, "TOOL.md"))));
-                Assert.False(File.Exists(env.Store.ToolOverlayPath(Mold))); // moved, not copied
+                Assert.True(File.Exists(env.Store.ToolOverlayPath(Mold))); // copied: the original keeps its notes
 
                 var listed = UserTools.ListTools().Single(t => (string)t["name"] == name);
                 Assert.Equal(Mold, (string)listed["forkedFrom"]);

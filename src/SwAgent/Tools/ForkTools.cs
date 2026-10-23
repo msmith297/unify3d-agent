@@ -36,8 +36,8 @@ namespace SwAgent.Tools
         }
 
         [AgentTool("fork_tool",
-            "Make the user's own copy of a built-in or plugin (read-only) tool to change it: copies its whole folder under a new name, moves your " +
-            "notes on it into the copy and records the original, so its later updates can be offered. Confirm the name with the user first; then " +
+            "Make the user's own copy of a built-in or plugin (read-only) tool to change it: copies its whole folder, your notes on it and the " +
+            "user's saved profiles under a new name and records the original, so its later updates can be offered. Confirm the name with the user first; then " +
             "change the copy with edit_user_tool.")]
         public ToolResult Fork(ToolContext ctx, ForkInput input)
         {
@@ -87,8 +87,9 @@ namespace SwAgent.Tools
                 }
                 throw;
             }
-            var moved = MemoryStore.Instance.MoveToolNotes(source, name, dir);
-            // INTEGRATE: ToolProfiles.CopyAll(source, name); // the user's saved input profiles and settings go with the copy
+            var notes = MemoryStore.Instance.CopyToolNotes(source, name, dir);
+            ToolProfiles.Retarget(dir, name); // the profiles that came with the original now name the copy
+            ToolProfiles.CopyAll(source, name); // the user's saved profiles and their default go with the copy
             ToolForks.WriteRecord(dir, source, version, ToolForks.Hashes(sourceDir), ToolForks.Hashes(dir));
             if (input.HideOriginal == true) UserTools.SetValue(source, "hidden", "true");
             Log.Info($"Forked tool '{source}' as '{name}'");
@@ -96,7 +97,9 @@ namespace SwAgent.Tools
 
             var kind = (UserTools.FrontValue(sourceFm, "kind") ?? "workflow") == "tool" ? "tool" : "workflow";
             var sb = new StringBuilder($"Made '{name}' ({title}): the user's own copy of {sourceTitle} ({source}@{version}), in {dir}.");
-            if (moved > 0) sb.Append($" Your {moved} note{(moved == 1 ? "" : "s")} on the original moved into its Standing instructions.");
+            if (notes > 0) sb.Append($" Your {notes} note{(notes == 1 ? "" : "s")} on the original {(notes == 1 ? "is" : "are")} copied into its Standing instructions.");
+            var profiles = ToolProfiles.List(name).Where(p => !p.Locked).Select(p => p.Name).ToList();
+            if (profiles.Count > 0) sb.Append($" The user's profiles of the original are copied too: {string.Join(", ", profiles)}.");
             sb.Append(kind == "tool"
                 ? " Its ribbon button appears after a restart: call offer_restart. Until then it runs from the Workflows menu."
                 : " It is in the Workflows menu now.");

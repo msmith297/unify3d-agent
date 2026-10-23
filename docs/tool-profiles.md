@@ -97,8 +97,9 @@ Saving never runs the tool; OK still does.
   - `run_tool(tool, profile?)` / `/run <tool> --profile "Shop A"`.
 
   The tool index line lists a tool's profile names.
-- **Standing instructions:** "always use Shop A for molds" sets the default profile, not a memory note.
-- **Forks:** `fork_tool` copies the source's profiles into the fork.
+- **Standing instructions:** "always use Shop A for molds" sets the default profile, not a memory note
+  (`save_tool_profile` with `make_default`; `remember` with `profile` does the same).
+- **Forks:** `fork_tool` copies the source's profiles and default into the fork.
 - **Sharing:** export a profile as a file, and import one by dropping the `.json` on the panel. Plugins can ship
   profiles in a tool's `profiles\` folder.
 - **Storage:** honours `SWAGENT_DATA_DIR`; writes use `AtomicFile.Replace`.

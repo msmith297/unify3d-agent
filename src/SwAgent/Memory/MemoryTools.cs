@@ -49,7 +49,8 @@ namespace SwAgent.Memory
             [ToolParam("Ids of older notes this one replaces (it contradicts or merges them). Undo puts them back.")]
             public string[] Replaces { get; set; }
 
-            [ToolParam("Tools only: when the instruction is to always use one of the tool's saved input profiles, its name. It becomes the tool's default.")]
+            [ToolParam("Tools only: when the instruction is to always use one of the tool's saved input profiles, its name. It becomes the tool's " +
+                       "default instead of a note.")]
             public string Profile { get; set; }
         }
 
@@ -62,15 +63,26 @@ namespace SwAgent.Memory
                 return ToolResult.Error("The user turned off saving instructions (Options > What the agent remembers). Apply it in this chat only, and say so.");
             var store = _store();
             var scope = store.Resolve(input.Scope);
+            var profile = string.IsNullOrWhiteSpace(input.Profile) ? null : input.Profile.Trim();
+            if (profile != null)
+            {
+                // "always use Shop A for molds" sets the default profile, not a note (docs/tool-profiles.md)
+                if (scope.Kind != "tool") return ToolResult.Error("profile is for a tool's scope (tool:<name>). Nothing was saved.");
+                var found = ToolProfiles.Find(scope.Name, profile);
+                if (found == null)
+                {
+                    var names = ToolProfiles.Names(scope.Name);
+                    return ToolResult.Error($"The tool has no profile named \"{profile}\" ({(names.Count == 0 ? "it has none" : "its profiles: " + string.Join(", ", names))}). " +
+                                            "Nothing was saved. Save the values with save_tool_profile (make_default: true) instead.");
+                }
+                ToolProfiles.SetDefault(scope.Name, found.Name);
+                return ToolResult.Ok($"The \"{found.Name}\" profile is now the default of {scope.Name}: its inputs open with it (no note saved; the form's " +
+                                     "Profile row or Options change it). Tell the user in one line.");
+            }
             var saved = store.Remember(scope, input.Text, input.Replaces);
             if (saved.Existed) return ToolResult.Ok($"Already saved in {scope.Label}: {saved.Note.Text} (id {saved.Note.Id}).");
             var sb = new StringBuilder($"Saved to {scope.Label}: {saved.Note.Text} (id {saved.Note.Id}).");
             foreach (var r in saved.Replaced) sb.Append($" Replaced: {r.Note.Text}.");
-            if (!string.IsNullOrWhiteSpace(input.Profile) && scope.Kind == "tool")
-            {
-                // INTEGRATE: ToolProfiles.SetDefault(scope.Name, input.Profile.Trim());
-                sb.Append($" The note asks for the \"{input.Profile.Trim()}\" profile on every run.");
-            }
             if (saved.Warning != null) sb.Append(' ').Append(saved.Warning);
             sb.Append(" Tell the user where it went in one line; the chat shows it with Undo.");
             return ToolResult.Ok(sb.ToString());

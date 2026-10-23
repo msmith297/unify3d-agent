@@ -267,6 +267,18 @@ namespace SwAgent.Memory
         }
 
         /// <summary>
+        /// A tool's notes as a run stages them (ToolRunner payload "notes"): the overlay of a read-only tool, or the Standing
+        /// instructions section of the user's own (a fork carries the original's): null when it has none.
+        /// </summary>
+        public string RunNotes(string tool)
+        {
+            var name = (tool ?? "").Trim().ToLowerInvariant();
+            var dir = UserTools.DirOf(name);
+            if (dir == null || UserTools.IsReadOnlyDir(dir)) return OverlayText(name);
+            return HasSection(Path.Combine(dir, "TOOL.md")) ? Appendix(Notes(ToolScope(name, dir))) : null;
+        }
+
+        /// <summary>
         /// A read-only tool's notes as they are appended to its instructions (read_user_tool, tool-run staging); null when it
         /// has none. The user's own tools carry theirs in TOOL.md already.
         /// </summary>
@@ -458,22 +470,20 @@ namespace SwAgent.Memory
         }
 
         /// <summary>
-        /// A tool's overlay notes move into its copy's TOOL.md (fork_tool): the copy is the user's, so they belong in it. Returns
-        /// how many moved.
+        /// A tool's overlay notes are copied into its copy's TOOL.md (fork_tool): the copy is the user's, so they belong in it,
+        /// and the original keeps them for when it is used again. Returns how many were copied.
         /// </summary>
-        public int MoveToolNotes(string source, string forkName, string forkDir)
+        public int CopyToolNotes(string source, string forkName, string forkDir)
         {
             var from = Path.Combine(ToolNotesDir, UserTools.StorageKey(source) + ".md");
-            List<MemoryNote> moving;
+            List<MemoryNote> copying;
             lock (_lock)
             {
                 if (!System.IO.File.Exists(from)) return 0;
-                moving = Read(new MemoryScope { Kind = "tool", Name = source, File = from, Cap = ScopedCap });
-                AddNotes(ToolScope(forkName, forkDir), moving);
-                System.IO.File.Delete(from);
+                copying = Read(new MemoryScope { Kind = "tool", Name = source, File = from, Cap = ScopedCap });
+                AddNotes(ToolScope(forkName, forkDir), copying);
             }
-            RaiseChanged(new MemoryScope { Kind = "tool", Name = source });
-            return moving.Count;
+            return copying.Count;
         }
 
         /// <summary>Add notes with their dates (no cap: they were within one before), skipping texts the scope already has.</summary>

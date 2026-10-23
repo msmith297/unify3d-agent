@@ -26,6 +26,7 @@ import { mockOpenToolForm, mockToolForm } from "../toolFormMock.ts";
 import { questionTimerStep } from "../questionTimeout.ts";
 import { knowledgeSection } from "../knowledge.ts";
 import { memorySection, memoryRefusal, rememberedChip, toolMarks, MEMORY_WRITE_TOOLS } from "../memory.ts";
+import { readFileSync } from "node:fs";
 
 let n = 0;
 const t = (name, fn) => {
@@ -658,6 +659,35 @@ t("toolMarks: the tool index marks notes and copies whose original changed", () 
   assert.equal(toolMarks({ hasNotes: true }), " [your notes]");
   assert.equal(toolMarks({ forkedFrom: "design-compression-mold", sourceChanged: true }), " [copy of design-compression-mold, design-compression-mold changed]");
   assert.equal(toolMarks({ hasNotes: true, forkedFrom: "smart-rebuild" }), " [your notes; copy of smart-rebuild]");
+});
+
+// ---- where standing instructions, tool copies, profiles and the plugin creator meet ----
+
+t("one prompt: the ways to change a read-only tool are taught once, in Standing instructions", () => {
+  const rules = memorySection(null);
+  const count = (text, s) => text.split(s).length - 1;
+  for (const tool of ["fork_tool", "compare_fork", "save_tool_profile"]) assert.equal(count(rules, tool), 1, `${tool} once in the section`);
+  assert.ok(rules.includes("a profile as the tool's default (save_tool_profile with make_default). No note, no copy."));
+  const core = readFileSync(new URL("../../agent/systemPrompt.ts", import.meta.url), "utf8");
+  for (const tool of ["fork_tool", "compare_fork", "save_tool_profile", "remember("]) assert.equal(count(core, tool), 0, `${tool} is not taught again elsewhere`);
+  assert.equal(count(core, 'read_user_tool("create-plugin")'), 1);
+  assert.ok(core.includes("to change one, see Standing instructions below"));
+  assert.ok(core.includes("a skill or a change to an existing tool fits better"));
+});
+
+t("profiles: only the user's own turns save one", () => {
+  assert.match(memoryRefusal("save_tool_profile", { fromWake: true }), /profiles and tool copies come only from the user's own messages/);
+  assert.match(memoryRefusal("save_tool_profile", { subAgent: true }), /sub-agent/);
+  assert.equal(memoryRefusal("list_tool_profiles", { fromWake: true }), null);
+  assert.equal(memoryRefusal("run_tool", { fromWake: true }), null);
+});
+
+t("the plugin creator sends tool changes to a note, a profile or a copy, and ships profiles and helpers", () => {
+  const md = readFileSync(new URL("../../../../tools/builtin/create-plugin/TOOL.md", import.meta.url), "utf8");
+  for (const needle of ["A built-in or plugin tool should work differently", "fork_tool", "`remember`", "`profiles: true`", "tools/<tool>/profiles/<name>.json", "helpers/<Name>.cs", "read_helper"])
+    assert.ok(md.includes(needle), `TOOL.md mentions ${needle}`);
+});
+
 // ---- tool profiles (docs/tool-profiles.md) ----
 
 t("/run --profile picks the profile out of the arguments", () => {

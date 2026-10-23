@@ -527,7 +527,7 @@ export interface ToolRunPayload {
   longRun?: boolean;
   /** A built-in Unify3D tool: read-only, so the agent is never told to fix its macro with edit_user_tool. */
   builtIn?: boolean;
-  /** A read-only tool's standing instructions (the user's notes on it), already worded for the agent. */
+  /** The tool's standing instructions (the user's notes on it; a copy has the original's), already worded for the agent. */
   notes?: string | null;
   /** The tool profile the inputs were loaded from, and the inputs the user changed after loading it. */
   profile?: { name: string; modified?: string[]; locked?: boolean } | null;

@@ -411,6 +411,54 @@ namespace SwAgent.Tools
         }
 
         /// <summary>
+        /// The profiles that came with a tool folder name the tool they now live in (a fork's copy of the original's shipped
+        /// profiles), so their exports and duplicates load without a "saved for another tool" note. Returns how many changed.
+        /// </summary>
+        public static int Retarget(string toolDir, string toTool)
+        {
+            var dir = Path.Combine(toolDir, "profiles");
+            if (!Directory.Exists(dir)) return 0;
+            var changed = 0;
+            foreach (var file in Directory.GetFiles(dir, "*.json"))
+            {
+                try
+                {
+                    var o = ToolProfile.ParseJson(File.ReadAllText(file));
+                    if ((string)o["tool"] == toTool) continue;
+                    o["tool"] = toTool;
+                    WriteJson(file, o);
+                    changed++;
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn($"Profile {file} not renamed to '{toTool}': {ex.Message}");
+                }
+            }
+            return changed;
+        }
+
+        /// <summary>
+        /// The user's profiles of a tool become profiles that ship with a tool folder (plugin_add_tool with profiles): written to
+        /// its profiles\ for toTool, locked there for whoever installs it. Names the folder already has are skipped; the user's
+        /// settings (default, last used) stay theirs. Returns the names written.
+        /// </summary>
+        public static List<string> Ship(string fromTool, string toolDir, string toTool, string root = null)
+        {
+            var dir = Path.Combine(toolDir, "profiles");
+            var taken = new HashSet<string>(List(toTool, root, toolDir).Where(p => p.Locked).Select(p => p.Name), StringComparer.CurrentCultureIgnoreCase);
+            var shipped = new List<string>();
+            foreach (var p in List(fromTool, root).Where(p => !p.Locked))
+            {
+                if (!taken.Add(p.Name)) continue;
+                var o = ToolProfile.ParseJson(File.ReadAllText(p.Path));
+                o["tool"] = toTool;
+                WriteJson(FreePath(dir, p.Name), o);
+                shipped.Add(p.Name);
+            }
+            return shipped;
+        }
+
+        /// <summary>
         /// The checks plugin_validate runs on a tool folder's shipped profiles (profiles\*.json): "error: ..." for a file that
         /// isn't a profile or has a name used twice, "warning: ..." for a value the tool would ignore or keep at its default.
         /// </summary>

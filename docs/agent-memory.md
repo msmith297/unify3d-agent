@@ -73,7 +73,10 @@ pick between two paths in one line and do it:
   The user can rename it in the same step.
 - **Front matter:** rewrites `name` and `title` and adds `forked_from: <source>@<version or date>`. Category and icon
   stay the same.
-- **Standing instructions:** the source's tool notes move into the copy's own "Standing instructions" section.
+- **Standing instructions:** the source's tool notes are copied into the copy's own "Standing instructions" section
+  (the original keeps them, for when it is used again). A run of the copy stages them like an overlay's.
+- **Profiles:** the user's saved profiles of the source, and its default, are copied too (`ToolProfiles.CopyAll`); the
+  shipped ones travel in the folder and are renamed to the copy.
 - **Ribbon:** the copy's button appears after a SolidWorks restart, so the agent calls `offer_restart`.
 - **The original:** `hide_original` (asked once: "Hide the built-in button so you only see your version?") keeps the
   original off the ribbon and palette, stored per PC in `builtin-settings.json`. It is undoable from Options and the

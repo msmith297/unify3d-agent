@@ -144,7 +144,8 @@ tool's inputs page), `macro.cs`, `preview.cs`, `icon.svg` / `icon.png`, and any 
   of the plugin's own servers.
 - `tools/<tool>/profiles/*.json` ship ready-made profiles of the tool's inputs (`docs/tool-profiles.md`), e.g. "PU shop
   starter". Users see them with a lock: they load and duplicate them, but can't change or delete them. Write one by
-  saving a profile in the tool's form and exporting it, or copy `tools/builtin/design-compression-mold/profiles/`.
+  saving a profile in the tool's form and exporting it, or copy `tools/builtin/design-compression-mold/profiles/`. The
+  plugin creator's `plugin_add_tool` ships the user's saved profiles of a tool with `profiles: true`.
   `plugin_validate` checks every value against `inputs.json`.
 
 ### Helpers for the agent's code

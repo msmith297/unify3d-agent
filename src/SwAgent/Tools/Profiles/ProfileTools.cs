@@ -68,8 +68,8 @@ namespace SwAgent.Tools
             [ToolParam("Start from the values of the tool's latest run in this session (\"save these as my shop defaults\").")]
             public bool? FromLastRun { get; set; }
 
-            [ToolParam("true: the tool opens with this profile from now on (the user's standing instruction \"always use X for Y\"); " +
-                       "false: it no longer does. With only name and make_default, an existing profile becomes (or stops being) the default.")]
+            [ToolParam("true: the tool opens with this profile from now on; false: it no longer does. With only name and make_default, an " +
+                       "existing profile becomes (or stops being) the default.")]
             public bool? MakeDefault { get; set; }
         }
 
