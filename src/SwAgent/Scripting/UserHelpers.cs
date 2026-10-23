@@ -455,9 +455,31 @@ namespace SwAgent.Scripting
         /// <summary>The namespaces cells import (except the helpers' own).</summary>
         internal static IReadOnlyList<string> Imports() => ScriptHost.BaseOptions.Imports.Where(i => i != Namespace).ToList();
 
-        /// <summary>The cells' imports as global usings, so a helper reads like a cell.</summary>
+        /// <summary>
+        /// The cells' imports as global usings, so a helper reads like a cell, plus the built-in helpers' namespace: a helper builds
+        /// on the checked ones through a BodiesApi / FeaturesApi / SelApi parameter or this-receiver (cells reach them as Bodies...).
+        /// </summary>
         private static SyntaxTree UsingsTree() =>
-            CSharpSyntaxTree.ParseText(string.Concat(Imports().Select(i => "global using " + i + ";\n")), ParseOptions, path: "usings.cs", encoding: Encoding.UTF8);
+            CSharpSyntaxTree.ParseText(string.Concat(Imports().Concat(new[] { HelpersNamespace }).Distinct().Select(i => "global using " + i + ";\n")), ParseOptions,
+                path: "usings.cs", encoding: Encoding.UTF8);
+
+        /// <summary>The built-in helpers' namespace (BodiesApi, FeaturesApi, SelApi, SwHelperException).</summary>
+        internal const string HelpersNamespace = "SwAgent.Scripting.Helpers";
+
+        /// <summary>How a cell writes an extension method's receiver: the built-in helper objects by their global (Bodies, Features, Sel).</summary>
+        private static string ReceiverName(ITypeSymbol t, SymbolDisplayFormat fmt)
+        {
+            if (t?.ContainingNamespace?.ToDisplayString() == HelpersNamespace)
+            {
+                switch (t.Name)
+                {
+                    case "BodiesApi": return "Bodies";
+                    case "FeaturesApi": return "Features";
+                    case "SelApi": return "Sel";
+                }
+            }
+            return t?.ToDisplayString(fmt);
+        }
 
         private static readonly CSharpParseOptions ParseOptions = new CSharpParseOptions(LanguageVersion.Latest);
 
@@ -505,7 +527,10 @@ namespace SwAgent.Scripting
         private static string ExtensionKey(IMethodSymbol m) =>
             m.Name + "(" + string.Join(", ", m.Parameters.Select(p => p.Type.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat))) + ")";
 
-        /// <summary>"IModelDoc2.FeatureByName(string name): IFeature; Lookup.All(IModelDoc2 model): List&lt;IFeature&gt;" (up to 4 methods).</summary>
+        /// <summary>
+        /// "IModelDoc2.FeatureByName(string name) -> IFeature; Lookup.All(IModelDoc2 model) -> List&lt;IFeature&gt;" (up to 4 methods;
+        /// the built-ins' format; an extension on BodiesApi shows as Bodies.X).
+        /// </summary>
         internal static string SignatureOf(INamedTypeSymbol type)
         {
             if (type == null) return null;
@@ -516,9 +541,9 @@ namespace SwAgent.Scripting
             var parts = methods.Take(4).Select(m =>
             {
                 var ps = m.IsExtensionMethod ? m.Parameters.Skip(1) : m.Parameters;
-                var owner = m.IsExtensionMethod ? m.Parameters[0].Type.ToDisplayString(fmt) : type.Name;
+                var owner = m.IsExtensionMethod ? ReceiverName(m.Parameters[0].Type, fmt) : type.Name;
                 var args = string.Join(", ", ps.Select(p => p.Type.ToDisplayString(fmt) + " " + p.Name + (p.HasExplicitDefaultValue ? " = " + (p.ExplicitDefaultValue?.ToString() ?? "null") : "")));
-                return $"{owner}.{m.Name}({args}): {m.ReturnType.ToDisplayString(fmt)}";
+                return $"{owner}.{m.Name}({args})" + (m.ReturnsVoid ? "" : " -> " + m.ReturnType.ToDisplayString(fmt));
             }).ToList();
             if (methods.Count > 4) parts.Add($"+{methods.Count - 4} more");
             return parts.Count == 0 ? type.Name : string.Join("; ", parts);
@@ -688,6 +713,33 @@ namespace SwAgent.Scripting
                 }
             }
             return used;
+        }
+
+        /// <summary>
+        /// Every member a cell calls by name (x.Member(...), x?.Member(...)) that isn't .NET's own (System.*): the SolidWorks API,
+        /// the helpers, and calls that don't compile. The nudge compares these between a failed and a working cell.
+        /// </summary>
+        internal static HashSet<string> CalledNames(Compilation cell)
+        {
+            var names = new HashSet<string>(StringComparer.Ordinal);
+            if (cell == null) return names;
+            foreach (var tree in cell.SyntaxTrees)
+            {
+                var model = cell.GetSemanticModel(tree);
+                foreach (var call in tree.GetRoot().DescendantNodes().OfType<InvocationExpressionSyntax>())
+                {
+                    SimpleNameSyntax name = null;
+                    if (call.Expression is MemberAccessExpressionSyntax ma) name = ma.Name;
+                    else if (call.Expression is MemberBindingExpressionSyntax mb) name = mb.Name;
+                    if (name == null) continue;
+                    var info = model.GetSymbolInfo(name);
+                    var symbol = info.Symbol ?? info.CandidateSymbols.FirstOrDefault();
+                    var ns = symbol?.ContainingNamespace?.ToDisplayString() ?? "";
+                    if (ns == "System" || ns.StartsWith("System.", StringComparison.Ordinal)) continue;
+                    names.Add(name.Identifier.Text);
+                }
+            }
+            return names;
         }
 
         /// <summary>

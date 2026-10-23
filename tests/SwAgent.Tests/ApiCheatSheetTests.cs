@@ -11,7 +11,8 @@ namespace SwAgent.Tests
     /// <summary>
     /// The agent's SolidWorks API cheat sheet (ui/src/agent/cad/swApiCheatsheet.ts, written by tools/dev/ApiCheatSheet from
     /// members.json): every member exists on the interface it names in the interop the add-in loads, and the sheet's line is
-    /// exactly what get_sw_api_type prints for it - so a SolidWorks or interop update that changes a signature fails here.
+    /// exactly what get_sw_api_type prints for it (for a member a helper covers, "use": its parameter count and return type) -
+    /// so a SolidWorks or interop update that changes a signature fails here.
     /// </summary>
     public class ApiCheatSheetTests
     {
@@ -70,6 +71,17 @@ namespace SwAgent.Tests
                     if (signature == null)
                     {
                         problems.Add($"{name}: not on {iface} in the interop");
+                        continue;
+                    }
+                    if (entry.Type == JTokenType.Object && entry["use"] != null)
+                    {
+                        // A member a built-in helper covers: "IX.Member(N parameters) : T - use Helper; ..." with the real count and type.
+                        var open = signature.IndexOf('(');
+                        var close = signature.LastIndexOf(") : ", StringComparison.Ordinal);
+                        var inner = signature.Substring(open + 1, close - open - 1);
+                        var parameters = inner.Length == 0 ? 0 : inner.Split(',').Length;
+                        var brief = $"{name}({parameters} parameter{(parameters == 1 ? "" : "s")}) : {signature.Substring(close + 4)} - use {((string)entry["use"]).Trim()};";
+                        if (!sheet.Any(l => l.StartsWith(brief, StringComparison.Ordinal))) problems.Add($"{name}: the sheet doesn't have the brief line {brief}");
                         continue;
                     }
                     if (!sheet.Any(l => l == signature || l.StartsWith(signature + " - ", StringComparison.Ordinal)))

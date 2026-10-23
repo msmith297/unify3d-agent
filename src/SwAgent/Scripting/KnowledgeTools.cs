@@ -33,26 +33,27 @@ namespace SwAgent.Scripting
 
         public sealed class SaveNoteInput
         {
-            [ToolParam("What the lesson is about, short and general, e.g. \"FeatureByName is on IPartDoc, not IModelDoc2\" or \"InsertMoveCopyBody2 rotation sign\". A note with the same topic is updated.", Required = true)]
+            [ToolParam("What the lesson is about, short and general, e.g. \"FeatureByName is on IPartDoc, not IModelDoc2\". The same topic updates the note.", Required = true)]
             public string Topic { get; set; }
 
-            [ToolParam("What you did that failed (the call or assumption, and the error), e.g. \"Model.FeatureByName(name) -> CS1061\".")]
+            [ToolParam("What failed: the call or assumption and the error, e.g. \"Model.GetBodies2(0, false) -> CS1061\".")]
             public string Wrong { get; set; }
 
-            [ToolParam("What works, generalised so it applies next time: the exact call, cast or argument order, e.g. \"((IPartDoc)Model).FeatureByName(name) as IFeature (assemblies: IAssemblyDoc.FeatureByName)\".", Required = true)]
+            [ToolParam("What works, generalised: the exact call, cast or argument order, e.g. \"((IPartDoc)Model).GetBodies2(0, false).AsObjects<IBody2>()\".", Required = true)]
             public string Right { get; set; }
 
-            [ToolParam("The API members it is about, e.g. [\"IPartDoc.FeatureByName\"]. A failing cell that calls one of them is shown this note.")]
+            [ToolParam("The API members it is about, e.g. [\"IPartDoc.GetBodies2\"]: a failing cell that calls one is shown the note.")]
             public string[] Apis { get; set; }
         }
 
         [AgentTool("save_api_note",
-            "Save a lesson about the SolidWorks API so you, and every later chat, get it right the first time: what was wrong, what works, and " +
-            "the API members it is about. Save only real, reusable lessons, generalised (not facts about this model or this user's request). " +
-            "The most useful notes are listed in your system prompt, and a failing cell that calls those members shows the note next to its error.")]
+            "Save a lesson about the SolidWorks API so every later chat gets it right the first time: what was wrong, what works, the members it is " +
+            "about. Only real, reusable API lessons (not facts about this model or request). The most used notes are in your system prompt; a failing " +
+            "cell that calls those members shows the note.")]
         public ToolResult SaveNote(ToolContext ctx, SaveNoteInput input)
         {
             var (note, created) = Store.SaveNote(input.Topic, input.Wrong, input.Right, input.Apis);
+            _scripts.Learned(ctx?.ThreadId);
             return ToolResult.Ok($"{(created ? "Saved" : "Updated")} API note {note.Id}: {note.Topic}." +
                                  (note.Apis.Length == 0 ? " It names no API members, so failing cells won't show it: add apis if it is about specific calls." : ""));
         }
@@ -84,28 +85,27 @@ namespace SwAgent.Scripting
 
         public sealed class SaveHelperInput
         {
-            [ToolParam("The helper's name = its class name: PascalCase, e.g. \"BodyMoves\" or \"FeatureLookup\". Saving an existing helper of yours makes a new version (the old one is kept).", Required = true)]
+            [ToolParam("The helper's name = its class name, PascalCase, e.g. \"BodyMoves\". Saving it again makes a new version.", Required = true)]
             public string Name { get; set; }
 
-            [ToolParam("The whole file: namespace SwAgent.UserHelpers { public static class <Name> { ... } } - public static methods, extension methods " +
-                       "allowed (e.g. public static IComponent2 GetComponentByName(this IModelDoc2 model, string name) makes Model.GetComponentByName(...) work; " +
-                       "an extension that a built-in one already defines is refused). " +
-                       "Same usings as cells (System, Linq, SolidWorks.Interop.sldworks/swconst, ...). Self-contained: it may not call your other helpers. " +
-                       "Other types go inside the class.", Required = true)]
+            [ToolParam("The whole file: namespace SwAgent.UserHelpers { public static class <Name> { ... } } with public static methods; the cells' usings " +
+                       "plus SwAgent.Scripting.Helpers. No cell globals (Model, swApp, mm/deg, Print, Bodies/Features/Sel): take IModelDoc2 model as a " +
+                       "parameter, write meters and degrees. Build on the checked helpers through a BodiesApi/FeaturesApi/SelApi parameter or this-receiver " +
+                       "(TurnInPlace(this BodiesApi bodies, IBody2 b, ...) is called Bodies.TurnInPlace(b, ...)). An extension method can make a failing " +
+                       "form work (this IModelDoc2 model: Model.X(...)). It may not call your other helpers; other types go inside the class.", Required = true)]
             public string Code { get; set; }
 
-            [ToolParam("One line for the helper index: what it does and what it checks, e.g. \"rotate a body about an axis through a point (right-hand rule, degrees), verified by its bounding box\".", Required = true)]
+            [ToolParam("One line for the helper index: what it does and checks.", Required = true)]
             public string Summary { get; set; }
 
-            [ToolParam("The raw API members it replaces, e.g. [\"IModelDocExtension.InsertMoveCopyBody2\"]: a cell that calls one of them is told to use this helper.")]
+            [ToolParam("Raw API members it replaces, e.g. [\"IAssemblyDoc.GetComponentByName\"]: a cell calling one is pointed here.")]
             public string[] Wraps { get; set; }
         }
 
         [AgentTool("save_helper",
-            "Save a C# helper that every execute_csharp cell (in every chat) can call from now on, so a mistake you just recovered from can't cost turns again: " +
-            "it does the fiddly part (selection marks, signs, casts of SolidWorks arrays, the right interface) robustly. It is compiled first, alone and with the " +
-            "other helpers; when it doesn't compile you get the errors and nothing is saved. Plugin and built-in helper names can't be taken. Then test it " +
-            "with test_helper. Never write helpers that change the model in ways their name doesn't say.")]
+            "Save a C# helper every execute_csharp cell (every chat) can call from now on, so a mistake you recovered from can't cost turns again: it " +
+            "does the fiddly part (marks, signs, array casts, the right interface) robustly. Compiled first, alone and with the others: on errors nothing " +
+            "is saved. Then test it with test_helper. Never write helpers that change the model in ways their name doesn't say.")]
         public async Task<ToolResult> SaveHelper(ToolContext ctx, SaveHelperInput input)
         {
             var name = (input.Name ?? "").Trim();
@@ -120,6 +120,7 @@ namespace SwAgent.Scripting
             if (error != null) return ToolResult.Error($"Not saved: {name} {error}");
 
             var record = Store.SaveHelper(name, code, input.Summary, input.Wraps, signature);
+            _scripts.Learned(ctx?.ThreadId);
             var build = await Task.Run(() => Helpers.Current());
             if (build.Find(name) == null)
             {
@@ -138,13 +139,14 @@ namespace SwAgent.Scripting
         }
 
         [AgentTool("read_helper", "A helper's code and details (yours, a plugin's, or a built-in one's signature): read it before changing it with save_helper, or to see exactly what it does.")]
-        public ToolResult ReadHelper(ToolContext ctx, NameInput input)
+        public async Task<ToolResult> ReadHelper(ToolContext ctx, NameInput input)
         {
             var name = (input.Name ?? "").Trim();
             var builtIn = HelperIndex.BuiltInNamed(name);
             if (builtIn.Count > 0)
                 return ToolResult.Ok("Built-in helper (part of the add-in, read-only):\n" + string.Join("\n", builtIn.Select(h => $"{h.Signature ?? h.Name} - {h.Summary}" + (h.Wraps?.Length > 0 ? $" (wraps {string.Join(", ", h.Wraps)})" : ""))));
-            var build = Helpers.Current();
+            // Tool calls run on the SolidWorks UI thread, and compiling the helpers can take seconds: off it.
+            var build = await Task.Run(() => Helpers.Current());
             var built = build.Find(name);
             var record = Store.Helper(name);
             string code = null;
@@ -172,9 +174,9 @@ namespace SwAgent.Scripting
         }
 
         [AgentTool("list_helpers", "Every helper cells can call (built-in, plugins', yours) with its signature and summary, plus yours that are disabled or don't build and why.")]
-        public ToolResult ListHelpers(ToolContext ctx, ListHelpersInput input)
+        public async Task<ToolResult> ListHelpers(ToolContext ctx, ListHelpersInput input)
         {
-            var build = Helpers.Current();
+            var build = await Task.Run(() => Helpers.Current());
             var words = (input?.Query ?? "").ToLowerInvariant().Split(new[] { ' ', ',' }, StringSplitOptions.RemoveEmptyEntries);
             bool Match(string text) => words.All((text ?? "").ToLowerInvariant().Contains);
             var records = Store.Helpers();
@@ -193,14 +195,14 @@ namespace SwAgent.Scripting
         }
 
         [AgentTool("delete_helper", "Delete one of your helpers (plugin and built-in helpers can't be deleted). Its last version is kept as a file, so this can be undone by saving it again.")]
-        public ToolResult DeleteHelper(ToolContext ctx, NameInput input)
+        public async Task<ToolResult> DeleteHelper(ToolContext ctx, NameInput input)
         {
             var name = (input.Name ?? "").Trim();
             var record = Store.Helper(name);
             if (record == null)
             {
                 if (HelperIndex.BuiltInNamed(name).Count > 0) return ToolResult.Error($"{name} is built in: it can't be deleted.");
-                var built = Helpers.Current().Find(name);
+                var built = (await Task.Run(() => Helpers.Current())).Find(name);
                 return ToolResult.Error(built != null ? $"{name} belongs to {built.Source}: plugin helpers can't be deleted (disable the plugin instead)." : $"No helper named {name}.");
             }
             if (record.Source != "user") return ToolResult.Error($"{name} belongs to {record.Source}: plugin helpers can't be deleted (disable the plugin instead).");
@@ -248,20 +250,25 @@ namespace SwAgent.Scripting
                 var r = get(name, record?.Source ?? build.Find(name).Source);
                 if (r != null) r.LastTest = $"{outcome} ({DateTime.Now:yyyy-MM-dd HH:mm})";
             }));
+            _scripts.Learned(ctx?.ThreadId);
             return result;
         }
     }
 
     /// <summary>
     /// What the panel puts in the system prompt (knowledge.index): every helper cells can call, one line each, and the most used
-    /// API notes, together capped at about 2,900 tokens. The agent's own and the plugins' helpers come first (OwnShare), then
-    /// the built-in catalog in short lines (BuiltInShare), then the notes in what is left (at least 2,400 characters).
+    /// API notes, together capped at about 2,600 tokens. The agent's own and the plugins' helpers come first (OwnShare), then
+    /// the built-in Bodies./Features./Sel. helpers in short lines and the interop extensions as one line of signatures
+    /// (BuiltInShare), then the notes in what is left (at least 2,400 characters).
     /// </summary>
     internal static class KnowledgeIndex
     {
-        public const int MaxChars = 11600;
-        private const int OwnShare = 3600;
-        private const int BuiltInShare = 5600;
+        public const int MaxChars = 10400;
+        private const int OwnShare = 3000;
+        private const int BuiltInShare = 5000;
+
+        /// <summary>The name of the index entry that lists the built-in interop extensions together.</summary>
+        public const string ExtensionsEntry = "extensions";
 
         public static JObject Build(UserHelpers helpers, int maxChars = MaxChars)
         {
@@ -271,20 +278,35 @@ namespace SwAgent.Scripting
             var used = 0;
             var own = 0;
             var builtInUsed = 0;
-            foreach (var h in all)
+            var listed = 0;
+            bool Add(string name, string source, string signature, string summary, string line, bool builtIn)
+            {
+                var cost = line.Length + 3;
+                if (used + cost > maxChars) return false;
+                if (builtIn ? builtInUsed + cost > BuiltInShare : own + cost > OwnShare) return true;
+                if (builtIn) builtInUsed += cost;
+                else own += cost;
+                used += cost;
+                helperLines.Add(new JObject { ["name"] = name, ["source"] = source, ["signature"] = signature, ["summary"] = summary, ["line"] = line });
+                return true;
+            }
+            foreach (var h in all.Where(h => !SwAgent.Scripting.Helpers.HelperCatalog.IsExtension(h)))
             {
                 var builtIn = h.Source == "built-in";
                 // Built-in lines keep the summary's first clause: the helper's own errors say what it checked.
                 var summary = builtIn ? FirstClause(h.Summary) : h.Summary?.Trim();
-                var line = Line($"{(string.IsNullOrWhiteSpace(h.Signature) ? h.Name : h.Signature.Trim())}{(string.IsNullOrWhiteSpace(summary) ? "" : " - " + summary)}", builtIn ? 180 : 260);
-                var cost = line.Length + 3;
-                if (used + cost > maxChars) break;
-                if (builtIn ? builtInUsed + cost > BuiltInShare : own + cost > OwnShare) continue;
-                if (builtIn) builtInUsed += cost;
-                else own += cost;
-                used += cost;
-                helperLines.Add(new JObject { ["name"] = h.Name, ["source"] = h.Source, ["signature"] = h.Signature, ["summary"] = h.Summary, ["line"] = line });
+                var line = Line($"{(string.IsNullOrWhiteSpace(h.Signature) ? h.Name : h.Signature.Trim())}{(string.IsNullOrWhiteSpace(summary) ? "" : " - " + summary)}", builtIn ? 270 : 260);
+                var before = helperLines.Count;
+                if (!Add(h.Name, h.Source, h.Signature, h.Summary, line, builtIn)) break;
+                if (helperLines.Count > before) listed++;
             }
+            // The interop extensions: their names say what they do, so signatures only, on one line.
+            var extensions = all.Where(SwAgent.Scripting.Helpers.HelperCatalog.IsExtension).ToList();
+            var count = helperLines.Count;
+            if (extensions.Count > 0 &&
+                Add(ExtensionsEntry, "built-in", null, "the built-in interop extensions", Line("Interop extensions (x.As*: any SolidWorks array, null gives []): " +
+                    string.Join("; ", extensions.Select(h => h.Signature ?? h.Name)), 1200), true) && helperLines.Count > count)
+                listed += extensions.Count;
             var disabled = new JArray(helpers.Store.Helpers().Where(r => r.Disabled).Select(r => new JObject { ["name"] = r.Name, ["source"] = r.Source, ["reason"] = r.DisabledReason }));
 
             var notes = helpers.Store.Notes().OrderByDescending(n => n.Hits).ThenByDescending(n => n.Updated ?? n.Created).ToList();
@@ -301,7 +323,7 @@ namespace SwAgent.Scripting
                 ["helpers"] = helperLines,
                 ["disabled"] = disabled,
                 ["notes"] = noteLines,
-                ["omitted"] = new JObject { ["helpers"] = all.Count - helperLines.Count, ["notes"] = notes.Count - noteLines.Count },
+                ["omitted"] = new JObject { ["helpers"] = all.Count - listed, ["notes"] = notes.Count - noteLines.Count },
             };
         }
 

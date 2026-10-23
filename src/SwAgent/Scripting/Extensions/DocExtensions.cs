@@ -51,7 +51,38 @@ namespace SwAgent.Scripting.Extensions
             return data;
         }
 
-        // Model.SelectionManager is typed object: these make the obvious calls on it compile and run.
+        /// <summary>A SelectData with this selection mark, from the coclass-typed selection manager.</summary>
+        public static SelectData CreateSelectData(this SelectionMgr selectionManager, int mark) => ((ISelectionMgr)selectionManager).CreateSelectData(mark);
+
+        // The selection calls agents write on Model itself (they are on ISelectionMgr): they work.
+
+        /// <summary><c>Model.GetSelectedObject6(index, mark)</c>: the selection manager's (index from 1, mark -1 = any).</summary>
+        public static object GetSelectedObject6(this IModelDoc2 model, int index, int mark) => model.SelMgr().GetSelectedObject6(index, mark);
+
+        /// <summary><c>Model.GetSelectedObjectCount2(mark)</c>: the selection manager's (mark -1 = any).</summary>
+        public static int GetSelectedObjectCount2(this IModelDoc2 model, int mark) => model.SelMgr().GetSelectedObjectCount2(mark);
+
+        /// <summary><c>Model.GetSelectedObjectType3(index, mark)</c>: the selection manager's swSelectType_e value.</summary>
+        public static int GetSelectedObjectType3(this IModelDoc2 model, int index, int mark) => model.SelMgr().GetSelectedObjectType3(index, mark);
+
+        /// <summary><c>Model.GetSelectedObjectMark(index)</c>: the selection manager's.</summary>
+        public static int GetSelectedObjectMark(this IModelDoc2 model, int index) => model.SelMgr().GetSelectedObjectMark(index);
+
+        // The same on a document typed with the coclass interface ((ModelDoc2)swApp.ActiveDoc), which the guards below would take.
+
+        public static object GetSelectedObject6(this ModelDoc2 model, int index, int mark) => ((IModelDoc2)model).GetSelectedObject6(index, mark);
+
+        public static int GetSelectedObjectCount2(this ModelDoc2 model, int mark) => ((IModelDoc2)model).GetSelectedObjectCount2(mark);
+
+        public static int GetSelectedObjectType3(this ModelDoc2 model, int index, int mark) => ((IModelDoc2)model).GetSelectedObjectType3(index, mark);
+
+        public static int GetSelectedObjectMark(this ModelDoc2 model, int index) => ((IModelDoc2)model).GetSelectedObjectMark(index);
+
+        public static SelectData CreateSelectData(this ModelDoc2 model, int mark = 0) => ((IModelDoc2)model).CreateSelectData(mark);
+
+        // Model.SelectionManager is typed object: these make the obvious calls on it compile and run. They are for that untyped
+        // value only: on any other type (a body, a feature, a face...) the generic overloads below win overload resolution and
+        // stop the cell at compile time (CS0619), before anything ran, instead of an InvalidCastException halfway through it.
 
         /// <summary><c>Model.SelectionManager.CreateSelectData()</c>: SelectData with a mark.</summary>
         public static SelectData CreateSelectData(this object selectionManager, int mark = 0) => AsSelMgr(selectionManager, "CreateSelectData").CreateSelectData(mark);
@@ -68,6 +99,23 @@ namespace SwAgent.Scripting.Extensions
         /// <summary><c>Model.SelectionManager.GetSelectedObjectMark(index)</c>.</summary>
         public static int GetSelectedObjectMark(this object selectionManager, int index) => AsSelMgr(selectionManager, "GetSelectedObjectMark").GetSelectedObjectMark(index);
 
+        private const string NotSelMgr = "This is not the selection manager: these calls are on ISelectionMgr - Model.SelMgr().";
+
+        [Obsolete(NotSelMgr + "CreateSelectData(mark), or Model.CreateSelectData(mark) / Sel.Data(mark).", true)]
+        public static SelectData CreateSelectData<T>(this T notSelectionManager, int mark = 0) where T : class => throw new InvalidOperationException(NotSelMgr);
+
+        [Obsolete(NotSelMgr + "GetSelectedObject6(index, mark), or Sel.Get(index, mark).", true)]
+        public static object GetSelectedObject6<T>(this T notSelectionManager, int index, int mark) where T : class => throw new InvalidOperationException(NotSelMgr);
+
+        [Obsolete(NotSelMgr + "GetSelectedObjectCount2(mark), or Sel.Count(mark).", true)]
+        public static int GetSelectedObjectCount2<T>(this T notSelectionManager, int mark) where T : class => throw new InvalidOperationException(NotSelMgr);
+
+        [Obsolete(NotSelMgr + "GetSelectedObjectType3(index, mark).", true)]
+        public static int GetSelectedObjectType3<T>(this T notSelectionManager, int index, int mark) where T : class => throw new InvalidOperationException(NotSelMgr);
+
+        [Obsolete(NotSelMgr + "GetSelectedObjectMark(index).", true)]
+        public static int GetSelectedObjectMark<T>(this T notSelectionManager, int index) where T : class => throw new InvalidOperationException(NotSelMgr);
+
         private static ISelectionMgr AsSelMgr(object o, string call) =>
             o as ISelectionMgr ?? throw new InvalidCastException(
                 $"{call}: this is a {VariantExtensions.TypeName(o)}, not a selection manager. Use Model.SelMgr().{call}(...) or ((ISelectionMgr)Model.SelectionManager).{call}(...).");
@@ -79,6 +127,9 @@ namespace SwAgent.Scripting.Extensions
             if (!(model is IPartDoc part) || model.GetType() != (int)swDocumentTypes_e.swDocPART) return new List<IBody2>();
             return part.GetBodies2((int)type, visibleOnly).AsObjects<IBody2>().ToList();
         }
+
+        /// <summary>The API habit Model.Bodies((int)swBodyType_e.swSheetBody): the same with the type as GetBodies2 takes it.</summary>
+        public static IList<IBody2> Bodies(this IModelDoc2 model, int type, bool visibleOnly = false) => model.Bodies((swBodyType_e)type, visibleOnly);
 
         /// <summary>A body of the part by its name (solids, then surfaces), or null.</summary>
         [Helper("A body by name, or null.")]

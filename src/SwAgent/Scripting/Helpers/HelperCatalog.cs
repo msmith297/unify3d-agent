@@ -22,6 +22,11 @@ namespace SwAgent.Scripting.Helpers
         /// <summary>The catalog as an IHelperIndex (for code that merges helper sources).</summary>
         public static IHelperIndex Index { get; } = new BuiltIn();
 
+        /// <summary>A built-in interop extension (Model.FeatureByName, body.Volume, x.AsDoubles...), not a Bodies./Features./Sel. helper.</summary>
+        public static bool IsExtension(HelperInfo h) =>
+            h?.Source == "built-in" && h.Name != null && !h.Name.StartsWith("Bodies.", StringComparison.Ordinal) &&
+            !h.Name.StartsWith("Features.", StringComparison.Ordinal) && !h.Name.StartsWith("Sel.", StringComparison.Ordinal);
+
         /// <summary>A helper by name ("Bodies.Rotate"), or null.</summary>
         public static HelperInfo Find(string name) => All.FirstOrDefault(h => string.Equals(h.Name, name, StringComparison.Ordinal));
 
@@ -120,6 +125,7 @@ namespace SwAgent.Scripting.Helpers
                 var n = t.Name.Substring(0, t.Name.IndexOf('`'));
                 return n + "<" + string.Join(", ", t.GetGenericArguments().Select(TypeName)) + ">";
             }
+            if (t.IsEnum) return t.Name; // its TypeCode is the underlying int's: Model.Bodies(int type) would be a lie (CS1503)
             switch (Type.GetTypeCode(t))
             {
                 case TypeCode.Boolean: return "bool";

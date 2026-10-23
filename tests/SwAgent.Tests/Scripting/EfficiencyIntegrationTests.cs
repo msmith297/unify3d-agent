@@ -67,13 +67,14 @@ namespace SwAgent.Tests.Scripting
                     ["wraps"] = new JArray("IBody2.GetFaceCount"),
                 });
                 Assert.False(saved.IsError, Text(saved));
-                Assert.Contains("IBody2.FaceCount(): int", Text(saved));
+                Assert.Contains("IBody2.FaceCount() -> int", Text(saved));
 
                 // ... and from the next cell on the same form compiles and runs, with the built-in helpers still there.
                 var after = env.Cell(useIt + "; Model == null ? \"no doc\" : Bodies.All().Count.ToString()");
                 Assert.False(after.IsError, Text(after));
                 Assert.Contains("no doc", Text(after));
-                Assert.Contains("That worked after 1 failed try (CS1061)", Text(after)); // the nudge, after the failed cell above
+                // Saving the helper settled the failed cell above: the cell that works now isn't nudged to save it again.
+                Assert.DoesNotContain("That worked", Text(after));
 
                 // A raw call the saved helper wraps: the result names it, ranked before any built-in helper.
                 var raw = env.Cell("IBody2 body = null; body == null ? 0 : body.GetFaceCount()");
@@ -116,10 +117,11 @@ namespace SwAgent.Tests.Scripting
                 var index = KnowledgeIndex.Build(env.Helpers);
                 var helpers = ((JArray)index["helpers"]).Select(h => ((string)h["name"], (string)h["source"])).ToList();
                 Assert.Equal(("BodyFacts", "user"), helpers[0]);
-                var builtIns = HelperCatalog.All.Select(h => h.Name).ToList();
+                // Every built-in helper fits: Bodies./Features./Sel. one line each, the interop extensions together on one line.
+                var builtIns = HelperCatalog.All.Where(h => !HelperCatalog.IsExtension(h)).Select(h => h.Name).Concat(new[] { KnowledgeIndex.ExtensionsEntry }).ToList();
                 var builtInChars = ((JArray)index["helpers"]).Skip(1).Sum(h => ((string)h["line"]).Length + 3);
-                Assert.True(helpers.Count == builtIns.Count + 1, $"{helpers.Count - 1} of {builtIns.Count} built-in helpers fit ({builtInChars} chars)");
-                Assert.Equal(builtIns, helpers.Skip(1).Select(h => h.Item1).ToList()); // every built-in helper fits
+                Assert.True(helpers.Count == builtIns.Count + 1, $"{helpers.Count - 1} of {builtIns.Count} built-in index lines fit ({builtInChars} chars)");
+                Assert.Equal(builtIns, helpers.Skip(1).Select(h => h.Item1).ToList());
                 Assert.Equal(0, (int)index["omitted"]["helpers"]);
                 var chars = ((JArray)index["helpers"]).Sum(h => ((string)h["line"]).Length + 3);
                 Assert.True(chars <= KnowledgeIndex.MaxChars, chars.ToString());

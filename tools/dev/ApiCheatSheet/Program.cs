@@ -151,6 +151,19 @@ namespace ApiCheatSheet
             return $"{t.Name}.{p.Name} {{ {access.Trim()} }} : {TypeName(p.PropertyType)}";
         }
 
+        /// <summary>
+        /// "IFace.Member(27 parameters) : T" for a member a built-in helper covers (members.json "use"): the name and the shape,
+        /// not the long parameter list; null when the interface has no such method.
+        /// </summary>
+        public string Brief(string iface, string member)
+        {
+            if (!_interfaces.TryGetValue(iface, out var t)) return null;
+            var m = t.GetMethods().FirstOrDefault(x => !x.IsSpecialName && x.Name == member);
+            if (m == null) return null;
+            var n = m.GetParameters().Length;
+            return $"{t.Name}.{m.Name}({n} parameter{(n == 1 ? "" : "s")}) : {TypeName(m.ReturnType)}";
+        }
+
         /// <summary>"swX_e: A=1, B=2" (all values, or only the listed ones in that order); null when the enum or a value is missing.</summary>
         public string Enum(string name, IList<string> only, out string missing)
         {
@@ -242,6 +255,7 @@ namespace ApiCheatSheet
                 {
                     var name = entry.Type == JTokenType.String ? (string)entry : (string)entry["member"];
                     var hint = entry.Type == JTokenType.Object ? (string)entry["hint"] : null;
+                    var use = entry.Type == JTokenType.Object ? (string)entry["use"] : null;
                     string line;
                     if (!name.Contains("."))
                     {
@@ -261,6 +275,12 @@ namespace ApiCheatSheet
                         }
                     }
                     if (line == null) continue;
+                    if (!string.IsNullOrWhiteSpace(use))
+                    {
+                        // A built-in helper does this call: name the helper; the raw signature is a get_sw_api_type away.
+                        var dot = name.IndexOf('.');
+                        line = api.Brief(name.Substring(0, dot), name.Substring(dot + 1)) + $" - use {use.Trim()}; get_sw_api_type for the raw signature";
+                    }
                     sheet.MemberCount++;
                     sb.Append(line);
                     if (!string.IsNullOrWhiteSpace(hint)) sb.Append(" - ").Append(hint.Trim());

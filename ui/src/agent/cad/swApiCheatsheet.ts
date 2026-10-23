@@ -54,12 +54,12 @@ IFeatureManager.InsertRefPlane(int FirstConstraint, double FirstConstraintAngleO
 swRefPlaneReferenceConstraints_e: swRefPlaneReferenceConstraint_Parallel=1, swRefPlaneReferenceConstraint_Perpendicular=2, swRefPlaneReferenceConstraint_Coincident=4, swRefPlaneReferenceConstraint_Distance=8, swRefPlaneReferenceConstraint_Angle=16
 
 ## Features (select the sketch first; a null return means it failed)
-IFeatureManager.FeatureExtrusion3(bool Sd, bool Flip, bool Dir, int T1, int T2, double D1, double D2, bool Dchk1, bool Dchk2, bool Ddir1, bool Ddir2, double Dang1, double Dang2, bool OffsetReverse1, bool OffsetReverse2, bool TranslateSurface1, bool TranslateSurface2, bool Merge, bool UseFeatScope, bool UseAutoSelect, int T0, double StartOffset, bool FlipStartOffset) : Feature
-IFeatureManager.FeatureCut4(bool Sd, bool Flip, bool Dir, int T1, int T2, double D1, double D2, bool Dchk1, bool Dchk2, bool Ddir1, bool Ddir2, double Dang1, double Dang2, bool OffsetReverse1, bool OffsetReverse2, bool TranslateSurface1, bool TranslateSurface2, bool NormalCut, bool UseFeatScope, bool UseAutoSelect, bool AssemblyFeatureScope, bool AutoSelectComponents, bool PropagateFeatureToParts, int T0, double StartOffset, bool FlipStartOffset, bool OptimizeGeometry) : Feature
-IFeatureManager.FeatureRevolve2(bool SingleDir, bool IsSolid, bool IsThin, bool IsCut, bool ReverseDir, bool BothDirectionUpToSameEntity, int Dir1Type, int Dir2Type, double Dir1Angle, double Dir2Angle, bool OffsetReverse1, bool OffsetReverse2, double OffsetDistance1, double OffsetDistance2, int ThinType, double ThinThickness1, double ThinThickness2, bool Merge, bool UseFeatScope, bool UseAutoSelect) : Feature
+IFeatureManager.FeatureExtrusion3(23 parameters) : Feature - use Features.Extrude; get_sw_api_type for the raw signature
+IFeatureManager.FeatureCut4(27 parameters) : Feature - use Features.Cut; get_sw_api_type for the raw signature
+IFeatureManager.FeatureRevolve2(20 parameters) : Feature - use Features.Revolve / RevolveCut; get_sw_api_type for the raw signature
 swEndConditions_e: swEndCondBlind=0, swEndCondThroughAll=1, swEndCondMidPlane=6, swEndCondUpToSurface=4, swEndCondOffsetFromSurface=5, swEndCondThroughAllBoth=9
 swStartConditions_e: swStartSketchPlane=0, swStartOffset=3
-IFeatureManager.FeatureFillet3(int Options, double R1, double R2, double Rho, int Ftyp, int OverflowType, int ConicRhoType, object Radii, object Dist2Arr, object RhoArr, object SetBackDistances, object PointRadiusArray, object PointDist2Array, object PointRhoArray) : object
+IFeatureManager.FeatureFillet3(14 parameters) : object - use Features.Fillet; get_sw_api_type for the raw signature
 IFeatureManager.InsertFeatureChamfer(int Options, int ChamferType, double Width, double Angle, double OtherDist, double VertexChamDist1, double VertexChamDist2, double VertexChamDist3) : Feature
 IFeatureManager.FeatureLinearPattern5(int Num1, double Spacing1, int Num2, double Spacing2, bool FlipDir1, bool FlipDir2, string DName1, string DName2, bool GeometryPattern, bool VaryInstance, bool HasOffset1, bool HasOffset2, bool CtrlByNum1, bool CtrlByNum2, bool FromCentroid1, bool FromCentroid2, bool RevOffset1, bool RevOffset2, double Offset1, double Offset2, bool D2PatternSeedOnly, bool SyncSubAssemblies) : Feature
 IFeatureManager.FeatureCircularPattern5(int Number, double Spacing, bool FlipDirection, string DName, bool GeometryPattern, bool EqualSpacing, bool VaryInstance, bool SyncSubAssemblies, bool BDir2, bool BSymmetric, int Number2, double Spacing2, string DName2, bool EqualSpacing2) : Feature
@@ -73,7 +73,7 @@ IBody2.Copy2(bool PreserveFaceIDs) : object - temporary body, not in the part
 IBody2.Operations2(int OperationType, object ToolBody, out int ErrorCode) : object
 swBodyOperationType_e: SWBODYINTERSECT=15901, SWBODYCUT=15902, SWBODYADD=15903
 IFeatureManager.InsertCombineFeature(int OperationType, Body2 MainBody, object ToolVar) : Feature - target Mark 1, tools Mark 2, pass (op, null, null)
-IFeatureManager.InsertMoveCopyBody2(double TransX, double TransY, double TransZ, double TransDist, double RotPointX, double RotPointY, double RotPointZ, double RotAngleX, double RotAngleY, double RotAngleZ, bool BCopy, int NumCopies) : Feature - body Mark 1
+IFeatureManager.InsertMoveCopyBody2(12 parameters) : Feature - use Bodies.Move / Rotate / Copy; get_sw_api_type for the raw signature - body Mark 1
 IFeatureManager.PreSplitBody2() : object - plane Mark 1, body Mark 2
 IFeatureManager.PostSplitBody2(object BodiesToMark, bool ConsumeCut, object Origins, object SavePaths, string OverrideTemplateName) : object
 IFeatureManager.InsertDeleteBody2(bool KeepBodies) : Feature
@@ -87,6 +87,16 @@ IBody2.HideBody(bool BHide) : void
 IFeatureManager.InsertSubFolder() : Feature - folds the selected bodies (IBody2.Select2(true, null)); rename the feature
 IBodyFolder.GetBodies() : object
 IBodyFolder.GetBodyCount() : int
+
+## Assembly components
+IAssemblyDoc.GetComponents(bool ToplevelOnly) : object - object[] of IComponent2: .AsObjects<IComponent2>()
+IAssemblyDoc.GetComponentByName(string CompName) : Component2
+IComponent2.Name2 { get; set; } : string
+IComponent2.GetModelDoc2() : object - the part or sub-assembly (null when lightweight or suppressed)
+IComponent2.Transform2 { get; set; } : MathTransform - component to assembly space
+IComponent2.SetTransformAndSolve2(MathTransform XformIn) : bool - moves it within its mates
+IComponent2.IsFixed() : bool
+IComponent2.GetBox(bool IncludeRefPlanes, bool IncludeSketches) : object - double[6] in assembly space
 
 ## Transforms
 ISldWorks.GetMathUtility() : object
@@ -121,9 +131,10 @@ ICurveParamData.EndPoint { get; } : object
 - Arrays come back as object: object[] for COM objects (((object[])x).Cast<IBody2>()), double[] for numbers ((double[])box). A null means none: check before casting. CurveParamData is an object: (double[])cp.StartPoint. x.AsDoubles() / x.AsObjects<IBody2>() convert any of these (null gives []). Pass points as new double[] { x, y, z }.
 - Units are meters and radians in every call, whatever the document units.
 - Marks (verified by the Mold helpers): Move/Copy body Mark 1 (Mark 0 fails); Combine target Mark 1, tools Mark 2, bodies passed as null; split plane Mark 1, body Mark 2 (then Mark 0 for both). Clear the selection before and after.
-- InsertMoveCopyBody2: TransDist 0 means TransX/Y/Z is the move; rotation is RotAngleX/Y/Z (radians) about RotPoint. Which RotAngle slot turns about which axis, and the sign, is not certain on this version (the chats saw RotAngleX turn about Y): use Bodies.Rotate / Bodies.Move, which find it by measurement; by hand, check the turned body (GetExtremePoint or the box) and undo if wrong. Rotate and move in separate features.
-- FeatureCut4/FeatureExtrusion3 scope: UseFeatScope true + UseAutoSelect true affects every body the feature reaches; to touch one body set UseAutoSelect false with the body selected (the mark it reads is unverified: check other bodies' volumes after, as Mold's holes do). NormalCut is sheet metal only (false). Cut: Flip flips the side to cut, Dir reverses the direction. Merge false makes a new body.
+- InsertMoveCopyBody2: which RotAngle slot turns about which axis, and the sign, is not certain on this version (the chats saw RotAngleX turn about Y): use Bodies.Rotate / Move / Copy, which find it by measurement.
+- Feature scope: UseFeatScope true + UseAutoSelect true cuts every body the feature reaches; Features.Cut(sketch, depth, scope) limits it to the bodies given and checks the others are untouched. Merge false makes a new body.
 - PostSplitBody2 can return null while still adding the split: compare GetLastFeatureAdded() before and after, never retry blindly (a second split is left in the tree).
 - Revolve: the sketch's one centerline is the axis. Angles in radians.
-- Fillets: one feature per body (group edges by IEdge.GetBody()); after any feature check it is not null and GetErrorCode2 is 0.
+- After any feature call check the feature is not null and GetErrorCode2 is 0.
+- Components (assemblies): no helper yet. To turn or move one, build the transform with IMathUtility.CreateTransform (rotation about the pivot plus translation), combine it with comp.Transform2 (IMathTransform.Multiply) and set Transform2 or call SetTransformAndSolve2; a fixed component (IsFixed) or its mates can hold it. The multiplication order is unverified here: check comp.GetBox(false, false) before and after, and undo if it went wrong.
 - Bodies by name: IBody2.Name, or SelectByID2(name, "SOLIDBODY", 0, 0, 0, ...). Auto names renumber when bodies are added upstream.`;

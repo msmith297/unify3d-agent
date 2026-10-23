@@ -72,7 +72,7 @@ namespace SwAgent.Scripting.Helpers
             return Done(moved, f, moved);
         }
 
-        [Helper("Copy a body (or a list) n times, copy k offset by k*(dx, dy, dz) meters (0,0,0: copies in place), one feature; checked: n new bodies per body with its volume, each centroid where it belongs. Returns the copies (originals unchanged).",
+        [Helper("Copy a body (or a list) n times, copy k at k*(dx, dy, dz) meters (0, 0, 0: in place), one feature; checked: n new bodies per body with its volume, each centroid where it belongs. Returns the copies (originals unchanged).",
             "IFeatureManager.InsertMoveCopyBody2")]
         public IList<IBody2> Copy(IBody2 body, double dx, double dy, double dz, int n = 1) => Copy(new[] { body }, dx, dy, dz, n);
 
@@ -126,7 +126,7 @@ namespace SwAgent.Scripting.Helpers
             throw new SwHelperException($"Bodies.Copy: no copy came out right ({string.Join("; ", tried)}); nothing was changed.");
         }
 
-        [Helper("Turn a body (or a list) about \"X\"/\"Y\"/\"Z\" (\"-Z\"...) or any axis vector by degrees (right-hand rule), about a point (default the origin). Checked by measuring the turned shape; the Move/Copy rotation slot and sign that give the asked turn are found by measurement and remembered. Returns the turned body.",
+        [Helper("Turn a body (or a list) by degrees (not deg()) about \"X\"/\"Y\"/\"Z\" (\"-Z\"...) or a vector, through the point `about` (null: the origin; body.Centroid(): in place). Right-hand rule; checked by measuring the turned shape; the Move/Copy rotation slot and sign that give the asked turn are found by measurement and remembered. Returns the turned body.",
             "IFeatureManager.InsertMoveCopyBody2")]
         public IBody2 Rotate(IBody2 body, string axis, double degrees, double[] about = null) => Rotate(new[] { body }, RotationMath.AxisVector(axis), degrees, about)[0];
 
@@ -140,6 +140,7 @@ namespace SwAgent.Scripting.Helpers
             var list = HelperOps.Distinct(bodies, "Bodies.Rotate");
             if (axis == null || axis.Length < 3 || V3.Len(axis) < 1e-12) throw new SwHelperException("Bodies.Rotate: give the axis as \"X\", \"Y\", \"Z\" or a vector new[]{x, y, z}.");
             if (about != null && about.Length < 3) throw new SwHelperException("Bodies.Rotate: `about` is a point new[]{x, y, z} in meters.");
+            HelperOps.RequireDegrees(degrees, "Bodies.Rotate");
             var p = about == null ? HelperOps.Zero : new[] { about[0], about[1], about[2] };
             var angle = Math.IEEERemainder(degrees * Math.PI / 180, 2 * Math.PI);
             if (Math.Abs(angle) < 1e-12) throw new SwHelperException("Bodies.Rotate: nothing to do (the angle is a whole number of turns).");
@@ -180,7 +181,7 @@ namespace SwAgent.Scripting.Helpers
             var want = RotationMath.Axis(k, angle);
             var hasPoint = V3.Len(p) > 0;
             var tried = new List<string>();
-            var triedSlots = new HashSet<int>();
+            var triedSlots = new HashSet<(int Slot, double Value)>();
             for (var attempt = 0; attempt < 6; attempt++)
             {
                 (int Slot, double Value)? next;
@@ -188,7 +189,7 @@ namespace SwAgent.Scripting.Helpers
                     next = RotationMath.NextSlot(k, angle, SlotMap, triedSlots);
                 if (!next.HasValue) break;
                 var (slot, value) = next.Value;
-                triedSlots.Add(slot);
+                triedSlots.Add((slot, value));
                 if (attempt > 0) list = HelperOps.Refind(model, shapes, "Bodies.Rotate");
                 var usePoint = hasPoint && _rotPointHonored != false;
                 var rp = usePoint ? p : HelperOps.Zero;
@@ -299,7 +300,7 @@ namespace SwAgent.Scripting.Helpers
 
         public IBody2 Combine(IBody2 target, IEnumerable<IBody2> tools) => Boolean("Bodies.Combine", (int)swBodyOperationType_e.SWBODYADD, target, tools, false);
 
-        [Helper("Cut tool bodies out of the target (Combine Subtract), one feature; the tools are used up unless keepTools (then copies are cut). Checked: the volume removed is the tools' volume inside the target. Returns the cut body (the largest piece; all in Bodies.Last).", "IFeatureManager.InsertCombineFeature", "IPartDoc.InsertCombineFeature")]
+        [Helper("Cut tool bodies out of the target (Combine Subtract), one feature; keepTools: copies are cut, the tools stay; checked: the volume removed is the tools' volume inside the target. Returns the cut body (the largest piece; all in Bodies.Last).", "IFeatureManager.InsertCombineFeature", "IPartDoc.InsertCombineFeature")]
         public IBody2 Subtract(IBody2 target, IEnumerable<IBody2> tools, bool keepTools = false) => Boolean("Bodies.Subtract", (int)swBodyOperationType_e.SWBODYCUT, target, tools, keepTools);
 
         public IBody2 Subtract(IBody2 target, IBody2 tool, bool keepTools = false) => Boolean("Bodies.Subtract", (int)swBodyOperationType_e.SWBODYCUT, target, new[] { tool }, keepTools);
@@ -317,11 +318,14 @@ namespace SwAgent.Scripting.Helpers
             var tools = HelperOps.Distinct(toolsIn, what).Where(t => SwGeo.SafeName(t) != targetName).ToList();
             if (tools.Count == 0) throw new SwHelperException($"{what}: give at least one tool body other than the target.");
             IFeature copies = null;
+            HashSet<string> originals = null;
             var ok = false;
             try
             {
                 if (keepTools)
                 {
+                    // The copies are cut; on a retry Refind must find them, not the originals of the same shape.
+                    originals = new HashSet<string>(tools.Select(SwGeo.SafeName), StringComparer.Ordinal);
                     tools = Copy(tools, 0, 0, 0).ToList();
                     copies = LastFeature;
                 }
@@ -341,7 +345,7 @@ namespace SwAgent.Scripting.Helpers
                 {
                     if (tried.Count > 0)
                     {
-                        var again = HelperOps.Refind(model, shapes, what);
+                        var again = HelperOps.Refind(model, shapes, what, originals);
                         target = again[0];
                         tools = again.Skip(1).ToList();
                     }
@@ -501,7 +505,7 @@ namespace SwAgent.Scripting.Helpers
 
         // ---------- split ----------
 
-        [Helper("Split a body with a plane feature, or Split(body, \"X\"|\"Y\"|\"Z\", at) at that coordinate (meters; the plane is made from Front/Top/Right and checked where it lands), keeping every piece; checked: two or more pieces, volume kept, each piece on one side of the plane. Returns the pieces.",
+        [Helper("Split a body by a plane feature, or Split(body, \"X\"|\"Y\"|\"Z\", at) by a plane it makes at that coordinate (meters), keeping every piece; checked: two or more pieces, volume kept, each piece on one side of the plane. Returns the pieces.",
             "IFeatureManager.PreSplitBody2", "IFeatureManager.PostSplitBody2", "IFeatureManager.InsertRefPlane")]
         public IList<IBody2> Split(IBody2 body, IFeature plane)
         {

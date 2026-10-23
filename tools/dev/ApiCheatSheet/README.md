@@ -7,7 +7,7 @@ has the exact signatures of the members it uses most without calling `search_sw_
 
 | File | What |
 |---|---|
-| `members.json` | The curated members, grouped by task (`"IFeatureManager.FeatureCut4"`, or `{ "member", "hint" }` for a short note on the line). An entry without a dot is a swconst enum: `{ "member": "swEndConditions_e", "values": [...] }` lists those values (all of them without `values`). `budgetTokens` is the sheet's limit (characters / 4). |
+| `members.json` | The curated members, grouped by task (`"IFeatureManager.InsertRefPlane"`, or `{ "member", "hint" }` for a short note on the line; `"use": "Features.Cut"` for a member a built-in helper covers: the line gives only its parameter count and return type, and names the helper). An entry without a dot is a swconst enum: `{ "member": "swEndConditions_e", "values": [...] }` lists those values (all of them without `values`). `budgetTokens` is the sheet's limit (characters / 4). |
 | `notes.md` | The gotchas, appended to the sheet as written (the `#` title and `<!-- -->` comments are left out). |
 | `Program.cs` | Reflects every member from the interop and writes the `.ts`. A member that isn't on the named interface is an error that names the interfaces that do have it. |
 

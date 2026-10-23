@@ -55,7 +55,7 @@ namespace SwAgent.Scripting.Helpers
 
         // ---------- extrude, cut ----------
 
-        [Helper("Extrude a closed sketch (IFeature, ISketch, name, or null = the last sketch) by depth meters along its normal (reverse: the other way; midPlane: half each way), merged into touching bodies unless merge is false. Checked: the end face lies at that depth on that side and material was added. Returns the feature.",
+        [Helper("Extrude a sketch (null: the last) depth meters along its normal (reverse: the other way; midPlane: half each way), merged unless merge is false; checked: the end face lies at that depth on that side and material was added. Returns the feature.",
             "IFeatureManager.FeatureExtrusion3", "IFeatureManager.FeatureExtrusion2")]
         public IFeature Extrude(object sketch, double depth, bool reverse = false, bool merge = true, bool midPlane = false)
         {
@@ -116,7 +116,7 @@ namespace SwAgent.Scripting.Helpers
             throw new SwHelperException($"{what} of '{sk.Name}': no extrusion came out right ({string.Join("; ", tried)}); the sketch is kept, nothing else changed.");
         }
 
-        [Helper("Cut a closed sketch (IFeature, ISketch, name, or null = the last sketch) depth meters deep (Features.ThroughAll for through all) into the bodies in scope (null = all). reverse null = whichever side removes material (into the face first), false = against the sketch normal, true = along it; bothSides cuts both ways. Checked: material removed, bodies outside the scope untouched, the floor at that depth. Returns the feature.",
+        [Helper("Cut a sketch (null: the last) depth meters (or Features.ThroughAll) into scope bodies (null: all); reverse null: the side that cuts. reverse false: against the sketch normal, true: along it; bothSides: both ways. Checked: material removed, bodies outside the scope untouched, the floor at that depth. Returns the feature.",
             "IFeatureManager.FeatureCut4", "IFeatureManager.FeatureCut3")]
         public IFeature Cut(object sketch, double depth, IEnumerable<IBody2> scope = null, bool? reverse = null, bool bothSides = false)
         {
@@ -135,7 +135,7 @@ namespace SwAgent.Scripting.Helpers
             var tried = new List<string>();
             foreach (var dir in dirs)
             {
-                foreach (var mark in scopeList == null ? new int?[] { null } : HelperOps.Marks(_scopeMark, 0, 8, 1, 2).Select(m => (int?)m))
+                foreach (var mark in scopeList == null ? new int?[] { null } : HelperOps.Marks(_scopeMark, 8, 1, 2, 0).Select(m => (int?)m))
                 {
                     var r = Remove(model, sk, scopeList, mark, what, () => model.FeatureManager.FeatureCut4(Sd: !bothSides, Flip: false, Dir: dir,
                         T1: through ? (int)swEndConditions_e.swEndCondThroughAll : (int)swEndConditions_e.swEndCondBlind,
@@ -148,8 +148,9 @@ namespace SwAgent.Scripting.Helpers
                     var label = $"Dir={dir}" + (mark.HasValue ? $", scope mark {mark}" : "");
                     if (r.Feature == null)
                     {
+                        // Removed nothing: the wrong side - or, with a scope, a mark that left the bodies out of scope; so every
+                        // mark is tried before the other side (as Mold's Holes.ScopedCut does).
                         tried.Add(label + ": " + r.Problem);
-                        if (r.Problem.StartsWith("it removed nothing", StringComparison.Ordinal)) break; // the other side, not another mark
                         continue;
                     }
                     if (!bothSides && !through && n != null)
@@ -182,17 +183,18 @@ namespace SwAgent.Scripting.Helpers
 
         // ---------- revolve ----------
 
-        [Helper("Revolve a sketch about its centerline (or `axis`: a sketch line, edge or axis feature) by degrees, merged unless merge is false. Checked: no rebuild error and material added. Returns the feature.",
+        [Helper("Revolve a sketch by degrees (not deg()) about its centerline or `axis` (a sketch line, edge or axis feature), merged unless merge is false; checked: no rebuild error and material added. Returns the feature.",
             "IFeatureManager.FeatureRevolve2", "IFeatureManager.FeatureRevolve")]
         public IFeature Revolve(object sketch, double degrees = 360, object axis = null, bool merge = true) => RevolveCore("Features.Revolve", sketch, degrees, axis, false, merge, null);
 
-        [Helper("Revolve-cut a sketch about its centerline (or `axis`) by degrees from the bodies in scope (null = all). Checked: material removed, bodies outside the scope untouched. Returns the feature.",
+        [Helper("Revolve-cut a sketch by degrees (not deg()) about its centerline or `axis` from the scope bodies (null: all); checked: material removed, bodies outside the scope untouched. Returns the feature.",
             "IFeatureManager.FeatureRevolve2", "IFeatureManager.FeatureRevolveCut")]
         public IFeature RevolveCut(object sketch, double degrees = 360, object axis = null, IEnumerable<IBody2> scope = null) => RevolveCore("Features.RevolveCut", sketch, degrees, axis, true, true, scope);
 
         private IFeature RevolveCore(string what, object sketch, double degrees, object axis, bool cut, bool merge, IEnumerable<IBody2> scope)
         {
             var model = Part(what);
+            HelperOps.RequireDegrees(degrees, what);
             var angle = degrees * Math.PI / 180;
             if (!(angle > 1e-9) || angle > 2 * Math.PI + 1e-9) throw new SwHelperException($"{what}: degrees must be in 0..360.");
             angle = Math.Min(angle, 2 * Math.PI);
@@ -202,12 +204,15 @@ namespace SwAgent.Scripting.Helpers
             if (axis == null && centerlines.Count == 0) throw new SwHelperException($"{what}: '{sk.Name}' has no centerline - add one (construction line) or pass `axis`.");
             var axisEntity = axis ?? (centerlines.Count == 1 ? centerlines[0] : null);
             var scopeList = scope == null ? null : HelperOps.Distinct(scope, what);
-            // Sketch alone (SolidWorks takes a single centerline itself), then the axis selected with the marks revolves read.
-            var axisMarks = new int?[] { null }.Concat(axisEntity != null ? new int?[] { 4, 16, 1, 0 } : new int?[0]).ToList();
+            // An axis the cell passed: only with it selected (with the marks revolves read) - the sketch alone would revolve about
+            // its own centerline, and nothing measured would tell. No axis passed: the sketch alone (SolidWorks takes a single
+            // centerline itself), then that centerline selected.
+            var axisMarks = axis != null ? new int?[] { 4, 16, 1, 0 }.ToList()
+                : new int?[] { null }.Concat(axisEntity != null ? new int?[] { 4, 16, 1, 0 } : new int?[0]).ToList();
             var tried = new List<string>();
             foreach (var axisMark in axisMarks)
             {
-                foreach (var mark in scopeList == null ? new int?[] { null } : HelperOps.Marks(_scopeMark, 0, 8, 1, 2).Select(m => (int?)m))
+                foreach (var mark in scopeList == null ? new int?[] { null } : HelperOps.Marks(_scopeMark, 8, 1, 2, 0).Select(m => (int?)m))
                 {
                     var label = (axisMark.HasValue ? $"axis mark {axisMark}" : "sketch only") + (mark.HasValue ? $", scope mark {mark}" : "");
                     Func<IFeature> make = () =>

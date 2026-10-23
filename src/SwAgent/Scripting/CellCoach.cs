@@ -9,8 +9,10 @@ namespace SwAgent.Scripting
     /// <summary>
     /// The self-improving loop's prompts in execute_csharp results:
     /// <list type="bullet">
-    /// <item>the nudge: a cell that works after failed ones (in the same chat, within the last 4 cells) asks the agent to save
-    ///   what it learned as an API note and, when the pattern can recur, a helper;</item>
+    /// <item>the nudge: a cell that works after API-shaped failures (wrong interface or arguments, a COM error, a bad cast, a
+    ///   helper that refused; in the same chat, within the last 4 cells) that called the same API members asks the agent to
+    ///   save what it learned as an API note and, when the pattern can recur, a helper. Typos, the cell's own exceptions and
+    ///   unrelated cells don't count, and saving a note or helper settles the failures before it;</item>
     /// <item>hints: a cell that calls a raw API member a helper wraps is told which helper does it in one call;</item>
     /// <item>notes: a failing cell that calls a member an API note is about gets that note next to its error.</item>
     /// </list>
@@ -21,32 +23,65 @@ namespace SwAgent.Scripting
         /// <summary>The cells looked at: this one and the 3 before it.</summary>
         public const int Window = 4;
 
+        /// <summary>Compile errors that say the API was used wrong (member on another interface, arguments, conversions, array indexing).</summary>
+        internal static readonly HashSet<string> ApiErrors = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "CS1061", "CS1929", "CS0117", "CS1501", "CS7036", "CS1739", "CS1503", "CS0029", "CS0266", "CS0030", "CS0021", "CS0619", "CS1955",
+        };
+
+        /// <summary>Run-time failures that come from the API: a COM error, a bad cast, a null the API returned, a helper that refused.</summary>
+        internal static readonly HashSet<string> ApiExceptions = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "COMException", "InvalidCastException", "NullReferenceException", "SwHelperException", "MoldApiException", "ArgumentException",
+        };
+
+        /// <summary>Members every cell calls: sharing one of these doesn't make two cells about the same thing.</summary>
+        private static readonly HashSet<string> Common = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "ClearSelection2", "EditRebuild3", "ForceRebuild3", "GetTypeName2", "GetNextFeature", "FirstFeature", "GetSpecificFeature2",
+            "AsDoubles", "AsObjects", "AsInts", "AsStrings", "Bodies", "Features", "LastFeature", "SelMgr", "Volume", "Box", "Centroid",
+            "All", "Named", "ByName", "Last", "GetType",
+        };
+
         private sealed class Outcome
         {
             public bool Ok;
             public string What;
+            public bool Learnable;
+            public HashSet<string> Api;
         }
 
         private readonly ConcurrentDictionary<string, List<Outcome>> _history = new ConcurrentDictionary<string, List<Outcome>>();
 
         /// <summary>
-        /// Record a cell of a chat. failure: what went wrong ("CS1061", "COMException"), null when it worked. Returns the nudge
-        /// when it worked after one or more failed cells within the window (once: the history starts again after it).
+        /// Record a cell of a chat. failure: what went wrong ("CS1061", "COMException"), null when it worked; api: the API and
+        /// helper members it calls (ScriptHost.Inspect); learnable: a failure about the API (Learnable). Returns the nudge when
+        /// it worked after one or more learnable failed cells within the window that call one of the same members (once: the
+        /// history starts again after it).
         /// </summary>
-        public string Record(string thread, bool ok, string failure = null)
+        public string Record(string thread, bool ok, string failure = null, ISet<string> api = null, bool learnable = true)
         {
             var list = _history.GetOrAdd(thread ?? "default", _ => new List<Outcome>());
             lock (list)
             {
                 var before = list.Skip(Math.Max(0, list.Count - (Window - 1))).ToList();
-                list.Add(new Outcome { Ok = ok, What = failure });
+                var calls = new HashSet<string>((api ?? Enumerable.Empty<string>()).Where(n => !Common.Contains(n)), StringComparer.Ordinal);
+                list.Add(new Outcome { Ok = ok, What = failure, Learnable = !ok && learnable, Api = calls });
                 while (list.Count > Window) list.RemoveAt(0);
                 if (!ok) return null;
-                var failed = before.Where(o => !o.Ok).ToList();
+                var failed = before.Where(o => !o.Ok && o.Learnable && (api == null || o.Api.Overlaps(calls))).ToList();
                 if (failed.Count == 0) return null;
                 list.Clear();
-                return Nudge(failed.Count, failed.Select(f => f.What));
+                var shared = api == null ? new List<string>() : failed.SelectMany(f => f.Api).Where(calls.Contains).Distinct().Take(3).ToList();
+                return Nudge(failed.Count, failed.Select(f => f.What), shared);
             }
+        }
+
+        /// <summary>The agent saved what it learned (an API note, a helper, a helper test): the failures before it are settled.</summary>
+        public void Learned(string thread)
+        {
+            if (thread != null && _history.TryGetValue(thread, out var list))
+                lock (list) list.Clear();
         }
 
         /// <summary>Forget a chat's cells (new chat / reset).</summary>
@@ -57,12 +92,28 @@ namespace SwAgent.Scripting
             _hinted.TryRemove(thread, out _);
         }
 
-        internal static string Nudge(int failures, IEnumerable<string> what)
+        /// <summary>
+        /// Whether a failed cell's report is about the API, so a fix is worth a note or a helper: an API-shaped compile error
+        /// (ApiErrors; not syntax or a name typo), or an API-shaped exception (ApiExceptions) that the cell didn't throw itself.
+        /// </summary>
+        internal static bool Learnable(string report, string code)
+        {
+            if (string.IsNullOrEmpty(report)) return false;
+            if (report.StartsWith("Compilation failed", StringComparison.Ordinal))
+                return Regex.Matches(report, @"\b(CS\d{4})\b").Cast<Match>().Any(m => ApiErrors.Contains(m.Groups[1].Value));
+            var kind = FailureKind(report);
+            if (kind == null || !ApiExceptions.Contains(kind)) return false;
+            return code == null || !Regex.IsMatch(code, @"\bthrow\s+new\s+(?:[\w.]+\.)?" + Regex.Escape(kind) + @"\b");
+        }
+
+        internal static string Nudge(int failures, IEnumerable<string> what, IEnumerable<string> members = null)
         {
             var kinds = (what ?? Enumerable.Empty<string>()).Where(w => !string.IsNullOrEmpty(w)).Distinct().Take(4).ToList();
-            return $"That worked after {failures} failed {(failures == 1 ? "try" : "tries")}{(kinds.Count > 0 ? " (" + string.Join(", ", kinds) + ")" : "")}. " +
-                   "Make it permanent: save_api_note(what was wrong, what works) and, if the pattern can recur, save_helper with a robust helper " +
-                   "(an extension method can make the failing form work too).";
+            var about = (members ?? Enumerable.Empty<string>()).ToList();
+            return $"That worked after {failures} failed {(failures == 1 ? "try" : "tries")}{(kinds.Count > 0 ? " (" + string.Join(", ", kinds) + ")" : "")}" +
+                   $"{(about.Count > 0 ? " with " + string.Join(", ", about) : "")}. " +
+                   "If the failure was about the API (not a typo or your own logic), keep the lesson: save_api_note(what was wrong, what works) and, " +
+                   "if the pattern can recur, save_helper with a robust helper (an extension method can make the failing form work too).";
         }
 
         /// <summary>

@@ -152,8 +152,13 @@ agent's code cells can call, compiled together with the helpers the agent writes
   like the file. Extension methods are allowed (that is how a helper makes a wrong-interface call such as
   `Model.GetComponentByName(...)` work); one that a built-in extension already defines (`Model.FeatureByName`,
   `x.AsDoubles()`, ...) is refused. Other types go inside the class. The cells' usings apply (System, Linq,
-  SolidWorks.Interop.sldworks / swconst, the built-in `SwAgent.Scripting.Extensions`, ...). The built-in helpers
-  (`Bodies.*`, `Features.*`, `Sel.*`) reserve those class names.
+  SolidWorks.Interop.sldworks / swconst, the built-in `SwAgent.Scripting.Extensions`, ...) plus
+  `SwAgent.Scripting.Helpers`. The built-in helpers (`Bodies.*`, `Features.*`, `Sel.*`) reserve those class names.
+- A helper has none of the cells' globals (`Model`, `swApp`, `mm`/`deg`, `Print`, `Bodies`/`Features`/`Sel`): it takes
+  `IModelDoc2 model` as a parameter and works in meters and degrees. To build on the measured built-in helpers, take
+  `BodiesApi` / `FeaturesApi` / `SelApi` as a parameter or this-receiver: `public static IBody2 TurnInPlace(this BodiesApi
+  bodies, IBody2 b, string axis, double degrees)` is called `Bodies.TurnInPlace(b, "X", 90)` in a cell, and the index
+  shows it that way.
 - Optional header lines: `// summary: <one line for the agent's helper index>` (else the class's XML summary) and
   `// wraps: IModelDocExtension.InsertMoveCopyBody2, ...` (a cell that calls one of these raw is told to use the helper).
 - Helpers are code that runs inside SolidWorks: they count as tool code for trust (section 8), so they run only once

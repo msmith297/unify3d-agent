@@ -68,12 +68,12 @@
     {
       "title": "Features (select the sketch first; a null return means it failed)",
       "members": [
-        "IFeatureManager.FeatureExtrusion3",
-        "IFeatureManager.FeatureCut4",
-        "IFeatureManager.FeatureRevolve2",
+        { "member": "IFeatureManager.FeatureExtrusion3", "use": "Features.Extrude" },
+        { "member": "IFeatureManager.FeatureCut4", "use": "Features.Cut" },
+        { "member": "IFeatureManager.FeatureRevolve2", "use": "Features.Revolve / RevolveCut" },
         { "member": "swEndConditions_e", "values": [ "swEndCondBlind", "swEndCondThroughAll", "swEndCondMidPlane", "swEndCondUpToSurface", "swEndCondOffsetFromSurface", "swEndCondThroughAllBoth" ] },
         { "member": "swStartConditions_e", "values": [ "swStartSketchPlane", "swStartOffset" ] },
-        "IFeatureManager.FeatureFillet3",
+        { "member": "IFeatureManager.FeatureFillet3", "use": "Features.Fillet" },
         "IFeatureManager.InsertFeatureChamfer",
         "IFeatureManager.FeatureLinearPattern5",
         "IFeatureManager.FeatureCircularPattern5",
@@ -90,7 +90,7 @@
         "IBody2.Operations2",
         { "member": "swBodyOperationType_e", "values": [ "SWBODYINTERSECT", "SWBODYCUT", "SWBODYADD" ] },
         { "member": "IFeatureManager.InsertCombineFeature", "hint": "target Mark 1, tools Mark 2, pass (op, null, null)" },
-        { "member": "IFeatureManager.InsertMoveCopyBody2", "hint": "body Mark 1" },
+        { "member": "IFeatureManager.InsertMoveCopyBody2", "use": "Bodies.Move / Rotate / Copy", "hint": "body Mark 1" },
         { "member": "IFeatureManager.PreSplitBody2", "hint": "plane Mark 1, body Mark 2" },
         "IFeatureManager.PostSplitBody2",
         "IFeatureManager.InsertDeleteBody2",
@@ -107,6 +107,19 @@
         { "member": "IFeatureManager.InsertSubFolder", "hint": "folds the selected bodies (IBody2.Select2(true, null)); rename the feature" },
         "IBodyFolder.GetBodies",
         "IBodyFolder.GetBodyCount"
+      ]
+    },
+    {
+      "title": "Assembly components",
+      "members": [
+        { "member": "IAssemblyDoc.GetComponents", "hint": "object[] of IComponent2: .AsObjects<IComponent2>()" },
+        "IAssemblyDoc.GetComponentByName",
+        "IComponent2.Name2",
+        { "member": "IComponent2.GetModelDoc2", "hint": "the part or sub-assembly (null when lightweight or suppressed)" },
+        { "member": "IComponent2.Transform2", "hint": "component to assembly space" },
+        { "member": "IComponent2.SetTransformAndSolve2", "hint": "moves it within its mates" },
+        "IComponent2.IsFixed",
+        { "member": "IComponent2.GetBox", "hint": "double[6] in assembly space" }
       ]
     },
     {

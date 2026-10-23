@@ -118,16 +118,20 @@ namespace SwAgent.Scripting.Helpers
 
         /// <summary>
         /// Which InsertMoveCopyBody2 rotation slot (0 RotAngleX, 1 Y, 2 Z) and value to try next for a turn about model
-        /// axis k by angle: a slot known (measured earlier) to turn about k, with its sign; else an untried slot, k's own
-        /// first; null when every slot was tried. `map` holds what each measured slot did: value v in slot s turns about
-        /// model axis map[s].Axis by map[s].Sign * v.
+        /// axis k by angle: a slot known (measured earlier, this call included) to turn about k, with its sign; else an
+        /// untried slot, k's own first; null when nothing is left. `map` holds what each measured slot did: value v in slot s
+        /// turns about model axis map[s].Axis by map[s].Sign * v. `tried` holds the (slot, value) pairs this turn tried, so a
+        /// slot that turned about k the wrong way is tried again at once with the other sign.
         /// </summary>
-        public static (int Slot, double Value)? NextSlot(int k, double angle, IReadOnlyDictionary<int, (int Axis, int Sign)> map, ICollection<int> tried)
+        public static (int Slot, double Value)? NextSlot(int k, double angle, IReadOnlyDictionary<int, (int Axis, int Sign)> map, ICollection<(int Slot, double Value)> tried)
         {
             foreach (var kv in map.OrderBy(x => x.Key))
-                if (kv.Value.Axis == k && !tried.Contains(kv.Key)) return (kv.Key, angle * kv.Value.Sign);
+            {
+                var value = angle * kv.Value.Sign;
+                if (kv.Value.Axis == k && !tried.Contains((kv.Key, value))) return (kv.Key, value);
+            }
             foreach (var s in new[] { k, (k + 1) % 3, (k + 2) % 3 })
-                if (!tried.Contains(s) && !map.ContainsKey(s)) return (s, angle);
+                if (!map.ContainsKey(s) && !tried.Any(t => t.Slot == s)) return (s, angle);
             return null;
         }
 
@@ -266,11 +270,12 @@ namespace SwAgent.Scripting.Helpers
 
         /// <summary>
         /// The bodies again after an undone try (deleting a feature rebuilds the part and old references can go stale),
-        /// matched by volume and centroid, in the order of `shapes`.
+        /// matched by volume and centroid, in the order of `shapes`. Bodies named in `exclude` are never matched (in-place
+        /// copies have their original's signature: the originals are excluded so the copies are found).
         /// </summary>
-        public static List<IBody2> Refind(IModelDoc2 model, IList<BodyShape> shapes, string what)
+        public static List<IBody2> Refind(IModelDoc2 model, IList<BodyShape> shapes, string what, ICollection<string> exclude = null)
         {
-            var pool = SwGeo.Solids(model);
+            var pool = SwGeo.Solids(model).Where(b => exclude == null || !exclude.Contains(SwGeo.SafeName(b))).ToList();
             var result = new List<IBody2>();
             foreach (var s in shapes)
             {
@@ -307,6 +312,20 @@ namespace SwAgent.Scripting.Helpers
             {
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Helpers take degrees, but cells convert with deg() for the raw API: deg(90) = 1.5708 would turn by 1.6 degrees and
+        /// pass every check. A value of at most a full turn in radians that is a round number of degrees (a multiple of 15)
+        /// is refused as that mistake.
+        /// </summary>
+        public static void RequireDegrees(double degrees, string what)
+        {
+            var a = Math.Abs(degrees);
+            if (!(a > 1e-9) || a > 2 * Math.PI + 1e-9) return;
+            var asDegrees = a * 180 / Math.PI;
+            if (Math.Abs(asDegrees / 15 - Math.Round(asDegrees / 15)) * 15 < 1e-6)
+                throw new SwHelperException($"{what}: helpers take degrees: pass {Math.Round(degrees * 180 / Math.PI)}, not deg({Math.Round(degrees * 180 / Math.PI)}) ({degrees:0.####} would be {degrees:0.####} degrees).");
         }
 
         public static double Size(IEnumerable<BodyShape> shapes) =>

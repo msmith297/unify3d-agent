@@ -178,7 +178,7 @@ namespace SwAgent.Tests
                 Assert.Contains("undefinedThing", build.Skipped["Broken"]);
                 Assert.Contains("undefinedThing", env.Store.Helper("Broken").LastError); // the record says why
                 Assert.Null(env.Store.Helper("Calc").LastError);
-                Assert.Equal("Calc.Twice(int x): int", build.Find("Calc").Signature);
+                Assert.Equal("Calc.Twice(int x) -> int", build.Find("Calc").Signature);
                 Assert.True(File.Exists(build.DllPath));
                 Assert.StartsWith(Path.Combine(env.Dir, "helpers-bin"), build.DllPath);
 
@@ -206,7 +206,7 @@ namespace SwAgent.Tests
                     ["wraps"] = new JArray("IAssemblyDoc.GetComponentByName"),
                 });
                 Assert.False(saved.IsError, KnowledgeTestEnv.Text(saved));
-                Assert.Contains("IModelDoc2.GetComponentByName(string name): IComponent2", KnowledgeTestEnv.Text(saved));
+                Assert.Contains("IModelDoc2.GetComponentByName(string name) -> IComponent2", KnowledgeTestEnv.Text(saved));
 
                 var after = env.Host.CompilePreviewAsync(cell).GetAwaiter().GetResult();
                 Assert.Null(after.Errors);
@@ -270,31 +270,32 @@ namespace SwAgent.Tests
         {
             using (var env = new KnowledgeTestEnv())
             {
+                const string works = "var c = Model is IAssemblyDoc asm ? asm.GetComponentByName(\"x\") : null; c == null";
                 var fail = env.Cell("Model.GetComponentByName(\"x\")");
                 Assert.True(fail.IsError);
                 Assert.Contains("CS1061", KnowledgeTestEnv.Text(fail));
-                var fail2 = env.Cell("throw new InvalidOperationException(\"nope\");");
+                var fail2 = env.Cell("Model.GetComponentByName(1, 2)");
                 Assert.True(fail2.IsError);
 
-                var ok = env.Cell("1 + 1");
+                var ok = env.Cell(works);
                 Assert.False(ok.IsError);
                 var text = KnowledgeTestEnv.Text(ok);
-                Assert.Contains("That worked after 2 failed tries (CS1061, InvalidOperationException)", text);
+                Assert.Contains("That worked after 2 failed tries (CS1061) with GetComponentByName", text);
                 Assert.Contains("save_api_note", text);
                 Assert.Contains("save_helper", text);
 
-                Assert.DoesNotContain("That worked", KnowledgeTestEnv.Text(env.Cell("2 + 2"))); // once per recovery
+                Assert.DoesNotContain("That worked", KnowledgeTestEnv.Text(env.Cell(works))); // once per recovery
 
                 // Only the last 4 cells count: five failures, then one that works, is "3 failed tries".
-                for (var i = 0; i < 5; i++) env.Cell("Model.Nope()");
-                Assert.Contains("That worked after 3 failed tries (CS1061)", KnowledgeTestEnv.Text(env.Cell("3")));
+                for (var i = 0; i < 5; i++) env.Cell("Model.GetComponentByName(\"x\")");
+                Assert.Contains("That worked after 3 failed tries (CS1061)", KnowledgeTestEnv.Text(env.Cell(works)));
 
                 // Tool macros (and test_helper cells) don't count: a macro that works after a failed cell gets no nudge.
-                env.Cell("Model.Nope()");
-                var macro = env.Host.RunMacroAsync(env.Ctx, "macro", "1", null).GetAwaiter().GetResult();
+                env.Cell("Model.GetComponentByName(\"x\")");
+                var macro = env.Host.RunMacroAsync(env.Ctx, "macro", works, null).GetAwaiter().GetResult();
                 Assert.DoesNotContain("That worked", KnowledgeTestEnv.Text(macro));
-                Assert.Equal("That worked after 1 failed try. Make it permanent: save_api_note(what was wrong, what works) and, if the pattern can recur, " +
-                             "save_helper with a robust helper (an extension method can make the failing form work too).", CellCoach.Nudge(1, null));
+                Assert.Equal("That worked after 1 failed try. If the failure was about the API (not a typo or your own logic), keep the lesson: save_api_note(what was wrong, " +
+                             "what works) and, if the pattern can recur, save_helper with a robust helper (an extension method can make the failing form work too).", CellCoach.Nudge(1, null));
             }
         }
 
@@ -380,7 +381,7 @@ namespace SwAgent.Tests
                     // The agent's own helpers first (they are the lessons it saved), then the built-in ones.
                     Assert.Equal("Calc", (string)helpers[0]["name"]);
                     Assert.Equal("user", (string)helpers[0]["source"]);
-                    Assert.Equal("Calc.Twice(int x): int - doubles a number", (string)helpers[0]["line"]);
+                    Assert.Equal("Calc.Twice(int x) -> int - doubles a number", (string)helpers[0]["line"]);
                     Assert.Equal("Bodies.Rotate", (string)helpers[1]["name"]);
                     Assert.Equal("built-in", (string)helpers[1]["source"]);
                     var notes = (JArray)index["notes"];
@@ -434,7 +435,7 @@ namespace SwAgent.Tests
                 Assert.True(env.Call("test_helper", new JObject { ["name"] = "Nothing", ["code"] = "1" }).IsError);
 
                 var list = KnowledgeTestEnv.Text(env.Call("list_helpers", new JObject()));
-                Assert.Contains("[user] Calc.Twice(int x): int - doubles", list);
+                Assert.Contains("[user] Calc.Twice(int x) -> int - doubles", list);
                 var read = KnowledgeTestEnv.Text(env.Call("read_helper", new JObject { ["name"] = "Calc" }));
                 Assert.Contains("public static int Twice", read);
                 Assert.Contains("last test: failed", read);

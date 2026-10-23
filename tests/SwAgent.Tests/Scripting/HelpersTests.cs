@@ -241,27 +241,53 @@ namespace SwAgent.Tests.Scripting
             var solidWorks = new Dictionary<int, (int Axis, int Sign)> { [0] = (1, 1), [1] = (2, -1), [2] = (0, 1) };
             var learned = new Dictionary<int, (int Axis, int Sign)>();
 
-            int Turn(int k, double angle)
-            {
-                var tried = new HashSet<int>();
-                for (var attempt = 1; attempt <= 3; attempt++)
-                {
-                    var next = RotationMath.NextSlot(k, angle, learned, tried);
-                    Assert.True(next.HasValue);
-                    var (slot, value) = next.Value;
-                    tried.Add(slot);
-                    var did = solidWorks[slot];
-                    learned[slot] = did; // measured
-                    if (did.Axis == k && Math.Abs(did.Sign * value - angle) < 1e-12) return attempt;
-                }
-                return -1;
-            }
+            Assert.Equal(3, SimulatedTurn(solidWorks, learned, 0, Math.PI / 2));
+            Assert.Equal(1, SimulatedTurn(solidWorks, learned, 0, -Math.PI / 4));
+            Assert.Equal(1, SimulatedTurn(solidWorks, learned, 2, 0.5)); // RotAngleY with the sign flipped
+            Assert.Equal(1, SimulatedTurn(solidWorks, learned, 1, 1.0));
+            // Every way to turn about X tried: nothing left.
+            Assert.Null(RotationMath.NextSlot(0, 1, learned, new HashSet<(int Slot, double Value)> { (2, 1.0) }));
+        }
 
-            Assert.Equal(3, Turn(0, Math.PI / 2));
-            Assert.Equal(1, Turn(0, -Math.PI / 4));
-            Assert.Equal(1, Turn(2, 0.5)); // RotAngleY with the sign flipped
-            Assert.Equal(1, Turn(1, 1.0));
-            Assert.Null(RotationMath.NextSlot(0, 1, learned, new HashSet<int> { 0, 1, 2 }));
+        /// <summary>
+        /// The first turn of a session works even when the slot that turns about the asked axis does it the other way round
+        /// (the chats' "rotation sign" mistake): the slot is tried again at once with the sign flipped, instead of giving up
+        /// after the other slots (review 2026-10-22: the first Bodies.Rotate threw, only a second call worked).
+        /// </summary>
+        [Fact]
+        public void The_first_turn_retries_a_slot_that_turned_the_wrong_way()
+        {
+            // RotAngleX turns about X, but by -angle.
+            var flipped = new Dictionary<int, (int Axis, int Sign)> { [0] = (0, -1), [1] = (1, 1), [2] = (2, 1) };
+            Assert.Equal(2, SimulatedTurn(flipped, new Dictionary<int, (int Axis, int Sign)>(), 0, Math.PI / 2));
+
+            // The user's SolidWorks, a turn about Z first: RotAngleZ turns about X, RotAngleX about Y, RotAngleY about Z the
+            // other way - then RotAngleY with the sign flipped.
+            var user = new Dictionary<int, (int Axis, int Sign)> { [0] = (1, 1), [1] = (2, -1), [2] = (0, 1) };
+            var learned = new Dictionary<int, (int Axis, int Sign)>();
+            Assert.Equal(4, SimulatedTurn(user, learned, 2, Math.PI / 2));
+            Assert.Equal(1, SimulatedTurn(user, learned, 2, -0.3));
+        }
+
+        /// <summary>
+        /// One turn about model axis k against a simulated SolidWorks whose rotation slot s turns about solidWorks[s].Axis by
+        /// solidWorks[s].Sign * value, the way BodiesApi.TurnAbout drives NextSlot (up to 6 tries, every try measured into
+        /// `learned`). Returns the try that gave the turn, or -1.
+        /// </summary>
+        private static int SimulatedTurn(Dictionary<int, (int Axis, int Sign)> solidWorks, Dictionary<int, (int Axis, int Sign)> learned, int k, double angle)
+        {
+            var tried = new HashSet<(int Slot, double Value)>();
+            for (var attempt = 1; attempt <= 6; attempt++)
+            {
+                var next = RotationMath.NextSlot(k, angle, learned, tried);
+                if (!next.HasValue) return -1;
+                var (slot, value) = next.Value;
+                tried.Add((slot, value));
+                var did = solidWorks[slot];
+                learned[slot] = did; // measured
+                if (did.Axis == k && Math.Abs(did.Sign * value - angle) < 1e-12) return attempt;
+            }
+            return -1;
         }
     }
 }

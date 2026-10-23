@@ -113,16 +113,11 @@ namespace SwAgent.Scripting
         [AgentTool("execute_csharp",
             "Run C# against the live SolidWorks API (full COM API: ISldWorks, IModelDoc2, IFeatureManager, ISketchManager, " +
             "IModelDocExtension, ...). Use for everything the other tools don't cover: creating sketches and features, " +
-            "editing dimensions, assemblies and mates, drawings, custom properties, exports. Lengths are meters and angles " +
-            "radians (use mm()/deg()). Each call is recorded as one undo step. Measuring helpers: Geo.EdgePoints(edge), " +
-            "Geo.LoopPoints(loop), Geo.Frame(planarFace) -> u/v/n frame (ToUV, ToModel, Height), Geo.LoopUV(loop, frame), " +
-            "Geo.Distance(point or loop, edge/edges/loop), Geo.Inside(uv, polygon), Geo.Box(uv) - use them instead of hand-written " +
-            "edge sampling. Checked helpers (one feature each, verified by measurement, meters and degrees): Bodies.Move/Rotate/Copy/" +
-            "Combine/Subtract/Intersect/Split/ToFolder, Features.Extrude/Cut/Revolve/RevolveCut/Fillet/ByName, Sel.Select/Data/Get/Clear; " +
-            "interop extensions: Model.FeatureByName, Model.Bodies(), Model.Features(), x.AsDoubles()/AsObjects<T>(), body.Box()/Volume(); " +
-            "plus the helpers you saved (save_helper) and plugins' helpers, all listed in the Helpers index. Mold.* (design-compression-mold " +
-            "building blocks: Frame, InsertPart, ScaleForShrink, Plate, Subtract, Folder, FlashGrooves... each checked by measurement). " +
-            "Returns console output, the last expression's value, compile errors with line numbers and fix hints, or the exception.")]
+            "editing dimensions, assemblies and mates, drawings, custom properties, exports. Raw API calls take meters and radians " +
+            "(mm()/deg()); the checked helpers take meters and degrees. Each call is recorded as one undo step. Helpers: the Helpers " +
+            "index in the system prompt lists them (Bodies.*, Features.*, Sel.*, the interop extensions, yours and plugins'); Geo.* " +
+            "measures edges and loops (use it instead of hand-written edge sampling); Mold.* holds the design-compression-mold building " +
+            "blocks. Returns console output, the last expression's value, compile errors with line numbers and fix hints, or the exception.")]
         public Task<ToolResult> Execute(ToolContext ctx, ExecuteInput input) => ExecuteAsync(ctx, input, learn: true);
 
         /// <summary>
@@ -165,7 +160,7 @@ namespace SwAgent.Scripting
             var diagnostics = await Task.Run(() => script.Compile());
             compileWatch.Stop();
             var errors = diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).ToList();
-            var (rawCalls, usedHelpers) = await Task.Run(() => Inspect(script, helpers));
+            var (rawCalls, usedHelpers, apiNames) = await Task.Run(() => Inspect(script, helpers));
             if (errors.Count > 0)
             {
                 // Fix hints (reflection over the interop and the helpers' Wraps only, no SolidWorks calls): off the UI thread. The
@@ -176,7 +171,7 @@ namespace SwAgent.Scripting
                 {
                     // The advisor already named the helpers that wrap the failing calls: don't name them twice.
                     notes.AddRange(Advice(threadKey, input.Code, rawCalls, helpers, failed: true).Where(l => !NamedIn(hints, l)));
-                    _coach.Record(threadKey, false, CellCoach.FailureKind(failed));
+                    _coach.Record(threadKey, false, CellCoach.FailureKind(failed), apiNames, CellCoach.Learnable(failed, input.Code));
                 }
                 return ToolResult.Error(failed + Tail(notes));
             }
@@ -221,11 +216,13 @@ namespace SwAgent.Scripting
             var treeChanges = SwAgent.Tools.FeatureDiff.Describe(treeBefore, SwAgent.Tools.FeatureDiff.Take(model));
             if (treeChanges != null) report += "\n--- " + treeChanges + " (all made by this cell)";
             if (usedHelpers.Count > 0) Infrastructure.Safe.Run("Count helper uses", () => Helpers.Store.CountUses(usedHelpers.Select(h => (h.Name, h.Source))));
+            var arrays = ArrayCastHint(state.Exception);
+            if (arrays != null) notes.Add(arrays);
             if (learn)
             {
                 var ok = state.Exception == null;
                 notes.AddRange(Advice(threadKey, input.Code, rawCalls, helpers, failed: !ok));
-                var nudge = _coach.Record(threadKey, ok, ok ? null : CellCoach.FailureKind(report));
+                var nudge = _coach.Record(threadKey, ok, ok ? null : CellCoach.FailureKind(report), apiNames, !ok && CellCoach.Learnable(report, input.Code));
                 if (nudge != null) notes.Add(nudge);
             }
             report += Tail(notes);
@@ -285,20 +282,41 @@ namespace SwAgent.Scripting
             _coach.Reset(threadId);
         }
 
+        /// <summary>
+        /// The agent saved what it learned (save_api_note, save_helper, test_helper): the failed cells before are dealt with, so
+        /// the next cell that works isn't nudged about them again.
+        /// </summary>
+        internal void Learned(string threadId) => _coach.Learned(threadId ?? "default");
+
+        /// <summary>A run-time cast of a SolidWorks array or data object (the chats' object[] to double[]): the line that converts it, or null.</summary>
+        internal static string ArrayCastHint(Exception ex)
+        {
+            if (!(ex is InvalidCastException)) return null;
+            var m = ex.Message ?? "";
+            if (m.IndexOf("System.Object[]", StringComparison.Ordinal) < 0 && m.IndexOf("CurveParamData", StringComparison.Ordinal) < 0 &&
+                m.IndexOf("__ComObject", StringComparison.Ordinal) < 0)
+                return null;
+            return "SolidWorks arrays and data objects don't cast to typed arrays: x.AsDoubles() / x.AsInts() / x.AsObjects<IBody2>() convert them (null gives []); " +
+                   "a COM object that won't cast is a different object, not that interface.";
+        }
+
         // ---------------------------------------------------------------- the self-improving loop
 
-        /// <summary>The API members a cell calls raw, and the user/plugin helpers it calls (empty when that can't be read).</summary>
-        private static (HashSet<string> Raw, List<UserHelpers.Built> Used) Inspect(Script<object> script, UserHelpers.Build helpers)
+        /// <summary>
+        /// The API members a cell calls raw, the user/plugin helpers it calls, and every API or helper member it calls by name
+        /// (for the nudge: a working cell must share one with the failed cell); empty when that can't be read.
+        /// </summary>
+        private static (HashSet<string> Raw, List<UserHelpers.Built> Used, HashSet<string> Api) Inspect(Script<object> script, UserHelpers.Build helpers)
         {
             try
             {
                 var compilation = script.GetCompilation();
-                return (UserHelpers.RawCalls(compilation), UserHelpers.UsedBy(compilation, helpers));
+                return (UserHelpers.RawCalls(compilation), UserHelpers.UsedBy(compilation, helpers), UserHelpers.CalledNames(compilation));
             }
             catch (Exception ex)
             {
                 Log.Warn("Reading a cell's calls failed: " + ex.Message);
-                return (new HashSet<string>(), new List<UserHelpers.Built>());
+                return (new HashSet<string>(), new List<UserHelpers.Built>(), new HashSet<string>());
             }
         }
 
@@ -359,6 +377,7 @@ namespace SwAgent.Scripting
             var latest = old.Variables.GroupBy(v => v.Name).Select(g => g.Last()).Where(v => !v.Name.StartsWith("<", StringComparison.Ordinal)).ToList();
             var dropped = new List<string>();
             var lines = new List<(string Name, string Line, string Key)>();
+            var keys = new List<string>(); // every value handed over, so none stays in ScriptCarry (they hold COM objects)
             foreach (var v in latest)
             {
                 var type = CSharpTypeName.Of(v.Type);
@@ -368,6 +387,7 @@ namespace SwAgent.Scripting
                     continue;
                 }
                 var key = ScriptCarry.Put(v.Value);
+                keys.Add(key);
                 lines.Add((v.Name, $"{type} {v.Name} = ({type})global::SwAgent.Scripting.ScriptCarry.Take(\"{key}\");", key));
             }
             var carried = new List<string>();
@@ -405,7 +425,7 @@ namespace SwAgent.Scripting
             }
             finally
             {
-                foreach (var l in lines) ScriptCarry.Take(l.Key);
+                foreach (var k in keys) ScriptCarry.Take(k);
             }
             return "The helpers changed since your last cell, so this cell runs in a new script session (the new helpers can't load into the old one)." +
                    (carried.Count > 0 ? " Variables carried over: " + string.Join(", ", carried) + "." : "") +

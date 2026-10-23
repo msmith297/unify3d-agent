@@ -176,8 +176,7 @@ namespace SwAgent.Scripting
                     yield break;
 
                 case "CS0021": // Cannot apply indexing with [] to an expression of type 'object'
-                    if (msg.Contains("'object'"))
-                        yield return "SolidWorks arrays come back typed object: index x.AsDoubles()[i] for numbers or x.AsObjects<IBody2>()[i] for objects.";
+                    if (msg.Contains("'object'")) yield return IndexHint(node);
                     foreach (var h in HelperHints(InvokedName(Invocation(node)), helpers)) yield return h;
                     yield break;
 
@@ -252,7 +251,7 @@ namespace SwAgent.Scripting
                 }
             }
             foreach (var t in new[] { typeof(DocExtensions), typeof(EntityExtensions), typeof(VariantExtensions) })
-            foreach (var mi in t.GetMethods(BindingFlags.Public | BindingFlags.Static))
+            foreach (var mi in t.GetMethods(BindingFlags.Public | BindingFlags.Static).Where(m => m.GetCustomAttribute<ObsoleteAttribute>() == null)) // not the compile-time guards
             {
                 var first = mi.GetParameters().FirstOrDefault()?.ParameterType;
                 if (first == null) continue;
@@ -307,8 +306,12 @@ namespace SwAgent.Scripting
                 {
                     var r = receiver != null && receiver.Length <= 40 ? receiver : "x";
                     var isMethod = owners.Any(o => o.Owner == names[0] && o.Method);
-                    yield return $"{member} is on {string.Join(" / ", names)}, not {typeName}: (({names[0]}){r}).{member}{(isMethod ? "(...)" : "")}" +
-                                 (typeName == "object" ? " - the API returned it typed object, cast it first." : ".");
+                    var reach = Reach(typeName, r, names[0]);
+                    var on = $"{member} is on {string.Join(" / ", names)}, not {typeName}";
+                    if (reach != null)
+                        yield return $"{on}: {reach}.{member}{(isMethod ? "(...)" : "")}" + (typeName == "object" ? " - the API returned it typed object, cast it first." : ".");
+                    else
+                        yield return $"{on} - a different object (a cast would fail at run time): get the {names[0]} first.";
                 }
             }
             // 2. An extension with that name for another type.
@@ -321,6 +324,75 @@ namespace SwAgent.Scripting
                 else if (owners == null && candidates.Count > 0 && candidates.Count <= 40)
                     yield return $"{typeName} has: {string.Join(", ", candidates.Where(n => n != "AccessSelections" && n != "ReleaseSelectionAccess").Take(16))}.";
             }
+        }
+
+        /// <summary>The document's sub-objects: a separate COM object each, reached through the document's accessor (never a cast).</summary>
+        private static readonly Dictionary<string, string> Accessors = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["IModelDocExtension"] = "Extension",
+            ["IFeatureManager"] = "FeatureManager",
+            ["ISketchManager"] = "SketchManager",
+            ["ISelectionMgr"] = "SelMgr()",
+            ["IModelViewManager"] = "ModelViewManager",
+            ["IConfigurationManager"] = "ConfigurationManager",
+        };
+
+        private static readonly HashSet<string> DocTypes = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "IModelDoc2", "ModelDoc2", "IPartDoc", "PartDoc", "IAssemblyDoc", "AssemblyDoc", "IDrawingDoc", "DrawingDoc",
+        };
+
+        /// <summary>Interfaces of one COM object (without the I): a cast between them works.</summary>
+        private static readonly string[][] SameObjects =
+        {
+            new[] { "ModelDoc2", "PartDoc", "AssemblyDoc", "DrawingDoc" },
+            new[] { "Face2", "Edge", "Vertex", "Entity" },
+            new[] { "SketchSegment", "SketchLine", "SketchArc", "SketchEllipse", "SketchSpline", "SketchParabola" },
+        };
+
+        /// <summary>Features whose interface comes from IFeature.GetSpecificFeature2(), not a cast.</summary>
+        private static readonly HashSet<string> SpecificFeatures = new HashSet<string>(StringComparer.Ordinal) { "ISketch", "IRefPlane", "IRefAxis", "IRefPoint", "IBodyFolder" };
+
+        private static string Bare(string t) => IsIName(t) ? t.Substring(1) : t;
+
+        /// <summary>
+        /// How a cell reaches the object that has the member, written with the receiver `r` of type `typeName`, or null when it
+        /// is a different object with no path from here: the document's accessor for its sub-objects (Model.Extension,
+        /// Model.FeatureManager, ... - separate COM objects, so a cast throws InvalidCastException), the document from a
+        /// sub-object, GetSpecificFeature2() for a sketch or plane, and a cast only between interfaces of one object.
+        /// </summary>
+        internal static string Reach(string typeName, string r, string owner)
+        {
+            if (typeName == "object") return $"(({owner}){r})";
+            // Model.Extension is typed ModelDocExtension, Model.FeatureManager FeatureManager: the coclass interfaces of the same objects.
+            if (Accessors.ContainsKey("I" + typeName)) typeName = "I" + typeName;
+            // The document expression (typed IModelDoc2) behind the receiver, if it is the document or one of its sub-objects.
+            string doc = null;
+            if (typeName == "IModelDoc2" || typeName == "ModelDoc2") doc = r;
+            else if (DocTypes.Contains(typeName)) doc = $"((IModelDoc2){r})";
+            else if (Accessors.TryGetValue(typeName, out var own))
+            {
+                foreach (var suffix in new[] { "." + own, typeName == "ISelectionMgr" ? ".SelectionManager" : null }.Where(x => x != null))
+                    if (r.EndsWith(suffix, StringComparison.Ordinal) && r.Length > suffix.Length) doc = r.Substring(0, r.Length - suffix.Length);
+                if (doc == null && typeName != "ISelectionMgr") doc = r + ".Document";
+            }
+            if (typeName == "IComponent2" && DocTypes.Contains(owner))
+                return owner == "IModelDoc2" ? $"((IModelDoc2){r}.GetModelDoc2())" : $"(({owner}){r}.GetModelDoc2())";
+            if (Accessors.TryGetValue(owner, out var accessor)) return doc == null ? null : $"{doc}.{accessor}";
+            if (DocTypes.Contains(owner))
+            {
+                if (doc == null) return null;
+                if (owner == "IModelDoc2" || owner == "ModelDoc2") return doc;
+                return DocTypes.Contains(typeName) ? $"(({owner}){r})" : $"(({owner}){doc})";
+            }
+            if (typeName == "IFeature" && SpecificFeatures.Contains(owner)) return $"(({owner}){r}.GetSpecificFeature2())";
+            if ((typeName == "IFace2" || typeName == "IEdge") && owner == "IBody2") return $"((IBody2){r}.GetBody())";
+            if (owner == "ISketch" && SameObjects[2].Contains(Bare(typeName))) return $"((ISketch){r}.GetSketch())";
+            if (SpecificFeatures.Contains(typeName) && owner == "IFeature") return $"((IFeature){r})";
+            var a = Bare(typeName);
+            var b = Bare(owner);
+            if (a == b || SameObjects.Any(g => g.Contains(a) && g.Contains(b))) return $"(({owner}){r})";
+            return null;
         }
 
         /// <summary>Whether the interop type (or a built-in extension for it) has a method of that name.</summary>
@@ -430,6 +502,52 @@ namespace SwAgent.Scripting
                     return text + $"; {ms.ContainingType.Name}.{sibling.Name}() returns the numbers: {(recv != null && recv.Length <= 30 ? recv : "x")}.{sibling.Name}({(sibling.GetParameters().Length > 0 ? "..." : "")}).AsDoubles().";
             }
             return text + (from.Contains("CurveParamData") ? "; .AsDoubles() gives [start xyz, end xyz, uMin, uMax]." : ".");
+        }
+
+        /// <summary>What the array-returning API members hold, by member name.</summary>
+        private static readonly Dictionary<string, string> ElementTypes = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["GetFaces"] = "IFace2", ["GetEdges"] = "IEdge", ["GetVertices"] = "IVertex", ["GetFeatures"] = "IFeature", ["GetBodies"] = "IBody2",
+            ["GetBodies2"] = "IBody2", ["GetBodies3"] = "IBody2", ["GetComponents"] = "IComponent2", ["GetChildren"] = "IComponent2",
+            ["GetSketchSegments"] = "ISketchSegment", ["GetSketchPoints2"] = "ISketchPoint", ["GetLoops"] = "ILoop2", ["GetCoEdges"] = "ICoEdge",
+            ["GetBodyBox"] = "double", ["GetBox"] = "double", ["GetMassProperties"] = "double", ["ArrayData"] = "double", ["Normal"] = "double",
+            ["GetCurveParams2"] = "double", ["CylinderParams"] = "double", ["PlaneParams"] = "double", ["GetTessTriangles"] = "double",
+            ["GetTessNorms"] = "double", ["GetClosestPointOn"] = "double", ["CenterOfMass"] = "double",
+        };
+
+        /// <summary>
+        /// x[i] on an object-typed SolidWorks array: the conversion with the element type the cell wants (a cast or a typed
+        /// variable around it), else the one the member that returned it holds (GetFaces -> IFace2), else a general line.
+        /// </summary>
+        private static string IndexHint(SyntaxNode node)
+        {
+            var ea = node?.AncestorsAndSelf().OfType<ElementAccessExpressionSyntax>().FirstOrDefault()
+                     ?? node?.DescendantNodesAndSelf().OfType<ElementAccessExpressionSyntax>().FirstOrDefault();
+            string want = null;
+            if (ea != null)
+            {
+                var outer = ea.Parent is ParenthesizedExpressionSyntax p ? p.Parent : ea.Parent;
+                if (outer is CastExpressionSyntax c) want = c.Type.ToString();
+                else if (outer is BinaryExpressionSyntax b && b.IsKind(SyntaxKind.AsExpression)) want = b.Right.ToString();
+                else if (outer is EqualsValueClauseSyntax ev && ev.Parent?.Parent is VariableDeclarationSyntax d && !d.Type.IsVar) want = d.Type.ToString();
+                if (want == null)
+                {
+                    var source = ea.Expression;
+                    if (source is IdentifierNameSyntax id)
+                        source = ea.SyntaxTree.GetRoot().DescendantNodes().OfType<VariableDeclaratorSyntax>()
+                            .LastOrDefault(v => v.Identifier.Text == id.Identifier.Text && v.SpanStart < ea.SpanStart)?.Initializer?.Value ?? source;
+                    var name = source is InvocationExpressionSyntax inv ? InvokedName(inv) : (source as MemberAccessExpressionSyntax)?.Name.Identifier.Text;
+                    if (name != null) ElementTypes.TryGetValue(name, out want);
+                }
+            }
+            var text = ea?.Expression.ToString().Trim();
+            var x = text != null && text.Length <= 30 ? text : "x";
+            if (want == "double" || want == "double[]") return $"SolidWorks number arrays come back typed object: {x}.AsDoubles()[i] (null gives []).";
+            if (want == "int" || want == "int[]") return $"SolidWorks arrays come back typed object: {x}.AsInts()[i].";
+            if (want != null && want != "object" && !want.EndsWith("[]", StringComparison.Ordinal))
+                return $"SolidWorks object arrays come back typed object: {x}.AsObjects<{want}>()[i] (null gives []).";
+            return $"SolidWorks arrays come back typed object: {x}.AsDoubles()[i] for numbers, {x}.AsObjects<T>()[i] for objects with T the element interface " +
+                   "(IFace2 for GetFaces, IEdge for GetEdges, IFeature for GetFeatures, IBody2 for GetBodies2; AsObjects<object>() for a mix).";
         }
 
         // ---------- signatures ----------
