@@ -251,6 +251,34 @@ namespace SwAgent.Tests.Plugins
         }
 
         [Fact]
+        public void Child_programs_never_inherit_any_AI_provider_key()
+        {
+            // OPENAI_API_KEY itself: PluginReviewTests (the "Plugins" collection, with SettingsStoreTests, which read it).
+            var names = new[] { "OPENAI_ORG_ID", "OPENAI_TEST_SECRET_D", "ANTHROPIC_TEST_SECRET_D" };
+            var saved = names.Select(Environment.GetEnvironmentVariable).ToArray();
+            try
+            {
+                foreach (var n in names) Environment.SetEnvironmentVariable(n, "test-secret-not-real");
+                var env = ChildEnv.Base();
+                foreach (var n in names) Assert.False(env.ContainsKey(n), n);
+                Assert.True(env.ContainsKey("PATH"));
+                var hook = Session.ForTests("env-openai").EnvFor(RuntimeTestKit.Plugin("p"));
+                foreach (var n in names) Assert.False(hook.ContainsKey(n), n);
+                // A hook command line can't read them through ${...} either: the child environment has none.
+                Assert.Equal("[]", ChildEnv.Expand("[${OPENAI_ORG_ID}]", hook));
+            }
+            finally
+            {
+                for (var i = 0; i < names.Length; i++) Environment.SetEnvironmentVariable(names[i], saved[i]);
+            }
+            Assert.True(SwAgent.Infrastructure.SecretEnv.IsProviderSecret("openai_api_key"));
+            Assert.True(SwAgent.Infrastructure.SecretEnv.IsProviderSecret("ANTHROPIC_AUTH_TOKEN"));
+            Assert.False(SwAgent.Infrastructure.SecretEnv.IsProviderSecret("OPENAIKEY"));
+            Assert.False(SwAgent.Infrastructure.SecretEnv.IsProviderSecret("CLAUDE_CODE_SESSION_ID"));
+            Assert.False(SwAgent.Infrastructure.SecretEnv.IsProviderSecret(null));
+        }
+
+        [Fact]
         public void Arguments_are_quoted_for_windows_and_placeholders_expanded()
         {
             Assert.Equal("plain", PluginProcess.QuoteArg("plain"));

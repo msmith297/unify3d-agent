@@ -305,5 +305,33 @@ namespace SwAgent.Tests.Plugins
             Assert.False(HookEvents.Matches("execute", "execute_csharp"));
             Assert.False(HookEvents.Matches("(", "("));
         }
+
+        [Fact]
+        public void Git_and_check_prerequisites_run_without_AI_provider_keys()
+        {
+            var names = new[] { "OPENAI_API_KEY", "OPENAI_ORG_ID", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_TEST_MARKER_C" };
+            var saved = names.Select(Environment.GetEnvironmentVariable).ToArray();
+            try
+            {
+                foreach (var n in names) Environment.SetEnvironmentVariable(n, "test-secret-not-real");
+                var child = ChildEnv.Base();
+                foreach (var n in names) Assert.False(child.ContainsKey(n), n);
+                var git = Fetcher.GitStartInfo("git.exe", null, new[] { "ls-remote", "https://example.invalid/x.git" });
+                foreach (var n in names.Take(4)) Assert.False(git.EnvironmentVariables.ContainsKey(n), n);
+                Assert.Equal("0", git.EnvironmentVariables["GIT_TERMINAL_PROMPT"]);
+
+                // check_prerequisites starts third-party programs: the plugin programs' environment (ChildEnv.Base).
+                foreach (var path in new[] { @"C:\tools\node.exe", @"C:\tools\npx.cmd" })
+                {
+                    var psi = CreatorTools.VersionStartInfo(path);
+                    foreach (var n in names) Assert.False(psi.EnvironmentVariables.ContainsKey(n), n);
+                    Assert.False(string.IsNullOrEmpty(psi.EnvironmentVariables["PATH"]));
+                }
+            }
+            finally
+            {
+                for (var i = 0; i < names.Length; i++) Environment.SetEnvironmentVariable(names[i], saved[i]);
+            }
+        }
     }
 }

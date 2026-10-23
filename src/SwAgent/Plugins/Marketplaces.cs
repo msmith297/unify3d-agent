@@ -465,10 +465,9 @@ namespace SwAgent.Plugins
             return RunGit(dest, cancel, "rev-parse", "HEAD").Trim();
         }
 
-        /// <summary>Run git without prompts (GIT_TERMINAL_PROMPT=0) and return stdout; throws with stderr on failure.</summary>
-        internal static string RunGit(string workDir, CancellationToken cancel, params string[] args)
+        /// <summary>git without prompts, and without the user's AI provider keys (SecretEnv) in its environment.</summary>
+        internal static ProcessStartInfo GitStartInfo(string git, string workDir, string[] args)
         {
-            var git = Git ?? throw new InvalidOperationException("Git isn't installed.");
             var psi = new ProcessStartInfo(git, string.Join(" ", args.Select(QuoteArg)))
             {
                 UseShellExecute = false,
@@ -482,7 +481,15 @@ namespace SwAgent.Plugins
             psi.EnvironmentVariables["GIT_TERMINAL_PROMPT"] = "0";
             psi.EnvironmentVariables["GCM_INTERACTIVE"] = "never";
             psi.EnvironmentVariables["GIT_ASKPASS"] = "";
-            psi.EnvironmentVariables.Remove("ANTHROPIC_API_KEY");
+            SecretEnv.Scrub(psi.EnvironmentVariables);
+            return psi;
+        }
+
+        /// <summary>Run git without prompts (GIT_TERMINAL_PROMPT=0) and return stdout; throws with stderr on failure.</summary>
+        internal static string RunGit(string workDir, CancellationToken cancel, params string[] args)
+        {
+            var git = Git ?? throw new InvalidOperationException("Git isn't installed.");
+            var psi = GitStartInfo(git, workDir, args);
             using (var p = Process.Start(psi))
             {
                 var stdout = p.StandardOutput.ReadToEndAsync();

@@ -382,6 +382,8 @@ namespace SwAgent.Plugins
         /// <summary>
         /// Environment names a plugin may not set (unify3d.env, an MCP server's env): the Anthropic key and every other
         /// ANTHROPIC_* secret, and CLAUDE_CODE_* (the runtime sets CLAUDE_CODE_SESSION_ID itself), as ChildEnv.Hidden.
+        /// OPENAI_* is allowed on purpose: a plugin may give its own MCP server OPENAI_API_KEY from its own
+        /// ${user_config.key}. The user's agent key can't leak that way (hidden from the child; ${OPENAI_API_KEY} is "").
         /// </summary>
         private static bool IsBlockedEnv(string name) =>
             name.StartsWith("ANTHROPIC_", StringComparison.OrdinalIgnoreCase) || name.StartsWith("CLAUDE_CODE_", StringComparison.OrdinalIgnoreCase);
@@ -389,7 +391,7 @@ namespace SwAgent.Plugins
         private static readonly Regex Placeholder = new Regex(@"\$\{([^}]+)\}");
 
         /// <summary>
-        /// ${CLAUDE_PLUGIN_ROOT} and friends and ${user_config.KEY}; secrets (${ANTHROPIC_*}) become "". Anything else is left
+        /// ${CLAUDE_PLUGIN_ROOT} and friends and ${user_config.KEY}; secrets (${ANTHROPIC_*}, ${OPENAI_*}) become "". Anything else is left
         /// as written: never this process's environment. Command and skill text (which goes to the model, from plugins that
         /// may need no approval) gets nothing else; a hook or MCP command line then gets ${ENV} and ${ENV:-default} from its
         /// own child environment (Session.Expand), which holds no secrets.
@@ -407,7 +409,7 @@ namespace SwAgent.Plugins
                     return o.Sensitive && !withSecrets ? "" : o.Value ?? "";
                 }
                 // ${CLAUDE_CODE_SESSION_ID} stays: the child environment has the runtime's own.
-                if (key.StartsWith("ANTHROPIC_", StringComparison.OrdinalIgnoreCase)) return "";
+                if (SecretEnv.IsProviderSecret(key)) return "";
                 return m.Value;
             });
         }

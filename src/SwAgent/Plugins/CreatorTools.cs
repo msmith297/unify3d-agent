@@ -218,23 +218,35 @@ namespace SwAgent.Plugins
             return 0;
         }
 
-        /// <summary>"program --version" (a .cmd shim through cmd.exe) with a fresh PATH; its output, or null.</summary>
+        /// <summary>
+        /// "program --version" (a .cmd shim through cmd.exe) with a fresh PATH, in the plugin programs' environment
+        /// (ChildEnv.Base: no AI provider keys, no other agent's session): these are third-party programs.
+        /// </summary>
+        internal static ProcessStartInfo VersionStartInfo(string path)
+        {
+            var ext = Path.GetExtension(path).ToLowerInvariant();
+            var psi = ext == ".cmd" || ext == ".bat"
+                ? new ProcessStartInfo(Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe", $"/d /s /c \"\"{path}\" --version\"")
+                : new ProcessStartInfo(path, "--version");
+            psi.UseShellExecute = false;
+            psi.CreateNoWindow = true;
+            psi.RedirectStandardOutput = true;
+            psi.RedirectStandardError = true;
+            psi.RedirectStandardInput = true;
+            psi.StandardOutputEncoding = Encoding.UTF8;
+            psi.StandardErrorEncoding = Encoding.UTF8;
+            psi.EnvironmentVariables.Clear();
+            foreach (var kv in ChildEnv.Base()) psi.EnvironmentVariables[kv.Key] = kv.Value;
+            psi.EnvironmentVariables["PATH"] = ExecutableResolver.CurrentPath();
+            return psi;
+        }
+
+        /// <summary>"program --version"; its output, or null.</summary>
         private static string RunVersion(string path)
         {
             try
             {
-                var ext = Path.GetExtension(path).ToLowerInvariant();
-                var psi = ext == ".cmd" || ext == ".bat"
-                    ? new ProcessStartInfo(Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe", $"/d /s /c \"\"{path}\" --version\"")
-                    : new ProcessStartInfo(path, "--version");
-                psi.UseShellExecute = false;
-                psi.CreateNoWindow = true;
-                psi.RedirectStandardOutput = true;
-                psi.RedirectStandardError = true;
-                psi.RedirectStandardInput = true;
-                psi.StandardOutputEncoding = Encoding.UTF8;
-                psi.StandardErrorEncoding = Encoding.UTF8;
-                psi.EnvironmentVariables["PATH"] = ExecutableResolver.CurrentPath();
+                var psi = VersionStartInfo(path);
                 using (var p = Process.Start(psi))
                 {
                     p.StandardInput.Close();

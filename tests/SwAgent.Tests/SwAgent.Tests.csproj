@@ -34,6 +34,7 @@
     <ProjectReference Include="..\..\src\SwAgent\SwAgent.csproj" />
     <Reference Include="System.Drawing" />
     <Reference Include="System.IO.Compression" />
+    <Reference Include="System.Security" />
     <Reference Include="System.Speech" />
   </ItemGroup>
 

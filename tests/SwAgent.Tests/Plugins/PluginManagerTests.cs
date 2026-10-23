@@ -163,6 +163,52 @@ namespace SwAgent.Tests.Plugins
         }
 
         [Fact]
+        public void OpenAI_keys_expand_to_nothing_but_a_plugin_may_give_its_server_its_own_OPENAI_API_KEY()
+        {
+            var saved = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
+            Environment.SetEnvironmentVariable("OPENAI_API_KEY", "test-user-openai-key-not-real");
+            try
+            {
+                using (var env = new PluginTestEnv())
+                {
+                    env.AddPlugin("gpt-tools", new JObject
+                    {
+                        ["name"] = "gpt-tools",
+                        ["version"] = "1.0.0",
+                        ["userConfig"] = new JObject { ["k"] = new JObject { ["type"] = "string", ["sensitive"] = true } },
+                        ["mcpServers"] = new JObject
+                        {
+                            ["gpt"] = new JObject
+                            {
+                                ["command"] = "gpt.exe",
+                                ["args"] = new JArray("--org", "${OPENAI_ORG_ID}"),
+                                ["env"] = new JObject { ["OPENAI_API_KEY"] = "${user_config.k}", ["LEAK"] = "${OPENAI_API_KEY}", ["ANTHROPIC_API_KEY"] = "x" },
+                            },
+                        },
+                    });
+                    env.Pm.AddMarketplace(env.Market);
+                    var ask = env.Pm.Install("gpt-tools@test-market");
+                    env.Pm.Install("gpt-tools@test-market", ask.Hash);
+                    env.Pm.SetConfig("gpt-tools@test-market", new JObject { ["k"] = "plugin-own-key-value" });
+
+                    var rt = env.Pm.Runnable().Single();
+                    var server = rt.McpServers["gpt"];
+                    Assert.Equal("plugin-own-key-value", (string)server["env"]["OPENAI_API_KEY"]); // the plugin's own secret
+                    Assert.Equal("", (string)server["env"]["LEAK"]); // never the user's
+                    Assert.Null(server["env"]["ANTHROPIC_API_KEY"]); // still blocked
+                    Assert.Equal("", rt.Expand("${OPENAI_API_KEY}"));
+                    Assert.Equal("", rt.Expand("${openai_org_id}"));
+                    Assert.False(rt.Env.ContainsKey("OPENAI_API_KEY"));
+                    Assert.Equal("", PluginManager.Expand("${OPENAI_API_KEY}", new System.Collections.Generic.Dictionary<string, string>(), new System.Collections.Generic.Dictionary<string, (string Value, bool Sensitive)>(), withSecrets: true));
+                }
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable("OPENAI_API_KEY", saved);
+            }
+        }
+
+        [Fact]
         public void Options_sensitive_ones_encrypted_and_never_on_command_lines()
         {
             using (var env = new PluginTestEnv())

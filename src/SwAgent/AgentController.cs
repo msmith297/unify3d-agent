@@ -191,12 +191,9 @@ namespace SwAgent
             });
             bridge.Register("update.unsavedDocuments", p => UnsavedDocuments());
             bridge.RegisterAsync("update.restartAndInstall", async p => await RestartAndInstall((bool?)p?["saveDocuments"] == true, p?["panel"] as JObject));
-            bridge.Register("apiKey.get", p => new JObject { ["key"] = SettingsStore.GetApiKey() });
-            bridge.Register("apiKey.set", p =>
-            {
-                SettingsStore.SetApiKey((string)p["key"]);
-                return new JObject { ["source"] = SettingsStore.ApiKeySource() };
-            });
+            // { provider? }: without one, Anthropic (older panels).
+            bridge.Register("apiKey.get", p => SettingsStore.ApiKeyGetRpc(p));
+            bridge.Register("apiKey.set", p => SettingsStore.ApiKeySetRpc(p));
 
             bridge.Register("chat.load", p =>
             {
@@ -658,14 +655,13 @@ namespace SwAgent
         private JObject GetState()
         {
             var active = HandlerFor(_app.Documents.Active);
-            return new JObject
+            var state = new JObject
             {
                 ["version"] = Updates.CurrentVersion.ToString(3),
                 ["update"] = Updates.ToJson(),
                 ["crash"] = Crash,
                 ["ribbonStale"] = RibbonStale?.Invoke() ?? false,
                 ["solidworksVersion"] = SafeRevision(),
-                ["apiKeySource"] = SettingsStore.ApiKeySource(),
                 ["settings"] = _settings,
                 ["scratchKey"] = ChatDocument.ScratchKey,
                 ["activeDoc"] = active == null ? null : DocInfo(active),
@@ -676,6 +672,8 @@ namespace SwAgent
                 // When this SolidWorks session started: restart offers made before it are done.
                 ["sessionStart"] = Process.GetCurrentProcess().StartTime.ToUniversalTime().ToString("o"),
             };
+            state.Merge(SettingsStore.KeyState()); // apiKeySource (Anthropic's, for older panels) and apiKeySources
+            return state;
         }
 
         private string SafeRevision()

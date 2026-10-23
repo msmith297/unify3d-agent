@@ -49,6 +49,7 @@ namespace SwAgent.Tests.Plugins
         public async Task Hooks_get_the_session_and_plugin_environment()
         {
             Environment.SetEnvironmentVariable("ANTHROPIC_TEST_SECRET_B", "sk-test");
+            Environment.SetEnvironmentVariable("OPENAI_TEST_SECRET_B", "sk-proj-test");
             try
             {
                 var plugin = Plugin("envy", Hooks(HookEvents.Stop, Group(null, Cmd(Hook("env")))),
@@ -65,11 +66,13 @@ namespace SwAgent.Tests.Plugins
                     Assert.Equal(Process.GetCurrentProcess().Id.ToString(), (string)env["UNIFY3D_PID"]);
                     Assert.Equal("Unify3D SolidWorks - " + Environment.MachineName, (string)env["AGENT_BRIDGE_NAME"]);
                     Assert.Equal(JTokenType.Null, env["ANTHROPIC_TEST_SECRET_B"].Type);
+                    Assert.Equal(JTokenType.Null, env["OPENAI_TEST_SECRET_B"].Type);
                 }
             }
             finally
             {
                 Environment.SetEnvironmentVariable("ANTHROPIC_TEST_SECRET_B", null);
+                Environment.SetEnvironmentVariable("OPENAI_TEST_SECRET_B", null);
             }
         }
 
