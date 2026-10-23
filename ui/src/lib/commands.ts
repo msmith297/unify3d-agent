@@ -18,7 +18,7 @@ export const BUILTIN_COMMANDS: BuiltinCommand[] = [
   { name: "help", description: "List the commands" },
   { name: "clear", description: "Start a new chat" },
   { name: "plugins", description: "Open the plugins screen" },
-  { name: "model", description: "Set this chat's model", hint: "<opus | fable | sonnet | haiku>" },
+  { name: "model", description: "Set this chat's model", hint: "<opus | fable | sonnet | haiku>" }, // the hint: modelHint, when known
   { name: "effort", description: "Set this chat's effort", hint: "<low | medium | high | xhigh | max>" },
   { name: "tools", description: "List your tools and workflows" },
   { name: "run", description: "Run a tool or workflow", hint: "<tool> [--profile name]" },
@@ -34,6 +34,13 @@ export interface CommandSources {
   tools: Pick<UserToolInfo, "name" | "title" | "description" | "kind">[];
   plugins?: Pick<PluginInfo, "name" | "displayName" | "description" | "installed" | "enabled">[];
   agents?: Pick<AgentInfo, "id" | "description">[];
+  /** The labels of the models /model can pick (those of providers with a key); its hint lists them. */
+  models?: string[];
+}
+
+/** /model's hint: the models with a key, e.g. "<Opus 5.5 | Sonnet 5.5 | GPT-6.1 Sol>". */
+export function modelHint(labels: string[]): string {
+  return `<${labels.join(" | ")}>`;
 }
 
 export type SlashKind = "builtin" | "command" | "skill" | "tool" | "workflow";
@@ -64,7 +71,13 @@ export function allSlashRows(src: CommandSources): SlashRow[] {
   const skillCount = shortCounts(src.skills.map((s) => s.id));
   const unique = (id: string, counts: Map<string, number>) => !builtins.has(short(id)) && counts.get(short(id)) === 1;
   return [
-    ...BUILTIN_COMMANDS.map((b): SlashRow => ({ kind: "builtin", name: b.name, description: b.description, source: "Unify3D", hint: b.hint })),
+    ...BUILTIN_COMMANDS.map((b): SlashRow => ({
+      kind: "builtin",
+      name: b.name,
+      description: b.description,
+      source: "Unify3D",
+      hint: b.name === "model" && src.models?.length ? modelHint(src.models) : b.hint,
+    })),
     ...src.commands.map((c): SlashRow => ({
       kind: "command",
       name: unique(c.id, cmdCount) ? c.name : c.id,

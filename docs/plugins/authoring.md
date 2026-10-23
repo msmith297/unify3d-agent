@@ -123,7 +123,9 @@ You are a careful drawing checker ...
 ```
 
 `tools` lists Unify3D agent tools; `execute_csharp`, `undo` and `rebuild` change the model, everything else reads.
-`model` is `inherit`, `haiku`, `sonnet`, `opus` or a model id. The body is the whole system prompt of the sub-agent,
+`model` is `inherit`, `haiku`, `sonnet`, `opus`, `fable` or a model id. Aliases resolve to the user's provider: on a
+chat that runs on OpenAI, `haiku` is GPT-6 Luna, `sonnet` GPT-6.1 Sol, `opus` and `fable` GPT-6 Astra; a model id of a
+provider the user has no key for becomes the same tier on the chat's provider. The body is the whole system prompt of the sub-agent,
 which does not see the chat. Sub-agents can't use the panel's `ask_*` tools.
 
 ## 3. Unify3D tools in a plugin
@@ -203,8 +205,11 @@ Every hook and MCP server of a plugin gets the add-in's environment plus:
 | `CLAUDE_PLUGIN_OPTION_<KEY>` | Each `userConfig` value, key in capitals (sensitive ones too) |
 | the plugin's `unify3d.env` | After the marketplace entry's `unify3d.env` (section 8); `userConfig` wins over both |
 
-`PATH` is refreshed from the registry, so a Node.js installed after SolidWorks started is found. The Anthropic API key
-is never in a plugin's environment.
+`PATH` is refreshed from the registry, so a Node.js installed after SolidWorks started is found. Your AI provider keys
+are never in a plugin's environment: every `ANTHROPIC_*` and `OPENAI_*` variable is hidden, and `${OPENAI_API_KEY}` or
+`${ANTHROPIC_API_KEY}` expand to nothing. A plugin may still give its own MCP server `OPENAI_API_KEY` from its own
+`userConfig` (`"env": { "OPENAI_API_KEY": "${user_config.openai_key}" }`); `ANTHROPIC_*` and `CLAUDE_CODE_*` can't be
+set.
 
 **The session.** Unify3D has one session id per PC, kept in `%APPDATA%\SwAgent\plugins\session.json` and reused after
 every restart (a second SolidWorks running at the same time gets a temporary one). `/clear` and new chats keep the

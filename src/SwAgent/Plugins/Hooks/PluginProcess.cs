@@ -393,7 +393,7 @@ namespace SwAgent.Plugins.Hooks
         }
 
         private static bool Hidden(string key) =>
-            key.StartsWith("ANTHROPIC_", StringComparison.OrdinalIgnoreCase)
+            SecretEnv.IsProviderSecret(key) // ANTHROPIC_*, OPENAI_*: the user's AI provider keys
             || key.Equals("CLAUDECODE", StringComparison.OrdinalIgnoreCase)
             || key.StartsWith("CLAUDE_CODE_", StringComparison.OrdinalIgnoreCase)
             || key.StartsWith("CLAUDE_PLUGIN_", StringComparison.OrdinalIgnoreCase)

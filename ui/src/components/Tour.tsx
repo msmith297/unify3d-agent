@@ -1,8 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { BrandMark } from "./Brand";
 import { IconAgent, IconKey, IconMarkup, IconMic, IconOk, IconSend, IconShield, IconToolbox, IconUndo } from "./SwIcons";
-import { draftKey, talkKeyName, useStore } from "../store";
+import { anyKey, draftKey, talkKeyName, useStore } from "../store";
 import { rpc } from "../lib/bridge";
+import { modelOption } from "../lib/models";
+import { PROVIDERS, getProvider } from "../agent/providers";
+import type { ProviderId } from "../lib/types";
+import { providerTitle } from "./ProviderSettings";
 
 /**
  * The first-run tour: a few cards, each pointing at the real control it explains (a spotlight cut out of a dimmed
@@ -27,7 +31,8 @@ const STARTERS = [
 
 export function Tour() {
   const step = useStore((s) => s.tourStep);
-  const keySource = useStore((s) => s.apiKeySource);
+  const hasAnyKey = useStore(anyKey);
+  const defaultModel = useStore((s) => modelOption(s.settings.defaultModel).label);
   const talkKey = useStore((s) => talkKeyName(s.settings.voiceKey));
   const { setTourStep, endTour } = useStore.getState();
 
@@ -49,9 +54,9 @@ export function Tour() {
     },
     {
       id: "key",
-      when: () => keySource === "none",
+      when: () => !hasAnyKey,
       icon: <IconKey size={22} />,
-      title: "Connect your Anthropic account",
+      title: "Connect an AI provider",
       body: <ApiKeyStep />,
     },
     {
@@ -100,7 +105,7 @@ export function Tour() {
       target: "model",
       icon: <IconAgent size={20} />,
       title: "Choose how hard it thinks",
-      body: <p>Opus at High is the default for modelling. Lower effort is quicker and cheaper for simple questions; Max is for the hardest problems. Each chat remembers its own choice.</p>,
+      body: <p>{defaultModel} at High is the default for modelling. Lower effort is quicker and cheaper for simple questions; Max is for the hardest problems. Each chat remembers its own choice.</p>,
     },
     {
       id: "tools",
@@ -291,9 +296,11 @@ function Q({ children }: { children: ReactNode }) {
 
 function ApiKeyStep() {
   const { setApiKey } = useStore.getState();
-  const source = useStore((s) => s.apiKeySource);
+  const saved = useStore(anyKey);
+  const [picked, setPicked] = useState<ProviderId>("anthropic");
   const [key, setKey] = useState("");
-  if (source !== "none") {
+  const p = getProvider(picked);
+  if (saved) {
     return (
       <p className="flex items-center gap-1.5 text-text">
         <IconOk size={13} /> Key saved - encrypted for your Windows account, never stored in your files.
@@ -302,28 +309,43 @@ function ApiKeyStep() {
   }
   return (
     <>
-      <p>The agent runs on Claude. Paste an API key from the Claude Console - it's encrypted for your Windows account and never stored in your files.</p>
+      <p>The agent runs on Claude or OpenAI models. Pick one and paste an API key - it's encrypted for your Windows account and never stored in your files.</p>
+      <div className="mt-2 flex gap-1" role="radiogroup" aria-label="AI provider">
+        {PROVIDERS.map((x) => (
+          <button
+            key={x.id}
+            type="button"
+            role="radio"
+            aria-checked={picked === x.id}
+            onClick={() => setPicked(x.id)}
+            className={`sw-btn !h-6 flex-1 justify-center ${picked === x.id ? "sw-btn-primary" : ""}`}
+          >
+            {providerTitle(x)}
+          </button>
+        ))}
+      </div>
       <form
-        className="mt-2 flex gap-1"
+        className="mt-1.5 flex gap-1"
         onSubmit={async (e) => {
           e.preventDefault();
-          if (key.trim()) await setApiKey(key.trim());
+          if (key.trim()) await setApiKey(picked, key.trim());
         }}
       >
         <input
           type="password"
           value={key}
           onChange={(e) => setKey(e.target.value)}
-          placeholder="sk-ant-…"
+          placeholder={p.keyPlaceholder}
           autoComplete="off"
           spellCheck={false}
+          aria-label={`${providerTitle(p)} API key`}
           className="sw-input h-[24px] min-w-0 flex-1 px-1.5 font-mono text-[11.5px]"
         />
         <button type="submit" disabled={!key.trim()} className="sw-btn sw-btn-primary !h-6">
           Save
         </button>
       </form>
-      <button type="button" className="mt-1.5 text-[11px] text-accent hover:underline" onClick={() => rpc("app.openExternal", { url: "https://platform.claude.com/settings/keys" })}>
+      <button type="button" className="mt-1.5 text-[11px] text-accent hover:underline" onClick={() => rpc("app.openExternal", { url: p.keysUrl })}>
         Get a key…
       </button>
       <span className="ml-2 text-[11px] text-text-3">or add it later in Options</span>

@@ -27,7 +27,7 @@ The owner (GitHub `msmith297`) runs a PU / resin compression-molding shop. They 
 | `main` | A local branch in the same repo, at `d51979b` (switch with `git switch main`). Main has everything up to `d6fc975` (PR #1, merged). It has **neither** the built-in-tools refactor (`f299941`) nor the mold tool. |
 | **What SolidWorks actually loads** | `<working folder>\src\SwAgent\bin\Release\net48\SwAgent.dll`. The COM code base is registered there. **Installed 2026-10-22 23:02: commit `28b2ee3`** (agent efficiency: interop extensions, Bodies/Features/Sel helpers, the API cheat sheet, API notes and helpers the agent writes itself; plugin creator v2; standing instructions and fork_tool; tool profiles; question timeout); not yet confirmed in SolidWorks (hand checks: sections 9-12). The previous build (2026-10-22 13:16, `d6479fd`) is backed up at `C:\Users\msmit\Documents\Unify3D Agent backups\Release-net48-2026-10-22-d6479fd`, and the one before (2026-10-17, `f299941`) at `...\Release-net48-2026-10-17-f299941`: to roll back, close SolidWorks and copy one over `bin\Release\net48`. The dev tool `tools/dev/page-test` is copied to `%APPDATA%\SwAgent\tools\page-test` for the page checks; remove it after. |
 | Old location (stale) | Until 2026-10-20 the project lived in `C:\Users\msmit\Documents\Claude Code\SolidWorks Agent Plugin`, with the work in the worktree `.claude\worktrees\awesome-blackburn-350fc3`. It was copied here whole (git history, build outputs, `ui\node_modules`, the gitignored `MECAGENT_TEARDOWN.md`). The old folder is a stale copy: don't work there. The user may delete it. The six merged parallel-build branches (`worktree-wf_71b3d5bb-873-N`) were deleted here. |
-| User data, per PC; never commit it | `%APPDATA%\SwAgent\` holds: <ul><li>settings.json</li><li>apikey.bin (the encrypted API key)</li><li>tools\ (the user's own tools: flash-grooves, parametric-block, pu-compression-mold)</li><li>builtin-settings.json</li><li>last-inputs\</li><li>builtin-data\</li></ul> `%LOCALAPPDATA%\SwAgent\` holds: <ul><li>chats\ (workspace chats)</li><li>logs\</li><li>crash-guard.json</li><li>snapshots\ (Smart Rebuild journals and checkpoints)</li><li>speech\ (Whisper models)</li></ul> |
+| User data, per PC; never commit it | `%APPDATA%\SwAgent\` holds: <ul><li>settings.json</li><li>apikey.bin (the encrypted Anthropic API key) and apikey-openai.bin (OpenAI's)</li><li>tools\ (the user's own tools: flash-grooves, parametric-block, pu-compression-mold)</li><li>builtin-settings.json</li><li>last-inputs\</li><li>builtin-data\</li></ul> `%LOCALAPPDATA%\SwAgent\` holds: <ul><li>chats\ (workspace chats)</li><li>logs\</li><li>crash-guard.json</li><li>snapshots\ (Smart Rebuild journals and checkpoints)</li><li>speech\ (Whisper models)</li></ul> |
 | Persistent memory of earlier sessions | `C:\Users\msmit\.claude\projects\C--Users-msmit-Desktop-Software-Projects-Unify3D-Agent\memory\` (MEMORY.md + files, copied from the old project's memory folder) |
 | Mold-tool design docs, now in the repo | `docs\compression-mold\`: `design.md` (the design), `critique.md` (corrections; **these win** over design.md), `contract.md` (how the build was split, the scope decisions, the interfaces), `research\*.md` (the research notes). In those docs `N/` meant a temporary scratch folder that may already be gone. Files of the same name are in `docs\compression-mold\research\`. The JSON data now lives in `tools\builtin\design-compression-mold\data\`, and the reference scripts were ported to `tools\dev\mold-data\` and `tools\dev\MoldSweep\`. |
 
@@ -218,8 +218,10 @@ installed: the Release build SolidWorks loads is in section 2.
 - Panel logic: `node ui/src/lib/checks/lib.check.mjs` (matchers, wake rules, number parsing, ...).
 - Panel in a browser: `npm --prefix ui run dev` uses `ui/src/lib/mockHost.ts` (no SolidWorks). `window.__agentStore`
   is the store, `window.__mockWake()` sends a plugin wake (`?wake` in the URL does it after 5 s). There is no API key in
-  the mock: set `localStorage["swagent-mock:apiKey"]` to any test string and stub `window.fetch` for
-  `api.anthropic.com` (the review did this to check wakes, Stop, sub-agent approvals and Ctrl+Enter in tool forms).
+  the mock: set `localStorage["swagent-mock:apiKey"]` (Anthropic) or `localStorage["swagent-mock:apiKey:openai"]` to
+  any test string, or save one in Options. `?fake` in the URL answers the model APIs from canned streams
+  (`ui/src/agent/providers/fake.ts`), so nothing reaches `api.anthropic.com` or `api.openai.com` (the plugins review
+  stubbed `window.fetch` by hand to check wakes, Stop, sub-agent approvals and Ctrl+Enter in tool forms).
 
 **Review fixes (2026-10-21), all with tests where headless:**
 - Tool code needs approval: a plugin tool's `.cs` files count in the trust hash (`PluginManifest.HasToolCode`,
@@ -415,3 +417,29 @@ its checkbox says what it does ("Leave out fields at the tool default").
 **What is open.** Nothing ran in SolidWorks: the page's Profile group (dropdown refill after a save, button enabling) and
 the dialogs (export, load from file, open folder). Deleting a tool still leaves its `last-inputs\` entry (harmless; a new
 tool of the name starts with those remembered values).
+
+## 13. Model providers: Claude and OpenAI (EDGES track built 2026-10-23, on `providers/edges`)
+
+**Design:** `docs/providers/design.md` (the contract; section 1 is the one-page summary). Built in two parallel tracks:
+CORE (the provider layer in `ui/src/agent/providers/`, the neutral `runAgent`, the Claude golden check, the OpenAI
+adapter) and EDGES (everything around it). This section is EDGES; integration merges both.
+
+| Area | Where |
+|---|---|
+| Keys (C#): one DPAPI file per provider, `apikey.bin` unchanged, `apikey-openai.bin` new, writes through `AtomicFile` (settings.json too); `apiKey.get/set {provider?}` (no provider: Anthropic), `getState.apiKeySources` | `src/SwAgent/Infrastructure/SettingsStore.cs` (`ProviderKeys`), `AgentController.cs` |
+| Secrets away from children: `ANTHROPIC_*` and `OPENAI_*` hidden from plugin, hook, MCP and git processes and `check_prerequisites`' programs; `${OPENAI_*}` expands to "" (plugins may still set `OPENAI_API_KEY` for their own servers) | `Infrastructure/SecretEnv.cs`, `ChildEnv.Hidden`, `PluginManager.Expand`, `Fetcher.GitStartInfo`, `CreatorTools.VersionStartInfo` |
+| Model registry and its helpers: providers, caps, families, tiers per provider, `resolveModel` (aliases into the chat's provider), tool provider choice, grouped pickers, effort clamp, `/model` | `ui/src/lib/models.ts` |
+| Panel: per-provider key state, the no-key notice per provider, tool runs on `tierModel(tier, toolProvider())`, error texts by `ProviderError.kind`, OpenAI speed | `ui/src/store.ts` |
+| Options > AI providers (save, test, remove, get a key, Speed), grouped model pickers, effort pickers by model, the tour's provider choice | `ui/src/components/ProviderSettings.tsx`, `SettingsPanel.tsx`, `Composer.tsx` (+ group headers in `Menu.tsx`), `Tour.tsx` |
+| Mock host: per-provider keys, `?fake`, a demo chat on GPT-6.1 Sol with `replay` | `ui/src/lib/mockHost.ts` |
+
+**How to test.** `SettingsStoreTests.cs` and the OpenAI cases in `HookProtocolTests`, `HookRunnerTests`,
+`PluginManagerTests`, `PluginReviewTests`; `node ui/src/lib/checks/models.check.mjs` (also run by `lib.check.mjs`).
+
+**Stubs for integration.** Files and lines marked `// CORE-STUB` stand in for CORE's work and are replaced by it:
+`ui/src/agent/providers/{types,errors,index,fake}.ts`, the C0 types in `ui/src/lib/types.ts` and the registry half of
+`ui/src/lib/models.ts`, and the `keys` / `serviceTier` options in `ui/src/agent/runAgent.ts` (which runs only Claude in
+this branch).
+
+**Not tested:** nothing ran in SolidWorks or against a real API (there is no OpenAI key on this PC). Hand checks H1-H12
+are in design section 11.

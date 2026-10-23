@@ -1,6 +1,8 @@
 /**
  * Stand-in for the SolidWorks add-in when the UI runs in a normal browser (npm run dev).
- * Lets the chat UI be designed and exercised without SolidWorks. Add ?demo to the URL to seed a sample chat.
+ * Lets the chat UI be designed and exercised without SolidWorks. Add ?demo to the URL to seed a sample chat, and ?fake to
+ * answer the model APIs with canned streams (providers/fake.ts) instead of the network.
+ * Keys: localStorage "swagent-mock:apiKey" is Anthropic's (as before), "swagent-mock:apiKey:openai" OpenAI's.
  */
 import type {
   AgentInfo,
@@ -25,6 +27,7 @@ import type {
   WatchResult,
 } from "./types";
 import { emitLocal } from "./bridge";
+import { defaultFakeScript, fakeFetch } from "../agent/providers/fake";
 import { fileRefs, substituteArgs } from "./commands";
 import { mockOpenToolForm, mockToolForm } from "./toolFormMock";
 import type { MemoryIndex, MemoryNote, MemoryScopeInfo } from "./memory";
@@ -145,7 +148,8 @@ export async function mockRpc(method: string, params: any): Promise<unknown> {
       const state: HostState = {
         version: "0.1.0-mock",
         solidworksVersion: "34.0.0 (mock)",
-        apiKeySource: store.get<string>("apiKey", "") ? "stored" : "none",
+        apiKeySource: mockKeySource("anthropic"),
+        apiKeySources: { anthropic: mockKeySource("anthropic"), openai: mockKeySource("openai") },
         settings: store.get("settings", {}),
         scratchKey: "scratch",
         activeDoc: DOC,
@@ -160,10 +164,10 @@ export async function mockRpc(method: string, params: any): Promise<unknown> {
       store.set("settings", params);
       return null;
     case "apiKey.get":
-      return { key: store.get<string>("apiKey", "") || null };
+      return { key: store.get<string>(mockKeyName(params?.provider), "") || null };
     case "apiKey.set":
-      store.set("apiKey", params?.key ?? "");
-      return { source: params?.key ? "stored" : "none" };
+      store.set(mockKeyName(params?.provider), params?.key ?? "");
+      return { source: mockKeySource(params?.provider), sources: { anthropic: mockKeySource("anthropic"), openai: mockKeySource("openai") } };
     case "chat.load": {
       const key = params?.docKey ?? "scratch";
       let data = store.get<ChatData | null>("chat:" + key, null);
@@ -931,6 +935,19 @@ function mockMcp(): McpServerStatus[] {
   ];
 }
 
+/** The mock's key per provider: Anthropic keeps the name it had before providers. */
+function mockKeyName(provider: string | undefined) {
+  if (provider && provider !== "anthropic" && provider !== "openai") throw new Error(`Unknown AI provider '${provider}'.`);
+  return provider === "openai" ? "apiKey:openai" : "apiKey";
+}
+
+function mockKeySource(provider: string | undefined): "stored" | "none" {
+  return store.get<string>(mockKeyName(provider), "") ? "stored" : "none";
+}
+
+// ?fake: the model APIs answer from canned streams; nothing leaves the browser.
+if (!(window as any).chrome?.webview && location.search.includes("fake")) window.fetch = fakeFetch(defaultFakeScript, window.fetch.bind(window));
+
 /** Queue a wake as the add-in would (an async hook exited with code 2) and nudge the panel. Also: ?wake in the URL. */
 function mockWake(text = '"Claude Code - laptop": the drawings are done - can you check the bracket\'s hole pattern against them?') {
   const w: Wake = { id: `w${Date.now()}`, text: `New message from ${text}`, source: "Stop hook", plugin: "agent-bridge" };
@@ -1042,6 +1059,61 @@ function demoChat(): ChatData {
             ],
           },
         ],
+      },
+      demoOpenAiThread(now),
+    ],
+  };
+}
+
+/**
+ * A chat on GPT-6.1 Sol: canonical blocks as every reader sees them, plus `replay` (response.output as OpenAI returned
+ * it: reasoning with its encrypted content, the commentary, the call, a web search), which only the OpenAI adapter reads.
+ */
+function demoOpenAiThread(now: string): ChatData["threads"][number] {
+  const model = "gpt-6.1-sol";
+  const answer = "Yes. The four holes are **Ø6.4 mm**, the ISO 273 *medium* clearance for M6. For a loose fit, 6.6 mm.";
+  return {
+    id: "t2",
+    title: "Check the M6 clearance holes",
+    createdAt: now,
+    updatedAt: now,
+    model,
+    effort: "high",
+    turns: [{ at: now, msgIndex: 0, model, effort: "high", usage: { input: 9120, output: 640, cacheRead: 7680, cacheWrite: 0, context: 16800 }, durationMs: 9800, stop: "end_turn", serviceTier: "fast" }],
+    messages: [
+      { role: "user", content: [{ type: "text", text: "Are the corner holes the right size for M6 bolts?" }] },
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "Checking the hole diameters first." },
+          { type: "tool_use", id: "call_demo1", name: "get_feature_tree", input: {} },
+        ],
+        replay: {
+          provider: "openai",
+          model,
+          data: {
+            output: [
+              { type: "reasoning", id: "rs_demo1", summary: [{ type: "summary_text", text: "Reading the hole features before comparing them with the ISO 273 clearance sizes." }], encrypted_content: "gAAAAA-demo-not-real" },
+              { type: "message", id: "msg_demo1", role: "assistant", status: "completed", phase: "commentary", content: [{ type: "output_text", text: "Checking the hole diameters first.", annotations: [] }] },
+              { type: "function_call", id: "fc_demo1", call_id: "call_demo1", name: "get_feature_tree", arguments: "{}", status: "completed" },
+            ],
+          },
+        },
+      },
+      { role: "user", content: [{ type: "tool_result", tool_use_id: "call_demo1", content: [{ type: "text", text: "Boss-Extrude1\nCut-Extrude1 (4 x Ø6.4 mm through)\nFillet3" }] }] },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: answer }],
+        replay: {
+          provider: "openai",
+          model,
+          data: {
+            output: [
+              { type: "web_search_call", id: "ws_demo1", status: "completed", action: { type: "search", query: "ISO 273 clearance hole M6" } },
+              { type: "message", id: "msg_demo2", role: "assistant", status: "completed", phase: "final_answer", content: [{ type: "output_text", text: answer, annotations: [] }] },
+            ],
+          },
+        },
       },
     ],
   };

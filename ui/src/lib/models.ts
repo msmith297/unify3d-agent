@@ -192,19 +192,30 @@ export function tierModel(tier: Tier | undefined, provider: ProviderId = "anthro
   return (TIERS[tier ?? "balanced"] ?? TIERS.balanced)[provider];
 }
 
-/** Claude Code's model aliases, and the tier each stands for on another provider. */
-const ALIAS_TIERS: Record<string, Tier> = { haiku: "fast", sonnet: "balanced", opus: "high", fable: "max" };
+/** Claude Code's model aliases, and the tier each stands for on another provider. A Map: "constructor" is no alias. */
+const ALIAS_TIERS = new Map<string, Tier>([
+  ["haiku", "fast"],
+  ["sonnet", "balanced"],
+  ["opus", "high"],
+  ["fable", "max"],
+]);
+
+export interface ResolveContext {
+  /** The model of the chat (or run) the name is resolved for: its provider is the one aliases map to. */
+  chatModel: string;
+  hasKey(p: ProviderId): boolean;
+}
 
 /**
  * A command's, agent's or workflow's `model` (a Claude Code alias, a model id or label) as a model id for a chat on
  * `ctx.chatModel`; null means the chat's own model. Aliases resolve inside the chat's provider; a model whose provider
  * has no key falls back to its tier on the chat's provider (docs/providers/design.md 7.4).
  */
-export function resolveModel(name: string | null | undefined, ctx: { chatModel: string; hasKey(p: ProviderId): boolean }): string | null {
+export function resolveModel(name: string | null | undefined, ctx: ResolveContext): string | null {
   const a = (name ?? "").trim().toLowerCase();
   if (!a || a === "inherit") return null;
   const chatProvider = inferProvider(ctx.chatModel);
-  const aliasTier = ALIAS_TIERS[a];
+  const aliasTier = ALIAS_TIERS.get(a);
   if (aliasTier) {
     if (chatProvider === "anthropic") return MODELS.find((m) => m.id.startsWith(`claude-${a}-`))?.id ?? null;
     return tierModel(aliasTier, chatProvider).model;
@@ -219,4 +230,66 @@ export function resolveModel(name: string | null | undefined, ctx: { chatModel: 
 /** @deprecated Use resolveModel. A model name on a Claude chat with every key present (today's meaning). */
 export function modelFromAlias(alias: string | null | undefined): string | null {
   return resolveModel(alias, { chatModel: "claude-opus-5-5", hasKey: () => true });
+}
+
+// ---- helpers for the panel: store, pickers, Options ----
+
+/**
+ * The provider ribbon tool runs use: the default model's when it has a key, else the first provider (in the adapters'
+ * order) that has one, else Anthropic (and the no-key notice follows).
+ */
+export function pickToolProvider(defaultModel: string, hasKey: (p: ProviderId) => boolean, order: ProviderId[]): ProviderId {
+  const own = inferProvider(defaultModel);
+  if (hasKey(own)) return own;
+  return order.find(hasKey) ?? "anthropic";
+}
+
+/** The efforts a model offers, as picker rows. */
+export function effortsFor(model: string) {
+  const offered = modelOption(model).caps.efforts;
+  return EFFORTS.filter((e) => offered.includes(e.id));
+}
+
+/** The nearest effort a model offers (the list runs low to max; a tie goes down). */
+export function clampEffort(effort: Effort, model: string): Effort {
+  return effortFor(modelOption(model), effort);
+}
+
+/**
+ * What a model picker lists: the models of providers that have a key, plus the current model (whatever it is). With no
+ * key at all, the current model's provider (the first run looks as before).
+ */
+export function pickerModels(current: string, hasKey: (p: ProviderId) => boolean): ModelInfo[] {
+  const keyed = [...new Set(MODELS.map((m) => m.provider))].filter(hasKey);
+  const shown = keyed.length ? keyed : [inferProvider(current)];
+  const list = MODELS.filter((m) => shown.includes(m.provider) || m.id === current);
+  if (current && !list.some((m) => m.id === current)) list.push(modelOption(current));
+  return list;
+}
+
+/** The picker's groups, in provider order; `header` is false when only one provider is listed (it looks as before). */
+export function groupModels(models: ModelInfo[], order: ProviderId[]): { provider: ProviderId; header: boolean; models: ModelInfo[] }[] {
+  const providers = order.filter((p) => models.some((m) => m.provider === p));
+  for (const m of models) if (!providers.includes(m.provider)) providers.push(m.provider);
+  const header = providers.length > 1;
+  return providers.map((provider) => ({ provider, header, models: models.filter((m) => m.provider === provider) }));
+}
+
+/** OpenAI's speed setting (service_tier): Standard sends nothing. */
+export const SPEEDS: { id: NonNullable<Settings["openaiSpeed"]>; label: string; note: string }[] = [
+  { id: "standard", label: "Standard", note: "" },
+  { id: "fast", label: "Fast", note: "about 2× the cost" },
+  { id: "ultrafast", label: "Ultrafast", note: "about 6× the cost" },
+];
+
+export function speedLabel(speed: Settings["openaiSpeed"]): string {
+  return SPEEDS.find((s) => s.id === speed)?.label ?? "Standard";
+}
+
+/** /model: a name per resolveModel, else a label or id containing it. Only registry models. */
+export function findModel(query: string, ctx: ResolveContext): ModelInfo | null {
+  const a = query.trim().toLowerCase();
+  if (!a) return null;
+  const id = resolveModel(a, ctx) ?? MODELS.find((x) => x.label.toLowerCase().includes(a) || x.id.includes(a))?.id;
+  return MODELS.find((m) => m.id === id) ?? null;
 }

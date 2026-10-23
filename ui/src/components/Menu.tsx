@@ -5,6 +5,8 @@ export interface MenuItem<T extends string> {
   id: T;
   label: string;
   note?: string;
+  /** A header shown above the first item of each group (e.g. the provider of a model). */
+  group?: string;
 }
 
 /** Toolbar flyout in the style of SolidWorks command drop-downs. Opens upward from the composer. */
@@ -62,7 +64,12 @@ export function Dropdown<T extends string>({
           role="menu"
         >
           <div className="sw-rollout-head mb-0.5 !min-h-[20px] text-[11px]">{title}</div>
-          {items.map((item) => (
+          {items.map((item, i) => [
+            item.group && item.group !== items[i - 1]?.group && (
+              <div key={`group:${item.group}`} className="px-2 pb-0.5 pt-1 text-[11px] font-semibold text-text-3" role="presentation">
+                {item.group}
+              </div>
+            ),
             <button
               key={item.id}
               role="menuitemradio"
@@ -78,8 +85,8 @@ export function Dropdown<T extends string>({
                 <span className="block text-[12px] text-text">{item.label}</span>
                 {item.note && <span className="block text-[11px] text-text-3">{item.note}</span>}
               </span>
-            </button>
-          ))}
+            </button>,
+          ])}
         </div>
       )}
     </div>

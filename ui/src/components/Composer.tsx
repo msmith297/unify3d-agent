@@ -31,7 +31,8 @@ import {
 } from "./SwIcons";
 import { EMPTY, MARKUP_COLORS, MARKUP_NAME, currentThread, draftKey, isAgentSelection, talkKeyName, useStore, type MarkupTool, type QueuedMessage, type Tag } from "../store";
 import { atQuery, slashQuery, slashRows, tagRows, type CommandSources } from "../lib/commands";
-import { EFFORTS, MODELS } from "../lib/models";
+import { MODELS, clampEffort, effortsFor, groupModels, pickerModels } from "../lib/models";
+import { PROVIDERS, getProvider } from "../agent/providers";
 import { isHosted, rpc } from "../lib/bridge";
 import type { Attachment, Effort, FileEntry, ImageMediaType, Wake } from "../lib/types";
 
@@ -73,6 +74,7 @@ export function Composer() {
   const agents = useStore((s) => s.agents);
   const plugins = useStore((s) => s.plugins);
   const userTools = useStore((s) => s.userTools);
+  const keySources = useStore((s) => s.apiKeySources);
   const { setDraft, submitInput, stop, attachView, addAttachment, removeAttachment, setThreadModel, setThreadEffort, startMarkup, pickFiles, startWatch, addTag, removeTag } =
     useStore.getState();
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -81,7 +83,10 @@ export function Composer() {
   const [caret, setCaret] = useState(0);
   const [active, setActive] = useState(0);
   const [closedFor, setClosedFor] = useState<string | null>(null);
-  const sources: CommandSources = useMemo(() => ({ commands, skills, tools: userTools, plugins, agents }), [commands, skills, userTools, plugins, agents]);
+  const sources: CommandSources = useMemo(
+    () => ({ commands, skills, tools: userTools, plugins, agents, models: MODELS.filter((m) => (keySources[m.provider] ?? "none") !== "none").map((m) => m.label) }),
+    [commands, skills, userTools, plugins, agents, keySources],
+  );
   const menu = useMemo((): { prefix: "/" | "@"; title: string; rows: MenuRow[]; start: number } | null => {
     if (closedFor === draft || markupActive) return null;
     const slash = slashQuery(draft, caret);
@@ -100,6 +105,10 @@ export function Composer() {
 
   const model = thread?.model ?? settings.defaultModel;
   const effort = thread?.effort ?? settings.defaultEffort;
+  // Models of the providers with a key (and this chat's own), under provider headers when there are several.
+  const modelItems = groupModels(pickerModels(model, (p) => (keySources[p] ?? "none") !== "none"), PROVIDERS.map((p) => p.id)).flatMap((g) =>
+    g.models.map((m) => ({ id: m.id, label: m.label, note: m.note, group: g.header ? getProvider(g.provider).label : undefined })),
+  );
   const reading = attachments.some((a) => a.kind === "model" && a.status === "reading");
   // While the agent works, Enter queues the message (see QueuedList).
   const canSend = !markupActive && !reading && (draft.trim().length > 0 || attachments.length > 0);
@@ -308,8 +317,8 @@ export function Composer() {
       <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-0.5 gap-y-1">
         <span className="flex min-w-0 items-center gap-0.5">
           <span className="inline-flex min-w-0 items-center gap-0.5" data-tour="model">
-            <Dropdown title="Model" icon={<IconAgent size={14} />} labelClassName={NARROW} value={model} items={MODELS.map((m) => ({ id: m.id, label: m.label, note: m.note }))} onChange={setThreadModel} disabled={running} />
-            <Dropdown<Effort> title="Effort" icon={<IconEffort size={14} />} labelClassName={NARROW} value={effort} items={EFFORTS.map((e) => ({ id: e.id, label: e.label, note: e.note }))} onChange={setThreadEffort} disabled={running} />
+            <Dropdown title="Model" icon={<IconAgent size={14} />} labelClassName={NARROW} value={model} items={modelItems} onChange={setThreadModel} disabled={running} />
+            <Dropdown<Effort> title="Effort" icon={<IconEffort size={14} />} labelClassName={NARROW} value={clampEffort(effort, model)} items={effortsFor(model).map((e) => ({ id: e.id, label: e.label, note: e.note }))} onChange={setThreadEffort} disabled={running} />
           </span>
           <span className="inline-flex" data-tour="tools">
             <ToolsPalette disabled={running || markupActive} labelClassName={NARROWER} />

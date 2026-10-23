@@ -5,6 +5,7 @@
 import assert from "node:assert/strict";
 import "./cheatsheet.check.mjs"; // the SolidWorks API cheat sheet (budget, members, in the prompt)
 import "./creator.check.mjs"; // the plugin creator: web research, ask_secret, the creator prompt and workflow
+import "./models.check.mjs"; // the model registry: providers, aliases, tiers, pickers
 import { selectionKind, isAllowed, refBase, kindsText, selectionStatus, selectionAnswer } from "../selection.ts";
 import {
   clampSteps,

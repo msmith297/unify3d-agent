@@ -3,7 +3,7 @@
 # Unify3D Agent
 
 An AI design agent for SOLIDWORKS. A chat panel in the Task Pane, a **Unify3D** ribbon tab and right-click
-commands let you talk to Claude about the open model. The agent reads and changes the model through the full
+commands let you talk to Claude or OpenAI's GPT models about the open model. The agent reads and changes the model through the full
 SolidWorks API. Each document keeps its own conversations, stored **inside the .sldprt / .sldasm / .slddrw file**.
 
 ```
@@ -11,7 +11,7 @@ SLDWORKS.exe
  └─ SwAgent.dll  (C# .NET Framework 4.8 add-in, xCAD.NET)
      ├─ Ribbon tab "Unify3D" (panel commands + your Tools), right-click "Ask Unify3D" on faces/edges/features
      ├─ Task Pane ─ WebView2 (separate Chromium processes)
-     │               └─ React + TypeScript UI  ── agent loop ──▶ Claude API (@anthropic-ai/sdk)
+     │               └─ React + TypeScript UI  ── agent loop ──▶ Claude API (@anthropic-ai/sdk) or OpenAI Responses API
      │                        ▲ JSON-RPC over postMessage │ tool calls
      ├─ ToolRegistry ◀────────┘───────────────────────────┘
      │   execute_csharp · capture_views · get_model_context · get_feature_tree · get_selection
@@ -71,7 +71,8 @@ Both are created with the agent and stored in `%APPDATA%\SwAgent\tools\<name>\` 
   the agent can check signatures for your SolidWorks version instead of guessing them.
 - **Model selector.** Opus 5.5 at *high* effort is the default. Fable 5.1, Sonnet 5.5 and Haiku 5.5 are also
   offered, at efforts from low to max. Requests use adaptive thinking with progress updates, server-side refusal
-  fallbacks and prompt caching.
+  fallbacks and prompt caching. With an OpenAI key, GPT-6.1 Sol, GPT-6 Astra and GPT-6 Luna are offered too (see
+  *Model providers*).
 - **Approvals.** *Ask* (the default) shows the code and waits for **Run / Always allow in this chat / Reject**.
   *Auto* runs without asking. *Read-only* disables tools that change the model.
 
@@ -88,8 +89,25 @@ Both are created with the agent and stored in `%APPDATA%\SwAgent\tools\<name>\` 
   placeholder.
 - Saved history is replayed exactly. Requests set `thinking.block_binding.prefix_mismatch_behavior: "drop_block"`,
   so a chat reopened later, or after an add-in update, never fails on stale thinking blocks.
-- The API key is never stored in documents. It is encrypted with Windows DPAPI in `%APPDATA%\SwAgent\apikey.bin`;
-  the `ANTHROPIC_API_KEY` environment variable also works.
+- API keys are never stored in documents. Each provider's key is encrypted with Windows DPAPI in
+  `%APPDATA%\SwAgent\`: `apikey.bin` (Anthropic) and `apikey-openai.bin` (OpenAI). The `ANTHROPIC_API_KEY` and
+  `OPENAI_API_KEY` environment variables also work.
+
+### Model providers
+
+The agent runs on Claude (Anthropic) or on OpenAI's GPT models. Every model belongs to one provider, and a chat runs on
+the provider of its model: pick a model from the other provider and the next message goes there, with the whole chat.
+
+- **Keys:** Options > *AI providers* has a row per provider: save, test or remove its key, or get one. Model pickers
+  list the models of the providers that have a key, grouped by provider when there are two.
+- **Tools on the ribbon** use their intelligence tier on your provider: on OpenAI, Fast is GPT-6 Luna, Balanced
+  GPT-6.1 Sol, High and Max GPT-6 Astra. Plugin aliases (`sonnet`, `opus`, ...) map the same way.
+- **What differs on OpenAI:** web research can search and open pages from search results, but not a link you give it;
+  a refusal ends the turn (no fallback model); reasoning summaries show as progress notes. Options > *AI providers* >
+  *Speed* (Standard, Fast, Ultrafast) applies to the models that offer it.
+- **Secrets:** plugins, hooks, MCP servers and git never see `ANTHROPIC_*` or `OPENAI_*` variables.
+- **Adding a provider** is one adapter in `ui/src/agent/providers/`, rows in the model list, a key file and a CSP
+  entry: `docs/providers/design.md` section 10.
 
 ## Build and install
 
@@ -97,8 +115,8 @@ Both are created with the agent and stored in `%APPDATA%\SwAgent\tools\<name>\` 
 
 Download `Unify3D-Agent-Setup-x.y.z.exe` from [Releases](https://github.com/msmith297/unify3d-agent/releases/latest)
 and run it (administrator rights are needed to register a SOLIDWORKS add-in). Requires Windows 10/11 x64 and
-SOLIDWORKS 2024 or newer. Restart SOLIDWORKS, open the **Unify3D Agent** Task Pane tab and paste your Anthropic API key
-in Options. The add-in checks for updates itself (Options > Updates).
+SOLIDWORKS 2024 or newer. Restart SOLIDWORKS, open the **Unify3D Agent** Task Pane tab and paste an Anthropic or
+OpenAI API key in Options. The add-in checks for updates itself (Options > Updates).
 
 ## Build from source
 
@@ -130,7 +148,8 @@ harmless to SolidWorks.
 
   The panel then loads the Vite dev server. Right-click > Inspect opens DevTools.
 - **UI without SolidWorks:** run `npm --prefix ui run dev` and open `http://localhost:5173/?demo`. A mock host
-  (`ui/src/lib/mockHost.ts`) stands in for the add-in and seeds a sample conversation.
+  (`ui/src/lib/mockHost.ts`) stands in for the add-in and seeds sample conversations (one on Claude, one on OpenAI).
+  Add `&fake` to answer the model APIs from canned streams (`ui/src/agent/providers/fake.ts`) instead of the network.
 - **Tests:** `dotnet test tests/SwAgent.Tests -c Release` runs the headless tests (mesh reading, measuring and
   rendering; the Watch me diff and log). They need no SolidWorks; set `SWAGENT_TEST_DUMP` to a folder to save a
   sample six-view sheet there.

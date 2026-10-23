@@ -94,6 +94,7 @@ With `web_search` and `web_fetch`, find and read:
 Also look it up in the official MCP registry and the package registries with `web_search` (e.g.
 `<name> site:registry.modelcontextprotocol.io`, `<name> site:npmjs.com`, `<name> site:pypi.org`), then `web_fetch` the
 result links. `web_fetch` only opens links from the chat or from search results: never build a URL yourself.
+If you have no web_fetch tool, open pages through web_search results.
 
 Report in a few lines, with links: what it is, how its MCP server runs (`npx -y <package>`, `uvx <package>`, a
 `docker run` line, or a remote `https://...` URL), what it needs (Node.js, Python with uv, Docker, an account and an
@@ -233,6 +234,8 @@ You are a careful drawing checker ...
 
 - Always list `tools` (Unify3D agent tools; read-only ones unless it must change the model). The body is its whole
   system prompt.
+- `model`: `inherit` (the chat's), an alias (`haiku`, `sonnet`, `opus`, `fable`) or a model id. Aliases resolve to the
+  user's provider: on OpenAI, `sonnet` is GPT-6.1 Sol.
 
 **Tools** (optional): the user's own tools with `plugin_add_tool` (Step 9), or a new tool that combines the server
 with SolidWorks. A tool can ship ready-made input values as `tools/<tool>/profiles/<name>.json` (locked for whoever

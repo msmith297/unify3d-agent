@@ -257,7 +257,7 @@ namespace SwAgent.Tools
                        "Fail(\"Select a planar face first\") (shown to the user in the status bar). End with a short result string, e.g. \"Added 4 holes\".")]
             public string Macro { get; set; }
 
-            [ToolParam("Workflows: model for runs, if it must differ from the chat's (claude-haiku-5-5, claude-sonnet-5-5, claude-opus-5-5). Tools use intelligence instead.")]
+            [ToolParam("Workflows: a model id from Options (e.g. claude-sonnet-5-5 or gpt-6.1-sol), or omit to use the intelligence tier.")]
             public string Model { get; set; }
 
             [ToolParam("Tools: the inputs of its PropertyManager page (shown on the left like a native command). Omit for tools that just act on the selection.")]
@@ -273,7 +273,7 @@ namespace SwAgent.Tools
             public bool? Agent { get; set; }
 
             [ToolParam("Tools with an agent: how much intelligence the job needs - fast (simple, mechanical), balanced (default), high (careful geometry work) or max (hardest reasoning). " +
-                       "Maps to the user's provider (e.g. Claude Haiku / Sonnet / Opus); the user can change it in the tool's page.")]
+                       "Maps to the user's provider (e.g. Claude Haiku / Sonnet / Opus, or GPT-6 Luna / 6.1 Sol / 6 Astra); the user can change it in the tool's page.")]
             public string Intelligence { get; set; }
 
             [ToolParam("Tools: \"missing\" (default) skips the PropertyManager page when everything required is already selected and runs at once; " +
@@ -364,7 +364,7 @@ namespace SwAgent.Tools
             public bool? Agent { get; set; }
 
             [ToolParam("Tools with an agent: how much intelligence the job needs - fast (simple, mechanical), balanced (default), high (careful geometry work) or max (hardest reasoning). " +
-                       "Maps to the user's provider (e.g. Claude Haiku / Sonnet / Opus); the user can change it in the tool's page.")]
+                       "Maps to the user's provider (e.g. Claude Haiku / Sonnet / Opus, or GPT-6 Luna / 6.1 Sol / 6 Astra); the user can change it in the tool's page.")]
             public string Intelligence { get; set; }
 
             [ToolParam("Tools: \"missing\" (default) skips the PropertyManager page when everything required is already selected and runs at once; " +

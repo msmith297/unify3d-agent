@@ -18,17 +18,18 @@ namespace SwAgent.ModelFiles
     /// </summary>
     internal static class FileAttachments
     {
+        /// <summary>Per image: Anthropic's 5 MB, the strictest provider's (OpenAI allows 50 MB per file).</summary>
         public const long MaxImageBytes = 5_000_000;
 
         /// <summary>
-        /// Base64 makes a PDF 4/3 larger and requests are capped at 32 MB: 20 MB becomes 26.7 MB and fits, 30 MB became 40 MB
-        /// and failed. The staged PDF rides along on every request of the chat (as a cached read), so smaller is better.
+        /// Base64 makes a PDF 4/3 larger and requests are capped at 32 MB (Anthropic's cap, the strictest provider's; OpenAI
+        /// allows 50 MB): 20 MB becomes 26.7 MB and fits, 30 MB became 40 MB and failed. The staged PDF rides along on every request of the chat (as a cached read), so smaller is better.
         /// </summary>
         public const long MaxPdfBytes = 20_000_000;
 
         /// <summary>
         /// All the files of one tool run together (raw bytes): each file fits its own cap, but several PDFs or images could
-        /// still push the first request past the API's 32 MB after base64 - and that message is resent on every Retry and
+        /// still push the first request past the strictest provider's 32 MB after base64 - and that message is resent on every Retry and
         /// follow-up, so the whole chat would stay broken. 20 MB raw is 26.7 MB base64, with room for the view and text.
         /// </summary>
         public const long MaxRunBytes = 20_000_000;
