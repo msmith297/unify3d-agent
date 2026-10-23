@@ -269,7 +269,9 @@ namespace SwAgent.Plugins
             ToolProfiles.Retarget(to, id); // profiles in the tool folder (e.g. a fork's) name the plugin's tool
             var mine = ToolProfiles.List(tool).Where(x => !x.Locked).Select(x => x.Name).ToList();
             var shipped = input.Profiles == true ? ToolProfiles.Ship(tool, to, id) : new List<string>();
-            if (input.Move == true && shipped.Count == 0) ToolProfiles.CopyAll(tool, id); // the user keeps their profiles for the plugin's tool
+            // Moved: the user keeps their settings (the default, the last used) and the profiles that didn't ship for the plugin's
+            // tool; a default naming a shipped profile now opens that (locked) one.
+            if (input.Move == true) ToolProfiles.CopyAll(tool, id, except: shipped);
             if (input.Move == true) UserTools.Delete(tool);
             pm.Invalidate();
             UserTools.NotifyChanged();

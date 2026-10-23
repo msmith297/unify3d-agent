@@ -274,21 +274,23 @@ namespace SwAgent.Memory
         {
             var name = (tool ?? "").Trim().ToLowerInvariant();
             var dir = UserTools.DirOf(name);
-            if (dir == null || UserTools.IsReadOnlyDir(dir)) return OverlayText(name);
-            return HasSection(Path.Combine(dir, "TOOL.md")) ? Appendix(Notes(ToolScope(name, dir))) : null;
+            if (dir == null || UserTools.IsReadOnlyDir(dir)) return OverlayText(name, RunHeading);
+            return HasSection(Path.Combine(dir, "TOOL.md")) ? Appendix(Notes(ToolScope(name, dir)), RunHeading) : null;
         }
 
         /// <summary>
         /// A read-only tool's notes as they are appended to its instructions (read_user_tool, tool-run staging); null when it
         /// has none. The user's own tools carry theirs in TOOL.md already.
         /// </summary>
-        public string OverlayText(string tool)
+        public string OverlayText(string tool) => OverlayText(tool, AppendixHeading);
+
+        private string OverlayText(string tool, string heading)
         {
             var name = (tool ?? "").Trim().ToLowerInvariant();
             if (!System.IO.File.Exists(ToolOverlayPath(name))) return null;
             var dir = UserTools.DirOf(name);
             if (dir != null && !UserTools.IsReadOnlyDir(dir)) return null;
-            return Appendix(Notes(ToolScope(name, dir)));
+            return Appendix(Notes(ToolScope(name, dir)), heading);
         }
 
         /// <summary>A skill's overlay notes as use_skill appends them; null when it has none (local skills keep theirs in SKILL.md).</summary>
@@ -298,8 +300,14 @@ namespace SwAgent.Memory
             return System.IO.File.Exists(scope.File) ? Appendix(Notes(scope)) : null;
         }
 
-        private static string Appendix(List<MemoryNote> notes) =>
-            notes.Count == 0 ? null : "Standing instructions from the user (they win over the text above):\n" + string.Join("\n", notes.Select(n => n.Line));
+        /// <summary>After a tool's or skill's text (read_user_tool, use_skill).</summary>
+        private const string AppendixHeading = "Standing instructions from the user (they win over the text above):";
+
+        /// <summary>First in a tool run's message, before anything of the tool's.</summary>
+        private const string RunHeading = "Standing instructions from the user for this tool (they win over its TOOL.md):";
+
+        private static string Appendix(List<MemoryNote> notes, string heading = AppendixHeading) =>
+            notes.Count == 0 ? null : heading + "\n" + string.Join("\n", notes.Select(n => n.Line));
 
         /// <summary>The result of remember: the note, what it replaced, and a warning when the scope is nearly full.</summary>
         internal sealed class Saved
@@ -341,6 +349,9 @@ namespace SwAgent.Memory
                     if (hit.Item2 == null) throw new ToolException($"No note with id {id} (nothing was saved). list_memory shows the ids.");
                     targets.Add(hit);
                 }
+                // where each replaced note was, so Undo puts it back in its place (general memory is in the prompt in order)
+                var positions = new Dictionary<string, int>();
+                foreach (var target in targets.Where(t => t.Scope.Key == scope.Key)) positions[target.Note.Id] = notes.FindIndex(n => n.Id == target.Note.Id);
                 notes.RemoveAll(n => targets.Any(t => t.Scope.Key == scope.Key && t.Note.Id == n.Id));
                 var note = new MemoryNote { Date = DateTime.Now.ToString("yyyy-MM-dd"), Text = text, Id = IdFor(scope, text) };
                 var used = Used(notes) + note.Line.Length + 1;
@@ -353,6 +364,7 @@ namespace SwAgent.Memory
                 {
                     var s = other.First().Scope;
                     var left = Read(s);
+                    foreach (var target in other) positions[target.Note.Id] = left.FindIndex(n => n.Id == target.Note.Id);
                     left.RemoveAll(n => other.Any(t => t.Note.Id == n.Id));
                     Write(s, left);
                 }
@@ -360,7 +372,7 @@ namespace SwAgent.Memory
                 result.Replaced = targets;
                 if (used > scope.Cap * 8 / 10)
                     result.Warning = $"{Capitalise(scope.Label)} is {used * 100 / scope.Cap}% full: merge overlapping notes soon (remember with replaces), and ask before dropping any.";
-                Journal(note.Id, scope, targets);
+                Journal(note.Id, scope, targets, positions);
             }
             RaiseChanged(scope);
             foreach (var s in result.Replaced.Select(r => r.Scope).Where(s => s.Key != scope.Key && s.Kind == "tool")) RaiseChanged(s);
@@ -406,7 +418,8 @@ namespace SwAgent.Memory
                 var entry = journal.OfType<JObject>().LastOrDefault(e => (string)e["id"] == id);
                 if (entry != null)
                 {
-                    foreach (var r in (entry["replaced"] as JArray ?? new JArray()).OfType<JObject>())
+                    // lowest position first, so each goes back where it was among the others
+                    foreach (var r in (entry["replaced"] as JArray ?? new JArray()).OfType<JObject>().OrderBy(e => (int?)e["index"] ?? int.MaxValue))
                     {
                         MemoryScope scope;
                         try
@@ -420,7 +433,8 @@ namespace SwAgent.Memory
                         var notes = Read(scope);
                         var text = (string)r["text"];
                         if (notes.Any(n => string.Equals(n.Text, text, StringComparison.OrdinalIgnoreCase))) continue;
-                        notes.Add(new MemoryNote { Date = (string)r["date"] ?? "", Text = text, Id = IdFor(scope, text) });
+                        var at = (int?)r["index"] ?? notes.Count;
+                        notes.Insert(Math.Max(0, Math.Min(at, notes.Count)), new MemoryNote { Date = (string)r["date"] ?? "", Text = text, Id = IdFor(scope, text) });
                         Write(scope, notes);
                         touched.Add(scope);
                         any = true;
@@ -563,14 +577,18 @@ namespace SwAgent.Memory
             return scope;
         }
 
-        private void Journal(string id, MemoryScope scope, List<(MemoryScope Scope, MemoryNote Note)> replaced)
+        private void Journal(string id, MemoryScope scope, List<(MemoryScope Scope, MemoryNote Note)> replaced, Dictionary<string, int> positions)
         {
             var journal = ReadJournal();
             journal.Add(new JObject
             {
                 ["id"] = id,
                 ["scope"] = scope.Key,
-                ["replaced"] = new JArray(replaced.Select(r => new JObject { ["scope"] = r.Scope.Key, ["file"] = r.Scope.File, ["date"] = r.Note.Date, ["text"] = r.Note.Text })),
+                ["replaced"] = new JArray(replaced.Select(r => new JObject
+                {
+                    ["scope"] = r.Scope.Key, ["file"] = r.Scope.File, ["date"] = r.Note.Date, ["text"] = r.Note.Text,
+                    ["index"] = positions.TryGetValue(r.Note.Id, out var i) && i >= 0 ? (JToken)i : null,
+                })),
             });
             while (journal.Count > 100) journal.RemoveAt(0);
             WriteText(UndoFile, journal.ToString());
@@ -584,7 +602,16 @@ namespace SwAgent.Memory
             }
             catch (Exception ex)
             {
-                Log.Warn("memory-undo.json unreadable, starting a new one: " + ex.Message);
+                // The next remember replaces it: keep a copy, as the knowledge store does.
+                Log.Warn("memory-undo.json unreadable, keeping it as .bad and starting a new one: " + ex.Message);
+                try
+                {
+                    System.IO.File.Copy(UndoFile, UndoFile + ".bad", true);
+                }
+                catch
+                {
+                    // best effort
+                }
                 return new JArray();
             }
         }

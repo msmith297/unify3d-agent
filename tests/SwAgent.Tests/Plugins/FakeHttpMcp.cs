@@ -61,6 +61,9 @@ namespace SwAgent.Tests.Plugins
 
         public readonly ConcurrentQueue<string> Notifications = new ConcurrentQueue<string>();
 
+        /// <summary>Set: any request to /old gets "307 Temporary Redirect" to this url.</summary>
+        public string Redirect;
+
         private async Task AcceptLoop()
         {
             while (!_stop.IsCancellationRequested)
@@ -89,6 +92,11 @@ namespace SwAgent.Tests.Plugins
                 headers.TryGetValue("mcp-session-id", out var session);
                 headers.TryGetValue("mcp-protocol-version", out var protocol);
                 Requests.Enqueue($"{method} {path} | {auth} | {session} | {protocol}");
+                if (Redirect != null && path == "/old")
+                {
+                    await Write(stream, 307, "Temporary Redirect", "text/plain", "", "Location: " + Redirect).ConfigureAwait(false);
+                    return;
+                }
                 if (Token != null && auth != "Bearer " + Token)
                 {
                     await Write(stream, 401, "Unauthorized", "application/json", "{\"error\":\"unauthorized\"}",

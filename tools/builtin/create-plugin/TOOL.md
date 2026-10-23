@@ -59,7 +59,7 @@ are the request: use them, and don't ask again for what they already say.
 | `list_plugins`, `read_plugin(plugin)` | What exists already; a plugin's manifest, components and files |
 | `plugin_create(name, description, display_name, category)` | Creates `plugins\local\<name>\` with `.claude-plugin/plugin.json` |
 | `plugin_write_file(plugin, path, content)` | Writes one file inside a local plugin; checks `.md` front matter and JSON |
-| `plugin_add_tool(plugin, tool, move)` | Copies (or moves) one of the user's tools or workflows into the plugin |
+| `plugin_add_tool(plugin, tool, move, profiles)` | Copies (or moves) one of the user's tools or workflows into the plugin; profiles: true ships the user's saved profiles |
 | `ask_secret(plugin, key, label, help_url)` | A masked field in the chat for a key the plugin needs; you only get "saved" or "skipped" |
 | `plugin_try_mcp(plugin, server, call, arguments, user_ok)` | Starts the plugin's MCP server on its own, lists its tools, calls one, stops it |
 | `plugin_validate(plugin)` | Checks the manifest, names, front matter, hook and MCP shapes |
@@ -91,8 +91,9 @@ With `web_search` and `web_fetch`, find and read:
   needs (API keys), the tools it offers, and whether it needs OAuth;
 - its docs, for how it is meant to be used.
 
-Also look it up in the official MCP registry (`https://registry.modelcontextprotocol.io/v0/servers?search=<name>`)
-and the package registries (`https://www.npmjs.com/package/<name>`, `https://pypi.org/project/<name>/`).
+Also look it up in the official MCP registry and the package registries with `web_search` (e.g.
+`<name> site:registry.modelcontextprotocol.io`, `<name> site:npmjs.com`, `<name> site:pypi.org`), then `web_fetch` the
+result links. `web_fetch` only opens links from the chat or from search results: never build a URL yourself.
 
 Report in a few lines, with links: what it is, how its MCP server runs (`npx -y <package>`, `uvx <package>`, a
 `docker run` line, or a remote `https://...` URL), what it needs (Node.js, Python with uv, Docker, an account and an

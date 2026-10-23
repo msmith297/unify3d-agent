@@ -192,7 +192,16 @@ namespace SwAgent.Tools
             }
             catch (Exception ex)
             {
-                Log.Warn($"Profile settings of '{tool}' unreadable: {ex.Message}");
+                // The next write replaces it: keep a copy for the user, as the knowledge store does.
+                Log.Warn($"Profile settings of '{tool}' unreadable ({ex.Message}); keeping them as {SettingsFile}.bad.");
+                try
+                {
+                    File.Copy(path, path + ".bad", true);
+                }
+                catch
+                {
+                    // best effort
+                }
                 return new JObject();
             }
         }
@@ -382,10 +391,12 @@ namespace SwAgent.Tools
 
         /// <summary>
         /// A fork gets the user's profiles of the source tool and its settings (the default, the last used); shipped profiles
-        /// travel with the tool folder. Profiles the fork already has are kept.
+        /// travel with the tool folder. Profiles the fork already has are kept, unless fresh (a brand-new tool: anything
+        /// there is left from a deleted tool of that name). except: profile names not copied (they shipped with the tool).
         /// </summary>
-        public static int CopyAll(string fromTool, string toTool, string root = null)
+        public static int CopyAll(string fromTool, string toTool, string root = null, bool fresh = false, ICollection<string> except = null)
         {
+            if (fresh) RemoveAll(toTool, root);
             var from = UserDir(fromTool, root);
             if (!Directory.Exists(from)) return 0;
             var to = UserDir(toTool, root);
@@ -398,7 +409,9 @@ namespace SwAgent.Tools
                 try
                 {
                     var o = ToolProfile.ParseJson(File.ReadAllText(file));
-                    if (!string.Equals(Path.GetFileName(file), SettingsFile, StringComparison.OrdinalIgnoreCase)) o["tool"] = toTool;
+                    var settings = string.Equals(Path.GetFileName(file), SettingsFile, StringComparison.OrdinalIgnoreCase);
+                    if (!settings && except != null && except.Any(n => SameName(n, (string)o["name"]))) continue;
+                    if (!settings) o["tool"] = toTool;
                     WriteJson(target, o);
                     copied++;
                 }
@@ -408,6 +421,23 @@ namespace SwAgent.Tools
                 }
             }
             return copied;
+        }
+
+        /// <summary>A deleted tool's profiles and settings go with it (UserTools.Delete), so a new tool of that name starts clean.</summary>
+        public static void RemoveAll(string tool, string root = null)
+        {
+            var key = UserTools.StorageKey(tool);
+            if (key.Length == 0 || key.Contains("..") || key.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0) return; // only ever one tool's folder
+            var dir = UserDir(tool, root);
+            if (!Directory.Exists(dir)) return;
+            try
+            {
+                Directory.Delete(dir, recursive: true);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Removing the profiles of '{tool}' failed: {ex.Message}");
+            }
         }
 
         /// <summary>

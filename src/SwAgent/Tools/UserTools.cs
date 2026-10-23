@@ -35,8 +35,8 @@ namespace SwAgent.Tools
         /// </summary>
         public const int DefaultMaxSteps = 200, LongRunMaxSteps = 600, MaxStepsMin = 50, MaxStepsCap = 1000;
 
-        /// <summary>Folders under Root that hold the page's own data (remembered values, shop overrides of built-in data), not tools.</summary>
-        public static readonly HashSet<string> ReservedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "last-inputs", "builtin-data" };
+        /// <summary>Folders under Root that hold the tools' own data (remembered values, shop overrides of built-in data, saved profiles), not tools.</summary>
+        public static readonly HashSet<string> ReservedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "last-inputs", "builtin-data", "profiles" };
 
         /// <summary>A front-matter value without surrounding quotes ("Compression Mold" or 'x'), trimmed; null when absent or blank.</summary>
         internal static string FrontValue(IDictionary<string, string> fm, string key)
@@ -767,10 +767,14 @@ namespace SwAgent.Tools
             }
         }
 
+        /// <summary>Deletes one of the user's tools and its saved profiles (a later tool of that name starts without them).</summary>
         public static void Delete(string name)
         {
             var dir = ToolDir(name, mustExist: true);
+            name = name.Trim().ToLowerInvariant();
+            if (ReservedNames.Contains(name) || !File.Exists(Path.Combine(dir, "TOOL.md"))) throw new ToolException($"'{name}' is not a tool (it has no TOOL.md); nothing was deleted.");
             Directory.Delete(dir, recursive: true);
+            ToolProfiles.RemoveAll(name);
             Log.Info($"Deleted user tool '{name}'");
             Changed?.Invoke();
         }

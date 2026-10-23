@@ -103,6 +103,8 @@ export interface RunOverride {
    * It never inherits auto-approval (a long tool run's, or "Always allow" in the chat): write tools ask, or follow read-only.
    */
   fromWake?: boolean;
+  /** A Stop-hook continuation: the turn goes on because a plugin asked, so no memory, profile or tool-copy writes (lib/memory.ts). */
+  fromHook?: boolean;
 }
 
 /** Valid ask_selection kinds (the agent's input is checked loosely). */
@@ -844,6 +846,7 @@ export const useStore = create<State>((set, get) => {
         webResearch: get().settings.webResearch !== false,
         memory: get().memory,
         fromWake: !!run.fromWake,
+        fromHook: !!run.fromHook,
         signal: controller.signal,
         cb: {
           getMessages: () => get().chats[docKey]?.data.threads.find((t) => t.id === threadId)?.messages ?? [],
@@ -1054,7 +1057,7 @@ export const useStore = create<State>((set, get) => {
     const n = q.findIndex((m) => m.staged || m.run);
     const batch = n < 0 ? q : q.slice(0, n);
     set((s) => ({ queue: { ...s.queue, [threadId]: n < 0 ? [] : q.slice(n) } }));
-    const next: RunOverride = { model: run.model, effort: run.effort, autoApprove: run.autoApprove, label: run.label, maxSteps: run.maxSteps, longRun: run.longRun, continuation: true, fromWake: run.fromWake };
+    const next: RunOverride = { model: run.model, effort: run.effort, autoApprove: run.autoApprove, label: run.label, maxSteps: run.maxSteps, longRun: run.longRun, continuation: true, fromWake: run.fromWake, fromHook: true };
     const release = beginPreparing(docKey, threadId);
     void (async () => {
       const blocks: ContentBlockParam[] = [{ type: "text", text: systemEventText("stop", "Stop hook", reason || "A plugin's Stop hook asked you to continue.") }];

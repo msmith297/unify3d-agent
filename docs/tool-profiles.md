@@ -37,8 +37,8 @@ Written 2026-10-22. Built with plugin creator v2 and standing instructions (the 
 - **What goes in:**
   - by default every input except document-specific ones (`files`, `selection`), so a profile works on any part;
   - a checkbox at Save, "Include the files and selections", for templates of one job;
-  - partial profiles are allowed: a profile holds only the fields chosen at Save (all by default, or "Only the fields I
-    changed").
+  - partial profiles are allowed: a profile holds only the fields chosen at Save (all by default, or "Leave out fields at
+    the tool default").
 
 ## 2. In the tool form (panel) and the PropertyManager page
 

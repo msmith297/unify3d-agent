@@ -73,7 +73,7 @@ namespace SwAgent.Tools
                 ToolForks.CopyFolder(sourceDir, dir);
                 var md = Path.Combine(dir, "TOOL.md");
                 var settings = UserTools.BuiltInSettings(source);
-                File.WriteAllText(md, ToolForks.Rewrite(File.ReadAllText(md), source, sourceTitle, name, title, $"{source}@{version}", settings), new UTF8Encoding(false));
+                ToolForks.WriteText(md, ToolForks.Rewrite(File.ReadAllText(md), source, sourceTitle, name, title, $"{source}@{version}", settings));
             }
             catch
             {
@@ -89,7 +89,7 @@ namespace SwAgent.Tools
             }
             var notes = MemoryStore.Instance.CopyToolNotes(source, name, dir);
             ToolProfiles.Retarget(dir, name); // the profiles that came with the original now name the copy
-            ToolProfiles.CopyAll(source, name); // the user's saved profiles and their default go with the copy
+            ToolProfiles.CopyAll(source, name, fresh: true); // the user's saved profiles and their default go with the copy (not a deleted tool's)
             ToolForks.WriteRecord(dir, source, version, ToolForks.Hashes(sourceDir), ToolForks.Hashes(dir));
             if (input.HideOriginal == true) UserTools.SetValue(source, "hidden", "true");
             Log.Info($"Forked tool '{source}' as '{name}'");
@@ -155,10 +155,10 @@ namespace SwAgent.Tools
                     var notes = MemoryStore.Instance.Notes(MemoryStore.Instance.ToolScope(name, dir));
                     var text = ToolForks.Rewrite(File.ReadAllText(Path.Combine(sourceDir, "TOOL.md")), source, sourceTitle, name,
                         UserTools.FrontValue(fm, "title") ?? name, $"{source}@{ToolForks.VersionOf(source, sourceDir, sourceFm)}", UserTools.BuiltInSettings(source));
-                    File.WriteAllText(to, text, new UTF8Encoding(false));
+                    ToolForks.WriteText(to, text);
                     MemoryStore.Instance.AddNotes(MemoryStore.Instance.ToolScope(name, dir), notes);
                 }
-                else File.Copy(UserTools.SafePath(sourceDir, key), to, true);
+                else ToolForks.CopyFile(UserTools.SafePath(sourceDir, key), to);
                 taken.Add(key);
             }
             if (taken.Count > 0)
@@ -389,11 +389,21 @@ namespace SwAgent.Tools
                 ["base"] = JObject.FromObject(theirs),
                 ["mine"] = JObject.FromObject(mine),
             };
-            var path = Path.Combine(dir, RecordFile);
+            WriteText(Path.Combine(dir, RecordFile), record.ToString(Formatting.Indented));
+        }
+
+        /// <summary>Writes a file whole or not at all (AtomicFile): a TOOL.md also holds the user's Standing instructions.</summary>
+        public static void WriteText(string path, string text) => Replace(path, tmp => File.WriteAllText(tmp, text, new UTF8Encoding(false)));
+
+        /// <summary>Copies a file over another whole or not at all (AtomicFile).</summary>
+        public static void CopyFile(string from, string path) => Replace(path, tmp => File.Copy(from, tmp, true));
+
+        private static void Replace(string path, Action<string> write)
+        {
             var tmp = path + "." + Guid.NewGuid().ToString("N").Substring(0, 8) + ".tmp";
             try
             {
-                File.WriteAllText(tmp, record.ToString(Formatting.Indented), new UTF8Encoding(false));
+                write(tmp);
                 AtomicFile.Replace(tmp, path);
             }
             finally

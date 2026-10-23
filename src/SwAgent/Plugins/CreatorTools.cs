@@ -42,7 +42,7 @@ namespace SwAgent.Plugins
 
         public sealed class PrerequisitesInput
         {
-            [ToolParam("Programs to look for, each with an optional minimum version, e.g. [\"node>=18\", \"python>=3.10\", \"uv\", \"git\", \"docker\"]. Any program name works.", Required = true)]
+            [ToolParam("Programs to look for, each with an optional minimum version, e.g. [\"node>=18\", \"python>=3.10\", \"uv\", \"git\", \"docker\"]. Any program name on the PATH (not a path).", Required = true)]
             public string[] Programs { get; set; }
         }
 
@@ -126,6 +126,10 @@ namespace SwAgent.Plugins
             var m = Requirement.Match(requirement ?? "");
             if (!m.Success) return new CheckResult { Name = requirement, Line = $"\"{requirement}\": write it as a program name with an optional version, e.g. node>=18." };
             var name = m.Groups[1].Value;
+            // A program's name only, looked up on the PATH: a path would run any file the agent names (one it just wrote into
+            // a plugin, say) without the user's OK.
+            if (name.IndexOfAny(new[] { '\\', '/', ':' }) >= 0 || name.Contains("..") || name.StartsWith("."))
+                return new CheckResult { Name = name, Line = $"\"{name}\": give a program's name only (e.g. node), not a path. Only programs on the PATH are checked." };
             var min = m.Groups[3].Success ? ParseVersion(m.Groups[3].Value) : null;
             var minText = m.Groups[3].Value; // as asked: "18", "3.10"
             var exact = m.Groups[2].Value == "=" || m.Groups[2].Value == "==";
@@ -139,7 +143,7 @@ namespace SwAgent.Plugins
             foreach (var program in known?.Programs ?? new[] { name })
             {
                 var found = FindOverride != null ? FindOverride(program) : ExecutableResolver.Find(program);
-                if (found == null) continue;
+                if (found == null || !Path.IsPathRooted(found) || InUserData(found)) continue; // a relative PATH entry, or a file a plugin or the agent wrote
                 var text = VersionOverride != null ? VersionOverride(found) : RunVersion(found);
                 // Windows' "python" in WindowsApps only opens the Microsoft Store until Python is really installed.
                 if (found.IndexOf(@"\WindowsApps\", StringComparison.OrdinalIgnoreCase) >= 0 && ParseVersion(text) == null)
@@ -178,6 +182,20 @@ namespace SwAgent.Plugins
                     : $"{name}: {shown} ({path}) - {(exact ? "not" : "older than")} {minText}. To update: {install}";
             }
             return r;
+        }
+
+        /// <summary>Under the add-in's own data folders (plugins, tools, notes): never run as a "program", whatever the PATH says.</summary>
+        private static bool InUserData(string path)
+        {
+            try
+            {
+                var full = Path.GetFullPath(path);
+                return new[] { Paths.RoamingDir, Paths.LocalDir }.Any(d => full.StartsWith(Path.GetFullPath(d).TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase));
+            }
+            catch (Exception)
+            {
+                return true;
+            }
         }
 
         /// <summary>The first version-looking number in a program's output ("v20.11.0", "Python 3.12.1", "git version 2.45.1.windows.1").</summary>

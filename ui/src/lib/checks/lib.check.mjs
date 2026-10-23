@@ -633,6 +633,9 @@ t("memorySection: the rules always, the user's general notes and the skills with
   const off = memorySection({ general: [], skills: [], used: 0, cap: 6000, saving: false });
   assert.ok(off.includes("Saving is turned off in Options"));
   assert.ok(!off.includes("Save it with remember"));
+  // ... and nothing else teaches a way to keep the rule (review 2026-10-22: the read-only routes said remember(tool:...))
+  for (const route of ["remember(", "save_tool_profile", "fork_tool"]) assert.ok(!off.includes(route), `saving off: no ${route}`);
+  assert.ok(off.includes("Don't fork the tool or save a profile to keep it unless the user asks for that."));
 });
 
 t("memoryRefusal: only turns the user started may remember or copy tools", () => {
@@ -641,6 +644,9 @@ t("memoryRefusal: only turns the user started may remember or copy tools", () =>
   assert.match(memoryRefusal("remember", { fromWake: true }), /started by a plugin or another agent/); // a bridge message saying "remember to ..."
   assert.match(memoryRefusal("fork_tool", { subAgent: true }), /sub-agent/);
   assert.equal(memoryRefusal("list_memory", { fromWake: true }), null); // reading is fine
+  // a turn a plugin's Stop hook continued: its reason is in the turn, so the same rule (review 2026-10-22)
+  for (const name of MEMORY_WRITE_TOOLS) assert.match(memoryRefusal(name, { fromHook: true }), /Stop hook continued this turn/);
+  assert.equal(memoryRefusal("list_tool_profiles", { fromHook: true }), null);
 });
 
 t("rememberedChip reads where and what from remember's result; failures and repeats get none", () => {

@@ -163,8 +163,8 @@ function Card({ form }: { form: ToolFormState }) {
           {form.okEnabled ? (form.agent ? "OK hands the inputs to the agent in this chat." : "OK runs the tool (Ctrl+Z undoes it).") : form.okReason}
         </span>
         {buttons?.update && (
-          <button type="button" className="sw-btn" onClick={() => void profile({ action: "update" })} title="Save your changes into this profile">
-            Update “{form.profile!.name}”
+          <button type="button" className="sw-btn" onClick={() => void profile({ action: "update" })} title={`Save your changes into “${form.profile!.name}”`}>
+            Update profile
           </button>
         )}
         {buttons && (
@@ -364,6 +364,7 @@ function SaveProfile({ form, onClose }: { form: ToolFormState; onClose: () => vo
   const [onlyChanged, setOnlyChanged] = useState(false);
   const [busy, setBusy] = useState(false);
   const hasDocument = form.groups.some((g) => g.inputs.some((i) => i.type === "files" || i.type === "selection"));
+  const heading = form.profile?.name ? "Save as new profile" : "Save as profile";
   const save = async () => {
     if (!name.trim() || busy) return;
     setBusy(true);
@@ -382,7 +383,7 @@ function SaveProfile({ form, onClose }: { form: ToolFormState; onClose: () => vo
   return (
     <section
       className="sw-rollout"
-      aria-label="Save as profile"
+      aria-label={heading}
       onKeyDown={(e) => {
         if (e.key === "Escape") {
           e.stopPropagation();
@@ -391,7 +392,7 @@ function SaveProfile({ form, onClose }: { form: ToolFormState; onClose: () => vo
       }}
     >
       <div className="sw-rollout-head">
-        <span className="flex-1 text-[12px]">Save as profile</span>
+        <span className="flex-1 text-[12px]">{heading}</span>
       </div>
       <div className="flex flex-col gap-1.5 px-2 py-1.5">
         <input
@@ -410,7 +411,7 @@ function SaveProfile({ form, onClose }: { form: ToolFormState; onClose: () => vo
           aria-label="Profile name"
         />
         {box(makeDefault, setMakeDefault, "Make it the default", "The tool opens with this profile from now on")}
-        {box(onlyChanged, setOnlyChanged, "Only the fields I changed", "Leave out every field that is at the tool default")}
+        {box(onlyChanged, setOnlyChanged, "Leave out fields at the tool default", "Save only the values that differ from the tool's own defaults")}
         {hasDocument && box(includeDocument, setIncludeDocument, "Include the files and selections", "For a template of one job: they belong to this part")}
         <div className="flex justify-end gap-1.5">
           <button type="button" className="sw-btn" onClick={onClose}>

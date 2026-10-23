@@ -25,7 +25,9 @@ namespace SwAgent.Mcp
     /// error text, and the URL is only ever shown without its query. OAuth isn't supported: a 401 without a configured
     /// header says "needs OAuth - not supported yet". The server's own requests on a response stream get ping answered
     /// and everything else -32601. There is no standalone GET stream in Streamable mode, so tools/list_changed is only
-    /// seen when a response stream carries it. Off the UI thread; never touches SolidWorks.
+    /// seen when a response stream carries it. Redirects are followed by hand, only to the same scheme and host (the
+    /// handler's own would re-send our headers to any host). What a server sends is capped (MaxAnswerChars per answer or
+    /// event), so a broken or hostile server can't fill SolidWorks' memory. Off the UI thread; never touches SolidWorks.
     /// </summary>
     internal sealed class McpHttpClient : IMcpConnection
     {
@@ -43,6 +45,12 @@ namespace SwAgent.Mcp
         private Uri _postUrl;
         private HttpResponseMessage _legacyStream;
 
+        /// <summary>The most one answer, event or line may hold, in characters (16 MB); tests lower it.</summary>
+        internal static int MaxAnswerChars = 16 * 1024 * 1024;
+
+        /// <summary>How much of an error status's body is read for its message.</summary>
+        private const int MaxErrorChars = 64 * 1024;
+
         /// <param name="headers">Sent with every request, values already expanded (secrets included).</param>
         /// <param name="sseOnly">The server speaks only the older HTTP+SSE transport (.mcp.json type "sse").</param>
         public McpHttpClient(string name, string url, IDictionary<string, string> headers, bool sseOnly = false)
@@ -58,7 +66,7 @@ namespace SwAgent.Mcp
             }
             _sseOnly = sseOnly;
             ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
-            _http = new HttpClient(new HttpClientHandler { UseCookies = false }) { Timeout = Timeout.InfiniteTimeSpan };
+            _http = new HttpClient(new HttpClientHandler { UseCookies = false, AllowAutoRedirect = false }) { Timeout = Timeout.InfiniteTimeSpan };
             _http.DefaultRequestHeaders.UserAgent.ParseAdd("Unify3D-Agent");
         }
 
@@ -186,8 +194,7 @@ namespace SwAgent.Mcp
         /// <summary>Streamable HTTP: POST one request; the answer is the JSON body or an event on the response's SSE stream.</summary>
         private async Task<JObject> PostForAnswerAsync(JObject msg, long id, CancellationToken token)
         {
-            using (var req = NewRequest(HttpMethod.Post, _url, msg))
-            using (var res = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, token).ConfigureAwait(false))
+            using (var res = await SendAsync(HttpMethod.Post, _url, msg, token).ConfigureAwait(false))
             using (token.Register(() => res.Dispose()))
             {
                 await CheckAsync(res).ConfigureAwait(false);
@@ -213,7 +220,7 @@ namespace SwAgent.Mcp
                     }
                     else
                     {
-                        var body = await res.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        var body = await ReadCappedAsync(res.Content, MaxAnswerChars, true).ConfigureAwait(false);
                         JToken parsed;
                         try
                         {
@@ -241,9 +248,39 @@ namespace SwAgent.Mcp
         /// <summary>POST a message whose answer doesn't come back in the body: a notification, our reply, or any request in legacy mode.</summary>
         private async Task PostAsync(JObject msg, CancellationToken token)
         {
-            using (var req = NewRequest(HttpMethod.Post, _legacy ? _postUrl : _url, msg))
-            using (var res = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, token).ConfigureAwait(false))
+            using (var res = await SendAsync(HttpMethod.Post, _legacy ? _postUrl : _url, msg, token).ConfigureAwait(false))
                 await CheckAsync(res).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Sends one request, following a redirect (with the same method and body, as a 307 asks) only to the same scheme and
+        /// host: our headers carry the user's secrets. A redirect elsewhere is an error that names where it pointed.
+        /// </summary>
+        private async Task<HttpResponseMessage> SendAsync(HttpMethod method, Uri url, JObject body, CancellationToken token, bool eventStream = false)
+        {
+            for (var hop = 0; ; hop++)
+            {
+                HttpResponseMessage res;
+                using (var req = NewRequest(method, url, body))
+                {
+                    if (eventStream)
+                    {
+                        req.Headers.Accept.Clear();
+                        req.Headers.Accept.ParseAdd("text/event-stream");
+                    }
+                    res = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, token).ConfigureAwait(false);
+                }
+                var status = (int)res.StatusCode;
+                if (status < 300 || status > 399 || status == 304) return res;
+                var location = res.Headers.Location;
+                res.Dispose();
+                if (location == null) throw new HttpStatusException(status, $"{Name}: {Where} answered {status} without saying where to go.");
+                var next = location.IsAbsoluteUri ? location : new Uri(url, location);
+                if (next.Scheme != _url.Scheme || next.Authority != _url.Authority)
+                    throw new McpException($"{Name}: {Where} redirects to {SafeUrl(next.ToString())}, another host. Not followed (the server's headers would go there too); if that is the right server, put its url in .mcp.json.");
+                if (hop >= 4) throw new McpException($"{Name}: {Where} redirects too many times.");
+                url = next;
+            }
         }
 
         private async Task NotifyAsync(string method, JObject parameters)
@@ -298,7 +335,7 @@ namespace SwAgent.Mcp
             string text = null;
             try
             {
-                text = (await res.Content.ReadAsStringAsync().ConfigureAwait(false))?.Trim();
+                text = (await ReadCappedAsync(res.Content, MaxErrorChars, false).ConfigureAwait(false))?.Trim();
             }
             catch
             {
@@ -317,13 +354,10 @@ namespace SwAgent.Mcp
             using (var t = CancellationTokenSource.CreateLinkedTokenSource(_life.Token))
             {
                 t.CancelAfter(timeout);
-                var req = NewRequest(HttpMethod.Get, _url, null);
-                req.Headers.Accept.Clear();
-                req.Headers.Accept.ParseAdd("text/event-stream");
                 HttpResponseMessage res;
                 try
                 {
-                    res = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, t.Token).ConfigureAwait(false);
+                    res = await SendAsync(HttpMethod.Get, _url, null, t.Token, eventStream: true).ConfigureAwait(false);
                 }
                 catch (HttpRequestException ex)
                 {
@@ -332,10 +366,6 @@ namespace SwAgent.Mcp
                 catch (OperationCanceledException)
                 {
                     throw new TimeoutException($"{Name}: {Where} didn't open its event stream within {timeout.TotalSeconds:0} s.");
-                }
-                finally
-                {
-                    req.Dispose();
                 }
                 try
                 {
@@ -383,14 +413,14 @@ namespace SwAgent.Mcp
 
         // ---- messages ----
 
-        /// <summary>Reads server-sent events until the stream ends or onEvent returns false.</summary>
+        /// <summary>Reads server-sent events until the stream ends or onEvent returns false. An event over MaxAnswerChars throws.</summary>
         internal static async Task ReadEventsAsync(Stream stream, Func<string, string, bool> onEvent)
         {
-            var reader = new StreamReader(stream, new UTF8Encoding(false));
+            var reader = new LineReader(new StreamReader(stream, new UTF8Encoding(false)));
             string ev = null;
             var data = new StringBuilder();
             string line;
-            while ((line = await reader.ReadLineAsync().ConfigureAwait(false)) != null)
+            while ((line = await reader.ReadLineAsync(MaxAnswerChars).ConfigureAwait(false)) != null)
             {
                 if (line.Length == 0)
                 {
@@ -407,11 +437,93 @@ namespace SwAgent.Mcp
                 if (field == "event") ev = value;
                 else if (field == "data")
                 {
+                    if (data.Length + value.Length >= MaxAnswerChars) throw TooBig();
                     if (data.Length > 0) data.Append('\n');
                     data.Append(value);
                 }
             }
             if (data.Length > 0) onEvent(ev ?? "message", data.ToString());
+        }
+
+        private static McpException TooBig() =>
+            new McpException($"the server sent a message over {(MaxAnswerChars >= 1 << 20 ? (MaxAnswerChars >> 20) + " MB" : Math.Max(1, MaxAnswerChars >> 10) + " KB")}; it was not read");
+
+        /// <summary>A body as text, up to max characters: over it, an error (tooBigFails) or the text cut there.</summary>
+        private static async Task<string> ReadCappedAsync(HttpContent content, int max, bool tooBigFails)
+        {
+            if (tooBigFails && content.Headers.ContentLength > max) throw TooBig();
+            using (var stream = await content.ReadAsStreamAsync().ConfigureAwait(false))
+                return await ReadCappedAsync(stream, max, tooBigFails).ConfigureAwait(false);
+        }
+
+        internal static async Task<string> ReadCappedAsync(Stream stream, int max, bool tooBigFails)
+        {
+            using (var reader = new StreamReader(stream, Encoding.UTF8))
+            {
+                var sb = new StringBuilder();
+                var buf = new char[8192];
+                int n;
+                while ((n = await reader.ReadAsync(buf, 0, buf.Length).ConfigureAwait(false)) > 0)
+                {
+                    if (sb.Length + n > max)
+                    {
+                        if (tooBigFails) throw TooBig();
+                        sb.Append(buf, 0, max - sb.Length);
+                        break;
+                    }
+                    sb.Append(buf, 0, n);
+                }
+                return sb.ToString();
+            }
+        }
+
+        /// <summary>An event stream's lines (ending in \n, \r or \r\n) with a length cap; StreamReader.ReadLineAsync has none.</summary>
+        private sealed class LineReader
+        {
+            private readonly TextReader _reader;
+            private readonly char[] _buf = new char[8192];
+            private int _pos, _len;
+            private bool _skipLf;
+
+            public LineReader(TextReader reader)
+            {
+                _reader = reader;
+            }
+
+            /// <summary>The next line, or null at the end of the stream.</summary>
+            public async Task<string> ReadLineAsync(int max)
+            {
+                StringBuilder sb = null;
+                while (true)
+                {
+                    if (_pos == _len)
+                    {
+                        _len = await _reader.ReadAsync(_buf, 0, _buf.Length).ConfigureAwait(false);
+                        _pos = 0;
+                        if (_len == 0) return sb?.ToString();
+                    }
+                    if (_skipLf)
+                    {
+                        _skipLf = false;
+                        if (_buf[_pos] == '\n')
+                        {
+                            _pos++;
+                            continue;
+                        }
+                    }
+                    var start = _pos;
+                    while (_pos < _len && _buf[_pos] != '\n' && _buf[_pos] != '\r') _pos++;
+                    sb = sb ?? new StringBuilder();
+                    if (sb.Length + (_pos - start) > max) throw TooBig();
+                    sb.Append(_buf, start, _pos - start);
+                    if (_pos < _len)
+                    {
+                        _skipLf = _buf[_pos] == '\r';
+                        _pos++;
+                        return sb.ToString();
+                    }
+                }
+            }
         }
 
         private JObject ParseMessage(string data)
@@ -473,10 +585,9 @@ namespace SwAgent.Mcp
                 try
                 {
                     using (var t = CancellationTokenSource.CreateLinkedTokenSource(_life.Token))
-                    using (var req = NewRequest(HttpMethod.Delete, _url, null))
                     {
                         t.CancelAfter(grace);
-                        using (await _http.SendAsync(req, t.Token).ConfigureAwait(false))
+                        using (await SendAsync(HttpMethod.Delete, _url, null, t.Token).ConfigureAwait(false))
                         {
                         }
                     }

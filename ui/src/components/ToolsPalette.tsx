@@ -120,8 +120,8 @@ export function ToolsPalette({ disabled, labelClassName = "" }: { disabled?: boo
         {(t.builtIn || t.readOnly) && (
           <button
             className="sw-tool !h-[22px] !min-w-[22px] !p-0"
-            title="Make your own copy to change it"
-            onClick={() => prefill(`Make my own copy of "${t.name}" and change it: `)}
+            title={`Change how this ${t.kind === "tool" ? "tool" : "workflow"} works`}
+            onClick={() => prefill(`Change how "${t.name}" works: `)}
           >
             <IconEdit size={12} />
           </button>

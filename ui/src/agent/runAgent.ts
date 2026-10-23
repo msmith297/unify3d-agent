@@ -268,6 +268,8 @@ export interface AgentRunOptions {
   memory?: MemoryIndex | null;
   /** A turn a plugin or another agent started: remember, forget and fork_tool are refused (lib/memory.ts). */
   fromWake?: boolean;
+  /** A turn a plugin's Stop hook continued: the same refusals as a wake. */
+  fromHook?: boolean;
   /** A sub-agent run: its own system prompt and no local tools. */
   system?: string;
   localTools?: ToolDef[];
@@ -564,7 +566,7 @@ async function executeTool(tu: Anthropic.Beta.Messages.BetaToolUseBlock, opts: A
   const { cb } = opts;
   const err = (text: string): ToolResultBlockParam => ({ type: "tool_result", tool_use_id: tu.id, is_error: true, content: text });
 
-  const refused = memoryRefusal(tu.name, { fromWake: opts.fromWake, subAgent: !!opts.system });
+  const refused = memoryRefusal(tu.name, { fromWake: opts.fromWake, fromHook: opts.fromHook, subAgent: !!opts.system });
   if (refused) return err(refused);
 
   const local = localTools(opts).find((t) => t.name === tu.name);

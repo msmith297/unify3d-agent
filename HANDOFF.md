@@ -38,7 +38,7 @@ All commands run from the working folder.
 | Purpose | Command |
 |---|---|
 | Debug build | `"/c/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/MSBuild.exe" src/SwAgent/SwAgent.csproj -restore -nologo -v:minimal -p:Configuration=Debug` |
-| Tests | `dotnet test tests/SwAgent.Tests`. Expect **541 passed, 0 failed, 4 skipped** (2026-10-21, with the plugins; about 8 minutes). The skipped four are the long FE sweeps; run them with `MOLD_SWEEP=1`. Some plugin tests need node, Git for Windows or a local agent-bridge clone and skip without them (section 7). Tests set `SWAGENT_DATA_DIR` through `tests/SwAgent.Tests/test.runsettings`, so they never touch the user's real data. Keep it that way. |
+| Tests | `dotnet test tests/SwAgent.Tests`. Expect **710 passed, 0 failed, 4 skipped** (2026-10-22, after the creator v2 / memory / profiles review; about 7.5 minutes). The skipped four are the long FE sweeps; run them with `MOLD_SWEEP=1`. Some plugin tests need node, Git for Windows or a local agent-bridge clone and skip without them (section 7). Tests set `SWAGENT_DATA_DIR` through `tests/SwAgent.Tests/test.runsettings`, so they never touch the user's real data. Keep it that way. |
 | UI | `cd ui && npx tsc -b && npm run build` (node_modules is installed). Panel logic checks: `node ui/src/lib/checks/lib.check.mjs`. |
 | Mold data generators | `python -I tools/dev/mold-data/<gen>.py --check`. Each must report that its output matches the shipped files. See `tools/dev/mold-data/README.md`. |
 | FE sweeps / Monte Carlo | `tools/dev/MoldSweep` (README inside). Build it in Release **from a scratch copy**, never into `src/SwAgent/bin/Release`. |
@@ -339,3 +339,79 @@ index: about 2 k characters, and 1.2 k less in the worst case); the cheat sheet 
 4. A saved note or helper changes `knowledge.index`, which is in the system prompt: the next turn of an open chat rewrites
    the prompt cache. The nudge is now rarer; freezing the index per chat would avoid it but hide new helpers until a new
    chat.
+
+## 10. Plugin creator v2 (built 2026-10-22; review fixes applied the same day)
+
+**What exists.** The agent builds a plugin from a description (`docs/plugins/creator-v2.md`, section 5 is the as-built
+table): `web_search` / `web_fetch` (Options "Allow web research", default on; main agent only), `ask_secret` (a masked
+card; the key goes straight to the plugin's DPAPI options), `check_prerequisites` (finds programs on the PATH and their
+versions, installs nothing), `plugin_try_mcp` (approval-gated; a throw-away session of a local plugin's MCP server), MCP
+over Streamable HTTP with the HTTP+SSE fallback (`src/SwAgent/Mcp/McpHttpClient.cs`), and the rewritten
+`tools/builtin/create-plugin/TOOL.md`. Code: `src/SwAgent/Plugins/CreatorTools.cs`, `ui/src/lib/creator.ts`,
+`ui/src/components/SecretCard.tsx`.
+
+**Stores.** Nothing new: keys in `plugins\secrets\` (DPAPI), plugins as in section 7.
+
+**How to test.** `tests/SwAgent.Tests/Plugins/CreatorTests.cs` (a fake HTTP MCP server on 127.0.0.1: JSON, SSE, legacy SSE,
+bearer token, no secret in logs or files), `ReviewV3Tests.cs` (below), `node ui/src/lib/checks/creator.check.mjs`.
+
+**Review fixes (2026-10-22):** `check_prerequisites` takes program names only (a path, `..` or a drive is refused, and a
+"program" found inside the add-in's data folders is never run): it could run a script the agent had just written into a
+plugin. MCP over HTTP follows redirects by hand, only to the same scheme and host (the handler re-sent `X-Api-Key` style
+headers to any host); a redirect elsewhere is an error naming the url to put in `.mcp.json`. Answers, events and lines
+are capped at 16 MB, error bodies at 64 KB. TOOL.md Step 2 finds registry and package pages with `web_search`
+(`web_fetch` only opens links from the chat or search results).
+
+**What is open.** Nothing ran in SolidWorks or against the real API (no API calls were allowed): check web research
+(search, then fetch), an X link, `ask_secret`, `plugin_try_mcp`'s approval card and a real remote MCP server by hand. No
+OAuth for remote servers; no standalone Streamable HTTP GET stream.
+
+## 11. Standing instructions and fork_tool (built 2026-10-22; review fixes applied the same day)
+
+**What exists.** The agent remembers what the user tells it "from now on" (`docs/agent-memory.md`): `remember`,
+`list_memory`, `forget` (`src/SwAgent/Memory/`), notes per scope (general, a tool, a skill) with replaces and Undo (the
+chat's "Remembered" chip), Options "What the agent remembers" with a saving switch. Read-only tools are never a dead end:
+a behaviour rule is a tool note, input values are a default profile (section 12), a real change is the user's own copy
+(`fork_tool`, `compare_fork` in `src/SwAgent/Tools/ForkTools.cs`). The panel refuses these writes (`MEMORY_WRITE_TOOLS`
+in `ui/src/lib/memory.ts`) in plugin wakes, in turns a plugin's Stop hook continued, and in sub-agents.
+
+**Stores** (per PC, under `Paths`, so `SWAGENT_DATA_DIR` redirects them): `%APPDATA%\SwAgent\agent-knowledge\memory.md`,
+`tool-notes\<tool>.md`, `skill-notes\`, `memory-undo.json` (the Undo journal); the user's own tools keep theirs in a
+"Standing instructions" section of their `TOOL.md`. A copy records its original in `<tool>\.fork.json`; hidden originals
+are in `tools\builtin-settings.json`.
+
+**How to test.** `MemoryTests.cs`, `ForkToolTests.cs`, `IntegrationSeamTests.cs`, `ReviewV3Tests.cs`; panel rules in
+`lib.check.mjs` (the prompt section, refusals, chips).
+
+**Review fixes (2026-10-22):** Stop-hook continuations are refused like wakes (`RunOverride.fromHook`); with saving off,
+the prompt no longer teaches `remember` / profile / fork routes; Undo puts a replaced note back in its old place (the
+journal keeps its index); a damaged `memory-undo.json` is kept as `.bad`; a run's notes have their own heading ("... they
+win over its TOOL.md"); `compare_fork` and `fork_tool` write through `AtomicFile`; the palette's pencil on a read-only
+tool says "Change how this tool works" (it no longer asks for a copy outright).
+
+**What is open.** Nothing ran in SolidWorks: check a mold run with a tool note, `fork_tool` of the mold tool (ribbon button
+after a restart, hide the original), `compare_fork` after an update, the chip's Undo, and Options' notes editor.
+
+## 12. Tool profiles (built 2026-10-22; review fixes applied the same day)
+
+**What exists.** Saved sets of a tool's input values (`docs/tool-profiles.md`, section 5 is as built): a Profile row in
+the panel form and the PropertyManager page, Save as profile / Update profile / Save as new, markers for what a profile
+set and what changed, a default profile, locked shipped profiles (two starters for the mold tool), export and import,
+`list_tool_profiles` / `save_tool_profile` / `run_tool`, `/run <tool> --profile`. Code: `src/SwAgent/Tools/Profiles/`,
+`UI/ToolPage.Profiles.cs`, `ui/src/components/ToolFormCard.tsx`, `ToolProfilesSettings.tsx`.
+
+**Stores.** `%APPDATA%\SwAgent\tools\profiles\<tool>\<slug>.json` and `_settings.json` (default, last used); plugin tools
+as `<plugin>+<tool>`. Shipped profiles are in a tool folder's `profiles\`. `profiles` is a reserved tool name.
+
+**How to test.** `ToolProfilesTests.cs`, `IntegrationSeamTests.cs`, `ReviewV3Tests.cs`; the panel in a browser with
+`npm --prefix ui run dev` (the mock host has a mold form with profiles; check a narrow panel at 330 px).
+
+**Review fixes (2026-10-22):** deleting a tool deletes only a tool (a folder with `TOOL.md`) and takes its profiles with
+it; a new `fork_tool` copy never inherits a deleted tool's leftover profiles; `plugin_add_tool` with `move` keeps the
+user's default, last used and unshipped profiles; a damaged `_settings.json` is kept as `.bad`; the Update button says
+"Update profile" (a long name overflowed a narrow panel), the save box says "Save as new profile" when one is loaded, and
+its checkbox says what it does ("Leave out fields at the tool default").
+
+**What is open.** Nothing ran in SolidWorks: the page's Profile group (dropdown refill after a save, button enabling) and
+the dialogs (export, load from file, open folder). Deleting a tool still leaves its `last-inputs\` entry (harmless; a new
+tool of the name starts with those remembered values).
