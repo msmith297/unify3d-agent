@@ -1,8 +1,6 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { buildAgentPrompt, buildSystemPrompt, type IndexedSkill, type IndexedTool, type Verbosity } from "./systemPrompt";
 import { MEMORY_WRITE_TOOLS, memoryRefusal, type MemoryIndex } from "../lib/memory";
-import { repairHistory } from "./history";
-import { modelFromAlias, modelOption } from "../lib/models";
+import { modelOption, resolveModel } from "../lib/models";
 import { hookContextText, hookToolResponse } from "../lib/hooks";
 import type {
   AgentInfo,
@@ -10,17 +8,22 @@ import type {
   ApprovalMode,
   ContentBlockParam,
   Effort,
-  MessageParam,
+  ProviderId,
+  StoredMessage,
   ToolDef,
   ToolResultBlockParam,
   ToolRunResult,
+  ToolUseBlockParam,
   Usage,
   FormSpec,
   KnowledgeIndex,
   SelectionAsk,
 } from "../lib/types";
 import { clampSteps } from "../lib/toolRun";
-import { webBetas, webTools, type SecretAsk } from "../lib/creator";
+import type { SecretAsk } from "../lib/creator";
+import { getProvider } from "./providers";
+import { AbortedError, MalformedOutputError } from "./providers/errors";
+import type { ClearingRules, TurnResult } from "./providers/types";
 
 /**
  * Tools that change the model; gated by the approval setting. run_tool_macro runs a tool's macro.cs (or C# the agent
@@ -212,11 +215,11 @@ export interface SubAgentProgress {
 export type ApprovalDecision = { decision: "run" | "always" | "reject"; note?: string };
 
 export interface AgentCallbacks {
-  getMessages(): MessageParam[];
+  getMessages(): StoredMessage[];
   /** Follow-ups the user chose to "Send now": delivered with the next tool results, without stopping the run. */
   takeSteering?(): ContentBlockParam[] | null;
   /** Append to the thread and persist. History is append-only - never edit earlier messages. */
-  append(message: MessageParam): Promise<void>;
+  append(message: StoredMessage): Promise<void>;
   setLive(blocks: LiveBlock[] | null): void;
   setRunningTool(toolUseId: string | null): void;
   addUsage(usage: Usage): void;
@@ -242,8 +245,17 @@ export interface AgentCallbacks {
   hook?(event: "PreToolUse" | "PostToolUse", call: { tool_name: string; tool_input: unknown; tool_response?: unknown }): Promise<HookResult | null>;
 }
 
+/** The panel's API keys, per provider: a run (or a sub-agent on another provider) asks for the one it needs. */
+export interface AgentKeys {
+  get(provider: ProviderId): Promise<string | null>;
+  /** Whether the host reported a key for the provider (no RPC). */
+  has(provider: ProviderId): boolean;
+}
+
 export interface AgentRunOptions {
-  apiKey: string;
+  keys?: AgentKeys;
+  /** @deprecated The Anthropic key, for callers that predate `keys`; used only when `keys` is missing. */
+  apiKey?: string;
   model: string;
   effort: Effort;
   tools: ToolDef[];
@@ -262,8 +274,14 @@ export interface AgentRunOptions {
   sessionContext?: string[];
   /** The helpers cells can call and the saved API notes (knowledge.index), for the system prompt. */
   knowledge?: KnowledgeIndex | null;
-  /** Anthropic's web_search and web_fetch (setting "Allow web research"; default on). Never for a sub-agent. */
+  /** The provider's web research tools (setting "Allow web research"; default on). Never for a sub-agent. */
   webResearch?: boolean;
+  /** OpenAI speed (Options); sent only to models that offer it. */
+  serviceTier?: "fast" | "ultrafast";
+  /** The speed tier that served a request, when not the standard one (for the turn's footer). */
+  onServedTier?(tier: string): void;
+  /** Test only: no bytes for this long means the connection is dead (default: the provider's). */
+  stallMs?: number;
   /** Standing instructions (memory.index), for the system prompt. */
   memory?: MemoryIndex | null;
   /** A turn a plugin or another agent started: remember, forget and fork_tool are refused (lib/memory.ts). */
@@ -283,76 +301,40 @@ export interface AgentRunResult {
 }
 
 /**
- * Server-side context editing: once a request passes TRIGGER tokens, the oldest tool calls and their results
- * (inputs included - execute_csharp cells are the bulk) are replaced by a placeholder, keeping the last KEEP.
- * clear_at_least makes each clearing large enough to be worth the prompt-cache rewrite it causes.
- * The user's answers (ask_user, ask_form, ask_selection with its [S#] refs), read_user_tool (instructions being
- * followed) and the helpers the agent saved or read (save_helper, read_helper: the code it calls from now on) are never
- * cleared.
+ * Context clearing: once a request passes the trigger, the oldest tool calls and their results (inputs included -
+ * execute_csharp cells are the bulk) are replaced by a placeholder, keeping the last few (Claude does it server-side,
+ * other providers in their adapter). Clearing at least a step at a time makes each clearing worth the prompt-cache
+ * rewrite it causes. The user's answers (ask_user, ask_form, ask_selection with its [S#] refs), read_user_tool
+ * (instructions being followed) and the helpers the agent saved or read (save_helper, read_helper: the code it calls
+ * from now on) are never cleared.
  */
-const CLEAR_OLD_TOOL_USES = {
-  type: "clear_tool_uses_20250919" as const,
-  trigger: { type: "input_tokens" as const, value: 40000 },
-  keep: { type: "tool_uses" as const, value: 6 },
-  clear_at_least: { type: "input_tokens" as const, value: 12000 },
-  clear_tool_inputs: true,
-  exclude_tools: ["ask_user", "ask_form", "ask_selection", "ask_secret", "offer_restart", "read_user_tool", "use_skill", "save_helper", "read_helper"],
+const CLEARING: ClearingRules = {
+  triggerTokens: 40000,
+  keepToolUses: 6,
+  clearAtLeastTokens: 12000,
+  clearInputs: true,
+  excludeTools: ["ask_user", "ask_form", "ask_selection", "ask_secret", "offer_restart", "read_user_tool", "use_skill", "save_helper", "read_helper"],
 };
-
-/** No bytes at all (not even keep-alive pings) for this long means the connection is dead, not thinking. */
-const STALL_MS = 90_000;
 
 /** Runs the agent until it ends its turn, is stopped, or fails. */
 export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
   const { cb, signal } = opts;
-  // Liveness: every byte the API sends - text, thinking or the keep-alive pings it sends while the model thinks -
-  // counts. A long think keeps the connection busy; a silent connection is stalled.
-  const liveness = { last: Date.now() };
-  const client = new Anthropic({
-    apiKey: opts.apiKey,
-    dangerouslyAllowBrowser: true,
-    maxRetries: 3,
-    fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
-      const res = await fetch(input, init);
-      liveness.last = Date.now();
-      if (!res.body) return res;
-      const reader = res.body.getReader();
-      const body = new ReadableStream<Uint8Array>({
-        async pull(controller) {
-          const { done, value } = await reader.read();
-          liveness.last = Date.now();
-          if (done) controller.close();
-          else controller.enqueue(value);
-        },
-        cancel(reason) {
-          return reader.cancel(reason);
-        },
-      });
-      return new Response(body, { status: res.status, statusText: res.statusText, headers: res.headers });
-    },
-  });
   const m = modelOption(opts.model);
+  const provider = getProvider(m.provider);
+  const key = opts.keys ? await opts.keys.get(m.provider) : m.provider === "anthropic" ? (opts.apiKey ?? null) : null;
+  if (!key) return { stop: "error", error: `${m.label} needs an ${provider.vendor} API key. Add one in Options, or pick another model.` };
+  // Liveness: every byte the API sends - text, thinking, reasoning summaries or keep-alive pings - counts. A long think
+  // keeps the connection busy; a silent connection is stalled.
+  const liveness = { last: Date.now() };
+  const session = provider.open(key, liveness);
+  const stallMs = opts.stallMs ?? provider.stallMs;
 
-  const betas = ["thinking-binding-controls-2026-08-01", "context-management-2025-06-27"];
-  if (m.caps.progressUpdates) betas.push("thinking-display-updates-2026-08-18");
-  if (m.caps.fallbacks) betas.push("server-side-fallback-2026-07-01");
-  // Web research runs on Anthropic's side (server tools); a sub-agent (its own system prompt) never gets it.
+  // Web research runs on the provider's side (server tools); a sub-agent (its own system prompt) never gets it.
   const web = !opts.system && !!opts.webResearch;
-  betas.push(...webBetas(m.id, web));
-
-  const tools: Anthropic.Beta.Messages.BetaToolUnion[] = [
-    ...[...opts.tools, ...localTools(opts)].map((t) => ({
-      name: t.name,
-      description: t.description,
-      input_schema: t.input_schema,
-      eager_input_streaming: true,
-    })),
-    ...(webTools(m.id, web) as unknown as Anthropic.Beta.Messages.BetaToolUnion[]),
-  ];
-
+  const tools = [...opts.tools, ...localTools(opts)];
   // use_skill exists only with plugins (and a sub-agent may lack read_user_tool): exclude only tools this run has.
-  const names = new Set([...opts.tools, ...localTools(opts)].map((t) => t.name));
-  const clearing = { ...CLEAR_OLD_TOOL_USES, exclude_tools: CLEAR_OLD_TOOL_USES.exclude_tools.filter((n) => names.has(n)) };
+  const names = new Set(tools.map((t) => t.name));
+  const clearing: ClearingRules = { ...CLEARING, excludeTools: CLEARING.excludeTools.filter((n) => names.has(n)) };
 
   const system =
     opts.system ??
@@ -367,6 +349,7 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
       knowledge: opts.knowledge,
       webResearch: web,
       memory: opts.memory,
+      provider: m.provider,
     });
   let malformedRetries = 0;
   let stallRetries = 0;
@@ -382,75 +365,37 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
       let stalled = false;
       liveness.last = Date.now();
       cb.onRequest?.(Date.now());
-      const watchdog = setInterval(() => {
-        if (Date.now() - liveness.last > STALL_MS) {
-          stalled = true;
-          request.abort();
-        }
-      }, 5000);
-
-      const stream = client.beta.messages.stream(
-        {
-          model: m.id,
-          max_tokens: 64000,
-          system: [{ type: "text", text: system }],
-          tools,
-          messages: repairHistory(cb.getMessages()),
-          // Thinking is always on for these models; effort controls depth. "drop_block" keeps chats that were
-          // reloaded from a file (or continued after an add-in update) valid instead of failing with a 400.
-          thinking: {
-            type: "adaptive",
-            display: m.caps.progressUpdates ? "updates" : "summarized",
-            block_binding: { prefix_mismatch_behavior: "drop_block" },
-          },
-          output_config: { effort: opts.effort },
-          // Long tool runs wait 5-60 min on gate questions: a 1-hour cache (writes cost 2x instead of 1.25x) keeps the
-          // whole prompt cached across them instead of rewriting it after every answer.
-          cache_control: opts.longRun ? { type: "ephemeral", ttl: "1h" } : { type: "ephemeral" },
-          // Old tool calls (C# cells, screenshots, model dumps) are cleared server-side once the prompt grows, keeping
-          // only the most recent ones. The stored history stays complete and append-only, so thinking stays valid.
-          context_management: { edits: [clearing] },
-          ...(m.caps.fallbacks ? { fallbacks: "default" as const } : {}),
-          betas,
+      const watchdog = setInterval(
+        () => {
+          if (Date.now() - liveness.last > stallMs) {
+            stalled = true;
+            request.abort();
+          }
         },
-        { signal: request.signal },
+        Math.min(5000, Math.max(10, stallMs / 5)),
       );
 
-      const live: LiveBlock[] = [];
+      let live: LiveBlock[] = [];
       let frame = 0;
       const flush = () => {
         frame = 0;
         cb.setLive(live.map((b) => ({ ...b })));
       };
-      const schedule = () => {
+      const schedule = (blocks: LiveBlock[]) => {
+        live = blocks;
         if (!frame) frame = requestAnimationFrame(flush);
       };
 
-      let message: Anthropic.Beta.Messages.BetaMessage;
+      let r: TurnResult;
       const endRequest = () => {
         clearInterval(watchdog);
         signal.removeEventListener("abort", onAbort);
       };
       try {
-        for await (const ev of stream) {
-          if (ev.type === "content_block_start") {
-            const b = ev.content_block;
-            live[ev.index] =
-              b.type === "text" ? { type: "text", text: "" }
-              : b.type === "thinking" ? { type: "thinking", text: "" }
-              : b.type === "tool_use" ? { type: "tool_use", text: "", name: b.name, id: b.id, json: "" }
-              : { type: "other", text: "" };
-            schedule();
-          } else if (ev.type === "content_block_delta") {
-            const b = live[ev.index];
-            if (!b) continue;
-            if (ev.delta.type === "text_delta") b.text += ev.delta.text;
-            else if (ev.delta.type === "thinking_delta") b.text += ev.delta.thinking;
-            else if (ev.delta.type === "input_json_delta") b.json = (b.json ?? "") + ev.delta.partial_json;
-            schedule();
-          }
-        }
-        message = await stream.finalMessage();
+        r = await session.turn(
+          { model: m, effort: opts.effort, system, tools, messages: cb.getMessages(), web, longRun: !!opts.longRun, clearing, serviceTier: opts.serviceTier },
+          { signal: request.signal, onLive: schedule },
+        );
         malformedRetries = 0;
         stallRetries = 0;
         endRequest();
@@ -463,42 +408,38 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
           // sending the same request again is safe.
           if (stallRetries++ < 2) {
             cb.setLive(null);
-            cb.onStatus?.(`The connection to Claude went quiet - retrying (${stallRetries}/2)...`);
+            cb.onStatus?.(`The connection to ${provider.label} went quiet - retrying (${stallRetries}/2)...`);
             continue;
           }
-          throw new Error("The connection to Claude stopped responding. Check your internet connection, then press Retry.");
+          throw new Error(`The connection to ${provider.label} stopped responding. Check your internet connection, then press Retry.`);
         }
-        if (err instanceof Anthropic.APIUserAbortError) return { stop: "aborted" };
-        // With eager input streaming, unparseable tool JSON rejects finalMessage. Re-issue that turn (nothing was appended).
-        if (!(err instanceof Anthropic.APIError) && malformedRetries++ < 2) continue;
+        if (err instanceof AbortedError) return { stop: "aborted" };
+        // A reply that couldn't be read (e.g. unparseable tool JSON): re-issue that turn (nothing was appended).
+        if (err instanceof MalformedOutputError && malformedRetries++ < 2) continue;
         throw err;
       }
       if (frame) cancelAnimationFrame(frame);
       cb.setLive(null);
       cb.onStatus?.(null);
 
-      const u = message.usage;
-      const input = u.input_tokens ?? 0;
-      const cacheRead = u.cache_read_input_tokens ?? 0;
-      const cacheWrite = u.cache_creation_input_tokens ?? 0;
-      cb.addUsage({ input, output: u.output_tokens ?? 0, cacheRead, cacheWrite, context: input + cacheRead + cacheWrite });
+      cb.addUsage(r.usage);
+      if (r.servedTier) opts.onServedTier?.(r.servedTier);
 
-      if (message.stop_reason === "refusal") {
-        const category = message.stop_details?.category;
-        return { stop: "refusal", error: `The model declined this request${category ? ` (${category})` : ""}. Try rephrasing it.` };
+      if (r.stop === "refusal") {
+        return { stop: "refusal", error: `The model declined this request${r.stopDetail ? ` (${r.stopDetail})` : ""}. Try rephrasing it.` };
       }
 
-      const content = message.content as unknown as ContentBlockParam[];
-      const toolUses = message.content.filter((b): b is Anthropic.Beta.Messages.BetaToolUseBlock => b.type === "tool_use");
+      const content = typeof r.message.content === "string" ? [] : r.message.content;
+      const toolUses = content.filter((b): b is ToolUseBlockParam => b.type === "tool_use");
 
-      if (message.stop_reason === "max_tokens" && toolUses.length > 0) {
+      if (r.stop === "max_tokens" && toolUses.length > 0) {
         return { stop: "max_tokens", error: "The response was cut off in the middle of a tool call. Ask the agent to continue in smaller steps." };
       }
 
-      await cb.append({ role: "assistant", content });
+      await cb.append(r.message);
 
-      if (message.stop_reason === "pause_turn") continue;
-      if (toolUses.length === 0) return { stop: message.stop_reason ?? "end_turn" };
+      if (r.stop === "pause_turn") continue;
+      if (toolUses.length === 0) return { stop: r.stop === "tool_use" ? "end_turn" : r.stop };
 
       const results: ToolResultBlockParam[] = [];
       // What plugin hooks add goes after all the results, in its own text blocks (context editing clears old results).
@@ -509,10 +450,10 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
           results.push({ type: "tool_result", tool_use_id: tu.id, is_error: true, content: signal.aborted ? "Stopped by the user before this ran." : "Not run: a plugin hook stopped the turn." });
           continue;
         }
-        const r = await executeWithHooks(tu, opts);
-        results.push(r.result);
-        added.push(...r.added);
-        if (r.stop !== undefined) hookStop = r.stop;
+        const res = await executeWithHooks(tu, opts);
+        results.push(res.result);
+        added.push(...res.added);
+        if (res.stop !== undefined) hookStop = res.stop;
       }
       const steer = signal.aborted ? null : cb.takeSteering?.();
       await cb.append({ role: "user", content: [...results, ...added, ...(steer ?? [])] });
@@ -537,7 +478,7 @@ function localTools(opts: AgentRunOptions): ToolDef[] {
  * what hooks add for the model, and a PostToolUse block's reason, come back as text blocks for after the results;
  * `continue: false` ends the turn after this call.
  */
-async function executeWithHooks(tu: Anthropic.Beta.Messages.BetaToolUseBlock, opts: AgentRunOptions): Promise<{ result: ToolResultBlockParam; added: ContentBlockParam[]; stop?: string }> {
+async function executeWithHooks(tu: ToolUseBlockParam, opts: AgentRunOptions): Promise<{ result: ToolResultBlockParam; added: ContentBlockParam[]; stop?: string }> {
   const { cb } = opts;
   const added: ContentBlockParam[] = [];
   let stop: string | undefined;
@@ -562,7 +503,7 @@ async function executeWithHooks(tu: Anthropic.Beta.Messages.BetaToolUseBlock, op
   return { result, added, stop };
 }
 
-async function executeTool(tu: Anthropic.Beta.Messages.BetaToolUseBlock, opts: AgentRunOptions, hookAsks = false): Promise<ToolResultBlockParam> {
+async function executeTool(tu: ToolUseBlockParam, opts: AgentRunOptions, hookAsks = false): Promise<ToolResultBlockParam> {
   const { cb } = opts;
   const err = (text: string): ToolResultBlockParam => ({ type: "tool_result", tool_use_id: tu.id, is_error: true, content: text });
 
@@ -649,7 +590,7 @@ async function executeTool(tu: Anthropic.Beta.Messages.BetaToolUseBlock, opts: A
  * never the ask_* tools or run_agent itself - and its own step limit. Write tools still go through the parent's
  * approval; usage counts towards the parent's turn. The parent gets the final reply and a one-line list of the steps.
  */
-async function runSubAgent(tu: Anthropic.Beta.Messages.BetaToolUseBlock, opts: AgentRunOptions): Promise<ToolResultBlockParam> {
+async function runSubAgent(tu: ToolUseBlockParam, opts: AgentRunOptions): Promise<ToolResultBlockParam> {
   const { cb } = opts;
   const input = tu.input as { agent: string; prompt: string };
   const err = (text: string): ToolResultBlockParam => ({ type: "tool_result", tool_use_id: tu.id, is_error: true, content: text });
@@ -659,20 +600,22 @@ async function runSubAgent(tu: Anthropic.Beta.Messages.BetaToolUseBlock, opts: A
   const agent = agents.find((a) => a.id === wanted) ?? (byShort.length === 1 ? byShort[0] : undefined);
   if (!agent) return err(`Unknown agent '${wanted}'. Available: ${agents.map((a) => a.id).join(", ") || "none"}.`);
 
-  const messages: MessageParam[] = [{ role: "user", content: [{ type: "text", text: String(input.prompt ?? "") }] }];
+  const messages: StoredMessage[] = [{ role: "user", content: [{ type: "text", text: String(input.prompt ?? "") }] }];
   const steps: SubAgentProgress["steps"] = [];
   const report = () => cb.setSubAgent?.({ toolUseId: tu.id, agent: agent.id, steps: steps.map((s) => ({ ...s })) });
   let res: AgentRunResult;
   try {
     res = await runAgent({
       ...opts,
-      model: modelFromAlias(agent.model) ?? opts.model,
+      // An alias resolves on the chat's provider; the sub-agent gets its own provider's key through opts.keys.
+      model: resolveModel(agent.model, { chatModel: opts.model, hasKey: (p) => (opts.keys ? opts.keys.has(p) : p === "anthropic") }) ?? opts.model,
       tools: subAgentTools(agent.tools, opts.tools).filter((t) => !MEMORY_WRITE_TOOLS.has(t.name)), // only the user's own words are remembered
       maxSteps: SUB_AGENT_STEPS,
       longRun: false,
       agents: [],
       localTools: [],
       system: buildAgentPrompt(agent, { knowledge: opts.knowledge }),
+      onServedTier: undefined, // the footer shows the turn's own model
       cb: {
         ...cb,
         getMessages: () => messages,

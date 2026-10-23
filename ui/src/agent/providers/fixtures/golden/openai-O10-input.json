@@ -1,0 +1,108 @@
+[
+  {
+    "type": "message",
+    "role": "developer",
+    "content": [
+      {
+        "type": "input_text",
+        "text": "SYSTEM"
+      }
+    ]
+  },
+  {
+    "type": "message",
+    "role": "user",
+    "content": [
+      {
+        "type": "input_text",
+        "text": "Here is the drawing and a photo."
+      },
+      {
+        "type": "input_file",
+        "filename": "drawing.pdf",
+        "file_data": "data:application/pdf;base64,JVBERi0xLjQKJcfsj6IKMSAwIG9iago8PD4+CmVuZG9iagp0cmFpbGVyCjw8Pj4KJSVFT0YK"
+      },
+      {
+        "type": "input_image",
+        "image_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+        "detail": "auto"
+      }
+    ]
+  },
+  {
+    "type": "message",
+    "role": "assistant",
+    "content": [
+      {
+        "type": "output_text",
+        "text": "Checking the standard.",
+        "annotations": []
+      }
+    ],
+    "phase": "commentary"
+  },
+  {
+    "type": "function_call",
+    "call_id": "toolu_01Ctx",
+    "name": "get_model_context",
+    "arguments": "{}"
+  },
+  {
+    "type": "function_call_output",
+    "call_id": "toolu_01Ctx",
+    "output": [
+      {
+        "type": "input_text",
+        "text": "Part1: 3 features"
+      },
+      {
+        "type": "input_image",
+        "image_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+        "detail": "auto"
+      }
+    ]
+  },
+  {
+    "type": "message",
+    "role": "user",
+    "content": [
+      {
+        "type": "input_text",
+        "text": "<hook_context>peer says hi</hook_context>"
+      }
+    ]
+  },
+  {
+    "type": "message",
+    "role": "assistant",
+    "content": [
+      {
+        "type": "output_text",
+        "text": "Measuring.",
+        "annotations": []
+      }
+    ],
+    "phase": "commentary"
+  },
+  {
+    "type": "function_call",
+    "call_id": "toolu_01Lost",
+    "name": "execute_csharp",
+    "arguments": "{\"title\":\"Measure\",\"code\":\"Print(1);\"}"
+  },
+  {
+    "type": "function_call_output",
+    "call_id": "toolu_01Lost",
+    "output": "Error: Interrupted: this step never reported back (the run stopped, or SolidWorks or the document was closed or reset while it ran). Its effect on the model is unknown - check the model before relying on it."
+  },
+  {
+    "type": "message",
+    "role": "user",
+    "content": [
+      {
+        "type": "input_text",
+        "text": "Never mind, just model it.\n\n<sw_context>\nActive document: Part1.SLDPRT\n</sw_context>"
+      }
+    ]
+  }
+]

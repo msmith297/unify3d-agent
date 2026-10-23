@@ -1,0 +1,24 @@
+event: response.created
+data: {"type":"response.created","sequence_number":0,"response":{"id":"resp_par","object":"response","created_at":1761200030,"status":"in_progress","model":"gpt-6.1-sol","output":[],"usage":null,"service_tier":"auto","error":null,"incomplete_details":null}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","sequence_number":1,"output_index":0,"item":{"id":"fc_p1","type":"function_call","status":"in_progress","call_id":"call_ctx","name":"get_model_context","arguments":""}}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","sequence_number":2,"item_id":"fc_p1","output_index":0,"delta":"{}"}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","sequence_number":3,"output_index":0,"item":{"id":"fc_p1","type":"function_call","status":"completed","call_id":"call_ctx","name":"get_model_context","arguments":"{}"}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","sequence_number":4,"output_index":1,"item":{"id":"fc_p2","type":"function_call","status":"in_progress","call_id":"call_views","name":"capture_views","arguments":""}}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","sequence_number":5,"item_id":"fc_p2","output_index":1,"delta":"{\"views\":[\"isometric\"]}"}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","sequence_number":6,"output_index":1,"item":{"id":"fc_p2","type":"function_call","status":"completed","call_id":"call_views","name":"capture_views","arguments":"{\"views\":[\"isometric\"]}"}}
+
+event: response.completed
+data: {"type":"response.completed","sequence_number":7,"response":{"id":"resp_par","object":"response","created_at":1761200030,"status":"completed","model":"gpt-6.1-sol","output":[{"id":"fc_p1","type":"function_call","status":"completed","call_id":"call_ctx","name":"get_model_context","arguments":"{}"},{"id":"fc_p2","type":"function_call","status":"completed","call_id":"call_views","name":"capture_views","arguments":"{\"views\":[\"isometric\"]}"}],"usage":{"input_tokens":20500,"input_tokens_details":{"cached_tokens":18000,"cache_write_tokens":0},"output_tokens":30,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":20530},"service_tier":"default","error":null,"incomplete_details":null}}
+

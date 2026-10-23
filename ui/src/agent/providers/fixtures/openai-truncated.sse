@@ -1,0 +1,9 @@
+event: response.created
+data: {"type":"response.created","sequence_number":0,"response":{"id":"resp_cut","object":"response","created_at":1761200110,"status":"in_progress","model":"gpt-6.1-sol","output":[],"usage":null,"service_tier":"auto","error":null,"incomplete_details":null}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","sequence_number":1,"output_index":0,"item":{"id":"msg_cut","type":"message","status":"in_progress","role":"assistant","phase":"final_answer","content":[]}}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","sequence_number":2,"item_id":"msg_cut","output_index":0,"content_index":0,"delta":"The connection drops after this","logprobs":[]}
+

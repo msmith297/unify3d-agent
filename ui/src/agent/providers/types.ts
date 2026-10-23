@@ -87,4 +87,12 @@ export interface Provider {
 export type DisplayPart =
   | { kind: "block"; index: number } // render content[index] as before
   | { kind: "progress"; text: string } // a progress note (like Claude thinking with showProgress)
-  | { kind: "web"; title: string; detail?: string; isError?: boolean };
+  | {
+      kind: "web";
+      title: string;
+      detail?: string;
+      isError?: boolean;
+      /** The step card to draw (ToolCard titles web_search / web_fetch calls), and its result text. */
+      call?: { name: string; input: unknown };
+      result?: string;
+    };

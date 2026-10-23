@@ -1,0 +1,39 @@
+event: response.created
+data: {"type":"response.created","sequence_number":0,"response":{"id":"resp_web","object":"response","created_at":1761200070,"status":"in_progress","model":"gpt-6.1-sol","output":[],"usage":null,"service_tier":"auto","error":null,"incomplete_details":null}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","sequence_number":1,"output_index":0,"item":{"id":"ws_o5a","type":"web_search_call","status":"in_progress","action":{"type":"search","query":"ISO 2768 general tolerances table"}}}
+
+event: response.web_search_call.in_progress
+data: {"type":"response.web_search_call.in_progress","sequence_number":2,"output_index":0,"item_id":"ws_o5a"}
+
+event: response.web_search_call.searching
+data: {"type":"response.web_search_call.searching","sequence_number":3,"output_index":0,"item_id":"ws_o5a"}
+
+event: response.web_search_call.completed
+data: {"type":"response.web_search_call.completed","sequence_number":4,"output_index":0,"item_id":"ws_o5a"}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","sequence_number":5,"output_index":0,"item":{"id":"ws_o5a","type":"web_search_call","status":"completed","action":{"type":"search","query":"ISO 2768 general tolerances table","sources":[{"type":"url","url":"https://www.iso.org/standard/7748.html"},{"type":"url","url":"https://example.com/iso-2768-table"}]}}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","sequence_number":6,"output_index":1,"item":{"id":"ws_o5b","type":"web_search_call","status":"in_progress","action":{"type":"open_page","url":"https://example.com/iso-2768-table"}}}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","sequence_number":7,"output_index":1,"item":{"id":"ws_o5b","type":"web_search_call","status":"completed","action":{"type":"open_page","url":"https://example.com/iso-2768-table"}}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","sequence_number":8,"output_index":2,"item":{"id":"msg_o5","type":"message","status":"in_progress","role":"assistant","phase":"final_answer","content":[]}}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","sequence_number":9,"item_id":"msg_o5","output_index":2,"content_index":0,"delta":"ISO 2768-m allows ±0.2 mm on lengths from 30 to 120 mm.","logprobs":[]}
+
+event: response.output_text.annotation.added
+data: {"type":"response.output_text.annotation.added","sequence_number":10,"item_id":"msg_o5","output_index":2,"content_index":0,"annotation_index":0,"annotation":{"type":"url_citation","start_index":0,"end_index":10,"url":"https://example.com/iso-2768-table","title":"ISO 2768 table"}}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","sequence_number":11,"output_index":2,"item":{"id":"msg_o5","type":"message","status":"completed","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"ISO 2768-m allows ±0.2 mm on lengths from 30 to 120 mm.","annotations":[{"type":"url_citation","start_index":0,"end_index":10,"url":"https://example.com/iso-2768-table","title":"ISO 2768 table"}]}]}}
+
+event: response.completed
+data: {"type":"response.completed","sequence_number":12,"response":{"id":"resp_web","object":"response","created_at":1761200070,"status":"completed","model":"gpt-6.1-sol","output":[{"id":"ws_o5a","type":"web_search_call","status":"completed","action":{"type":"search","query":"ISO 2768 general tolerances table","sources":[{"type":"url","url":"https://www.iso.org/standard/7748.html"},{"type":"url","url":"https://example.com/iso-2768-table"}]}},{"id":"ws_o5b","type":"web_search_call","status":"completed","action":{"type":"open_page","url":"https://example.com/iso-2768-table"}},{"id":"msg_o5","type":"message","status":"completed","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"ISO 2768-m allows ±0.2 mm on lengths from 30 to 120 mm.","annotations":[{"type":"url_citation","start_index":0,"end_index":10,"url":"https://example.com/iso-2768-table","title":"ISO 2768 table"}]}]}],"usage":{"input_tokens":24000,"input_tokens_details":{"cached_tokens":18000,"cache_write_tokens":0},"output_tokens":60,"output_tokens_details":{"reasoning_tokens":20},"total_tokens":24060},"service_tier":"default","error":null,"incomplete_details":null}}
+

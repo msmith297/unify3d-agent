@@ -1,0 +1,51 @@
+event: response.created
+data: {"type":"response.created","sequence_number":0,"response":{"id":"resp_o2a","object":"response","created_at":1761200010,"status":"in_progress","model":"gpt-6.1-sol","output":[],"usage":null,"service_tier":"auto","error":null,"incomplete_details":null}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","sequence_number":1,"output_index":0,"item":{"id":"rs_o2","type":"reasoning","summary":[]}}
+
+event: response.reasoning_summary_part.added
+data: {"type":"response.reasoning_summary_part.added","sequence_number":2,"item_id":"rs_o2","output_index":0,"summary_index":0,"part":{"type":"summary_text","text":""}}
+
+event: response.reasoning_summary_text.delta
+data: {"type":"response.reasoning_summary_text.delta","sequence_number":3,"item_id":"rs_o2","output_index":0,"summary_index":0,"delta":"Planning the fillet on the selected edges."}
+
+event: response.reasoning_summary_part.done
+data: {"type":"response.reasoning_summary_part.done","sequence_number":4,"item_id":"rs_o2","output_index":0,"summary_index":0,"part":{"type":"summary_text","text":"Planning the fillet on the selected edges."}}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","sequence_number":5,"output_index":0,"item":{"id":"rs_o2","type":"reasoning","summary":[{"type":"summary_text","text":"Planning the fillet on the selected edges."}],"encrypted_content":"gAAAAABo1EncO2"}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","sequence_number":6,"output_index":1,"item":{"id":"msg_o2a","type":"message","status":"in_progress","role":"assistant","phase":"commentary","content":[]}}
+
+event: response.content_part.added
+data: {"type":"response.content_part.added","sequence_number":7,"item_id":"msg_o2a","output_index":1,"content_index":0,"part":{"type":"output_text","text":"","annotations":[]}}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","sequence_number":8,"item_id":"msg_o2a","output_index":1,"content_index":0,"delta":"I'll add the fillet.","logprobs":[]}
+
+event: response.content_part.done
+data: {"type":"response.content_part.done","sequence_number":9,"item_id":"msg_o2a","output_index":1,"content_index":0,"part":{"type":"output_text","text":"I'll add the fillet.","annotations":[]}}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","sequence_number":10,"output_index":1,"item":{"id":"msg_o2a","type":"message","status":"completed","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"I'll add the fillet.","annotations":[]}]}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","sequence_number":11,"output_index":2,"item":{"id":"fc_o2","type":"function_call","status":"in_progress","call_id":"call_fillet1","name":"execute_csharp","arguments":""}}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","sequence_number":12,"item_id":"fc_o2","output_index":2,"delta":"{\"title\":\"Fillet edges\","}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","sequence_number":13,"item_id":"fc_o2","output_index":2,"delta":"\"code\":\"Features.Fillet(Ref(\\\"S1\\\"), mm(2));\"}"}
+
+event: response.function_call_arguments.done
+data: {"type":"response.function_call_arguments.done","sequence_number":14,"item_id":"fc_o2","output_index":2,"arguments":"{\"title\":\"Fillet edges\",\"code\":\"Features.Fillet(Ref(\\\"S1\\\"), mm(2));\"}"}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","sequence_number":15,"output_index":2,"item":{"id":"fc_o2","type":"function_call","status":"completed","call_id":"call_fillet1","name":"execute_csharp","arguments":"{\"title\":\"Fillet edges\",\"code\":\"Features.Fillet(Ref(\\\"S1\\\"), mm(2));\"}"}}
+
+event: response.completed
+data: {"type":"response.completed","sequence_number":16,"response":{"id":"resp_o2a","object":"response","created_at":1761200010,"status":"completed","model":"gpt-6.1-sol","output":[{"id":"rs_o2","type":"reasoning","summary":[{"type":"summary_text","text":"Planning the fillet on the selected edges."}],"encrypted_content":"gAAAAABo1EncO2"},{"id":"msg_o2a","type":"message","status":"completed","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"I'll add the fillet.","annotations":[]}]},{"id":"fc_o2","type":"function_call","status":"completed","call_id":"call_fillet1","name":"execute_csharp","arguments":"{\"title\":\"Fillet edges\",\"code\":\"Features.Fillet(Ref(\\\"S1\\\"), mm(2));\"}"}],"usage":{"input_tokens":21000,"input_tokens_details":{"cached_tokens":19500,"cache_write_tokens":0},"output_tokens":95,"output_tokens_details":{"reasoning_tokens":40},"total_tokens":21095},"service_tier":"default","error":null,"incomplete_details":null}}
+
