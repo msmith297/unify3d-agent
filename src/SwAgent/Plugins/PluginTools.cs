@@ -460,6 +460,8 @@ namespace SwAgent.Plugins
             {
                 var line = (PluginManifest.Str(kv.Value["command"]) ?? "") + " " + string.Join(" ", (kv.Value["args"] as JArray ?? new JArray()).Select(a => (string)a));
                 if (secrets.Any(s => line.Contains(s))) f.Add($"error: MCP server \"{kv.Key}\" puts a sensitive option in its command or args; pass it in \"env\" instead.");
+                if (secrets.Any(s => (PluginManifest.Str(kv.Value["url"]) ?? "").Contains(s)))
+                    f.Add($"warning: MCP server \"{kv.Key}\" puts a sensitive option in its url; send it in \"headers\" if the server accepts that (urls end up in logs and proxies).");
             }
             return f.Distinct().ToList();
         }

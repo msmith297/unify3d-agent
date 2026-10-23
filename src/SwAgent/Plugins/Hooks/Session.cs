@@ -39,6 +39,9 @@ namespace SwAgent.Plugins.Hooks
         /// <summary>A session with a given id and no lock (tests).</summary>
         internal static Session ForTests(string id) => new Session(id, false, null);
 
+        /// <summary>A throw-away session for plugin_try_mcp: a server being tried never sees (or binds to) the PC's id.</summary>
+        internal static Session Sandbox() => new Session(Guid.NewGuid().ToString(), true, null);
+
         public string Id { get; }
 
         /// <summary>Another SolidWorks holds the PC's id: this one has a fresh id for this run only.</summary>

@@ -211,7 +211,8 @@ namespace SwAgent.Tests.Plugins
                 await host.Mcp.WhenStarted(TimeSpan.FromSeconds(60));
                 Assert.Equal("running", State(host, "sim"));
                 Assert.Null((string)host.Mcp.Status().First(s => (string)s["server"] == "sim")["plugin"]);
-                Assert.Contains("only stdio", (string)host.Mcp.Status().First(s => (string)s["server"] == "web")["error"]);
+                // a remote server is tried too: nothing listens on port 9
+                Assert.Contains("can't reach http://127.0.0.1:9/mcp", (string)host.Mcp.Status().First(s => (string)s["server"] == "web")["error"]);
                 Assert.Equal("ok", Text(await host.CallAsync("mcp__sim__echo", new JObject { ["text"] = "ok" }, "t", "tu")));
 
                 // Editing mcp.json is picked up (the file is watched).

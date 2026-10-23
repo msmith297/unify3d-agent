@@ -19,12 +19,27 @@ namespace SwAgent.Mcp
     /// server's own requests (ping; everything else -32601, never silence). Everything here runs off the UI thread and
     /// never touches SolidWorks.
     /// </summary>
-    internal sealed class McpClient : IDisposable
+    internal sealed class McpClient : IMcpConnection
     {
         public const string ProtocolVersion = "2025-06-18";
 
         /// <summary>initialize can take a while: agent-bridge connects to its hub inside it.</summary>
         public static TimeSpan InitializeTimeout = TimeSpan.FromSeconds(45);
+
+        /// <summary>
+        /// npx -y / uvx / docker fetch the server on its first start (a download, then a build): give initialize longer.
+        /// </summary>
+        public static TimeSpan FetchingInitializeTimeout = TimeSpan.FromMinutes(3);
+
+        private static readonly HashSet<string> Fetchers = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "npx", "uvx", "bunx", "pipx", "pnpm", "dlx", "docker", "podman" };
+
+        /// <summary>The initialize timeout for a program: longer for package runners that may download first.</summary>
+        public static TimeSpan InitializeTimeoutFor(string command)
+        {
+            var program = (command ?? "").Trim().Trim('"');
+            var name = program.Length == 0 || program.IndexOfAny(Path.GetInvalidPathChars()) >= 0 ? "" : Path.GetFileNameWithoutExtension(program);
+            return Fetchers.Contains(name) ? FetchingInitializeTimeout : InitializeTimeout;
+        }
 
         private readonly ConcurrentDictionary<long, TaskCompletionSource<JObject>> _calls = new ConcurrentDictionary<long, TaskCompletionSource<JObject>>();
         private readonly object _writeLock = new object();
@@ -33,9 +48,18 @@ namespace SwAgent.Mcp
         private long _nextId;
         private int _closed;
 
+        private readonly (string Command, IEnumerable<string> Args, IDictionary<string, string> Env, string Cwd)? _launch;
+
         public McpClient(string name)
         {
             Name = name;
+        }
+
+        /// <summary>A server to start later with StartAsync().</summary>
+        public McpClient(string name, string command, IEnumerable<string> args, IDictionary<string, string> env, string cwd)
+        {
+            Name = name;
+            _launch = (command, args, env, cwd);
         }
 
         public string Name { get; }
@@ -47,11 +71,21 @@ namespace SwAgent.Mcp
 
         public int? ProcessId => _process?.Id;
 
+        public string Stderr => _process?.Stderr;
+
         /// <summary>Raised (on a reader thread) when the server says its tool list changed.</summary>
         public event Action ToolsChanged;
 
         /// <summary>Raised once when the connection ends (the process exited or was stopped); the text says why.</summary>
         public event Action<string> Closed;
+
+        /// <summary>Starts the server given to the constructor and completes the handshake.</summary>
+        public Task StartAsync()
+        {
+            if (_launch == null) throw new InvalidOperationException("No command to start.");
+            var l = _launch.Value;
+            return StartAsync(l.Command, l.Args, l.Env, l.Cwd);
+        }
 
         /// <summary>Starts the server and completes the handshake. Throws (and stops it) on failure.</summary>
         public async Task StartAsync(string command, IEnumerable<string> args, IDictionary<string, string> env, string cwd)
@@ -76,7 +110,7 @@ namespace SwAgent.Mcp
                     ["capabilities"] = new JObject(),
                     // Never "claude": agent-bridge would then join the user's Claude Code app on the hub.
                     ["clientInfo"] = new JObject { ["name"] = "unify3d-agent", ["version"] = typeof(McpClient).Assembly.GetName().Version.ToString(3) },
-                }, InitializeTimeout, CancellationToken.None).ConfigureAwait(false);
+                }, InitializeTimeoutFor(command), CancellationToken.None).ConfigureAwait(false);
                 Instructions = (string)init["instructions"];
                 ServerInfo = init["serverInfo"] as JObject;
                 Notify("notifications/initialized", null);
@@ -291,7 +325,7 @@ namespace SwAgent.Mcp
             _process?.Dispose();
         }
 
-        private static string LastLines(string text, int n)
+        internal static string LastLines(string text, int n)
         {
             var lines = text.Replace("\r", "").Split('\n').Where(l => l.Trim().Length > 0).ToList();
             return string.Join(" | ", lines.Skip(Math.Max(0, lines.Count - n)));
@@ -300,7 +334,7 @@ namespace SwAgent.Mcp
         internal static string Clip(string s, int max) => s == null || s.Length <= max ? s : s.Substring(0, max) + "...";
     }
 
-    internal sealed class McpException : Exception
+    internal class McpException : Exception
     {
         public McpException(string message)
             : base(message)

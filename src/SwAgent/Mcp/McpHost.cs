@@ -60,7 +60,7 @@ namespace SwAgent.Mcp
             public string State = "starting";
             public string Error;
             public List<JObject> Tools = new List<JObject>();
-            public McpClient Client;
+            public IMcpConnection Client;
             public int Generation;
             public int Failures;
             public DateTime StartedAt;
@@ -129,35 +129,26 @@ namespace SwAgent.Mcp
 
         private async Task StartServerAsync(Server s, int generation)
         {
-            var type = (string)s.Config["type"] ?? "stdio";
-            if (type != "stdio" || string.IsNullOrWhiteSpace((string)s.Config["command"]))
-            {
-                // Retrying can't help: show the error until the config changes.
-                lock (_sync)
-                {
-                    if (s.Generation != generation) return;
-                    s.State = "error";
-                    s.Error = type != "stdio" ? $"'{type}' MCP servers aren't supported yet (only stdio)." : "The server has no command.";
-                }
-                Log.Warn($"MCP {s.Label}: {s.Error}");
-                s.FirstAttempt.TrySetResult(true);
-                Changed?.Invoke();
-                return;
-            }
-            McpClient client = null;
+            IMcpConnection client = null;
             try
             {
-                var env = _session.EnvFor(s.Plugin);
-                if (s.Config["env"] is JObject extra)
+                try
                 {
-                    foreach (var kv in extra.Properties()) env[kv.Name] = (string)kv.Value;
-                    foreach (var kv in extra.Properties()) env[kv.Name] = Session.Expand(s.Plugin, env[kv.Name], env);
+                    client = Create(_session, s.Plugin, s.Config, s.Label);
                 }
-                var command = Session.Expand(s.Plugin, (string)s.Config["command"], env);
-                if (string.IsNullOrWhiteSpace(command)) throw new McpException("No command.");
-                var args = (s.Config["args"] as JArray ?? new JArray()).Select(a => Session.Expand(s.Plugin, (string)a, env)).ToList();
-
-                client = new McpClient(s.Label);
+                catch (McpException ex)
+                {
+                    // A config problem: retrying can't help, so show the error until the config changes.
+                    lock (_sync)
+                    {
+                        if (s.Generation != generation) return;
+                        s.State = "error";
+                        s.Error = ex.Message;
+                    }
+                    Log.Warn($"MCP {s.Label}: {s.Error}");
+                    Changed?.Invoke();
+                    return;
+                }
                 var c = client;
                 client.Closed += why => OnClosed(s, generation, c, why);
                 client.ToolsChanged += () => _ = RefreshToolsAsync(s, generation, c);
@@ -168,8 +159,8 @@ namespace SwAgent.Mcp
                     s.State = "starting";
                     s.Error = null;
                 }
-                Log.Info($"MCP {s.Label}: starting {(string)s.Config["command"]}"); // as configured: expanded values stay out of the log
-                await client.StartAsync(command, args, env, Session.ProjectDir).ConfigureAwait(false);
+                Log.Info($"MCP {s.Label}: starting {Describe(s.Config)}"); // as configured: expanded values stay out of the log
+                await client.StartAsync().ConfigureAwait(false);
                 var tools = await client.ListToolsAsync(CancellationToken.None).ConfigureAwait(false);
                 lock (_sync)
                 {
@@ -198,7 +189,46 @@ namespace SwAgent.Mcp
             }
         }
 
-        private async Task RefreshToolsAsync(Server s, int generation, McpClient client)
+        /// <summary>The server's type: "stdio" (a command), "http" (Streamable HTTP, falling back to SSE) or "sse".</summary>
+        internal static string TypeOf(JObject config) => ((string)config?["type"] ?? (config?["url"] != null ? "http" : "stdio")).Trim().ToLowerInvariant();
+
+        /// <summary>What a server runs, for the log and the agent: the command as configured, or the URL without its query.</summary>
+        internal static string Describe(JObject config) =>
+            TypeOf(config) == "stdio"
+                ? (string)config["command"] + ((config["args"] as JArray)?.Count > 0 ? " " + string.Join(" ", ((JArray)config["args"]).Select(a => (string)a)) : "")
+                : TypeOf(config) + " " + McpHttpClient.SafeUrl((string)config["url"]);
+
+        /// <summary>
+        /// A connection for one server of a plugin (plugin null: mcp.json), not started yet: its environment, then the
+        /// command line, URL and header values with ${...} expanded (the plugin's options, then the child environment).
+        /// Throws McpException when the config can't work (no command, an unknown type), which retrying won't fix.
+        /// </summary>
+        internal static IMcpConnection Create(Session session, PluginRuntime plugin, JObject config, string label)
+        {
+            var type = TypeOf(config);
+            var env = session.EnvFor(plugin);
+            if (config["env"] is JObject extra)
+            {
+                foreach (var kv in extra.Properties()) env[kv.Name] = (string)kv.Value;
+                foreach (var kv in extra.Properties()) env[kv.Name] = Session.Expand(plugin, env[kv.Name], env);
+            }
+            if (type == "http" || type == "sse")
+            {
+                var url = Session.Expand(plugin, (string)config["url"], env);
+                if (string.IsNullOrWhiteSpace(url)) throw new McpException("The server has no url.");
+                var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var h in (config["headers"] as JObject)?.Properties() ?? Enumerable.Empty<JProperty>())
+                    headers[h.Name] = Session.Expand(plugin, (string)h.Value ?? "", env);
+                return new McpHttpClient(label, url, headers, sseOnly: type == "sse");
+            }
+            if (type != "stdio") throw new McpException($"'{type}' MCP servers aren't supported (stdio, http or sse).");
+            var command = Session.Expand(plugin, (string)config["command"], env);
+            if (string.IsNullOrWhiteSpace(command)) throw new McpException("The server has no command.");
+            var args = (config["args"] as JArray ?? new JArray()).Select(a => Session.Expand(plugin, (string)a, env)).ToList();
+            return new McpClient(label, command, args, env, Session.ProjectDir);
+        }
+
+        private async Task RefreshToolsAsync(Server s, int generation, IMcpConnection client)
         {
             try
             {
@@ -217,7 +247,7 @@ namespace SwAgent.Mcp
             }
         }
 
-        private void OnClosed(Server s, int generation, McpClient client, string why)
+        private void OnClosed(Server s, int generation, IMcpConnection client, string why)
         {
             lock (_sync)
             {
@@ -266,7 +296,7 @@ namespace SwAgent.Mcp
 
         private async Task StopServerAsync(Server s, TimeSpan grace)
         {
-            McpClient client;
+            IMcpConnection client;
             lock (_sync)
             {
                 client = s.Client;
@@ -389,7 +419,7 @@ namespace SwAgent.Mcp
         public async Task<ToolResult> CallAsync(string apiName, JObject input, string threadId)
         {
             (Server server, string tool) target;
-            McpClient client;
+            IMcpConnection client;
             lock (_sync)
             {
                 if (!_byApiName.TryGetValue(apiName ?? "", out target)) return ToolResult.Error($"The MCP tool '{apiName}' isn't available (its server isn't running).");

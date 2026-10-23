@@ -292,7 +292,7 @@ namespace SwAgent.Plugins
         // ---------------------------------------------------------------- the runtime seam (track B)
 
         /// <summary>Every enabled plugin as the runtime sees it, trusted or not (Runnable() filters).</summary>
-        public IReadOnlyList<PluginRuntime> Enabled() => EnabledPlugins().Where(p => p.Manifest != null).Select(BuildRuntime).ToList();
+        public IReadOnlyList<PluginRuntime> Enabled() => EnabledPlugins().Where(p => p.Manifest != null).Select(p => BuildRuntime(p)).ToList();
 
         public IReadOnlyList<PluginRuntime> Runnable()
         {
@@ -308,10 +308,11 @@ namespace SwAgent.Plugins
             return list;
         }
 
-        internal PluginRuntime BuildRuntime(LoadedPlugin p)
+        /// <param name="dataDir">Another CLAUDE_PLUGIN_DATA (plugin_try_mcp's throw-away folder); default its own.</param>
+        internal PluginRuntime BuildRuntime(LoadedPlugin p, string dataDir = null)
         {
             var m = p.Manifest;
-            var dataDir = Directory.CreateDirectory(Path.Combine(DataRoot, p.Name)).FullName;
+            dataDir = Directory.CreateDirectory(dataDir ?? Path.Combine(DataRoot, p.Name)).FullName;
             var options = Options(p);
             var vars = new Dictionary<string, string>(StringComparer.Ordinal)
             {
@@ -355,6 +356,12 @@ namespace SwAgent.Plugins
                         else prop.Value = full((string)prop.Value ?? "");
                     }
                 }
+                // A remote server's key travels in a header: "Authorization": "Bearer ${user_config.token}".
+                if (s["headers"] is JObject h)
+                {
+                    foreach (var prop in h.Properties()) prop.Value = full((string)prop.Value ?? "");
+                }
+                if (s["url"] != null) s["url"] = full((string)s["url"] ?? "");
                 servers[kv.Key] = s;
             }
             return new PluginRuntime
@@ -1127,7 +1134,11 @@ namespace SwAgent.Plugins
                 ["mcp"] = new JArray(m.McpServers.Select(kv =>
                 {
                     var cmd = PluginManifest.Str(kv.Value["command"]);
-                    if (cmd == null) return $"{kv.Key}: {kv.Value["url"]}";
+                    if (cmd == null)
+                    {
+                        var headers = (kv.Value["headers"] as JObject)?.Properties().Select(x => x.Name).ToList() ?? new List<string>();
+                        return $"{kv.Key}: {Mcp.McpHost.TypeOf(kv.Value)} {kv.Value["url"]}" + (headers.Count > 0 ? $" (sends {string.Join(", ", headers)})" : "");
+                    }
                     var args = (kv.Value["args"] as JArray ?? new JArray()).Select(a => Fetcher.QuoteArg(Expand((string)a ?? "", vars, none, false)));
                     return $"{kv.Key}: {string.Join(" ", new[] { Expand(cmd, vars, none, false) }.Concat(args))}";
                 })),
