@@ -2,9 +2,10 @@ import { create } from "zustand";
 import { on, rpc } from "./lib/bridge";
 import { questionTimerStep } from "./lib/questionTimeout";
 import { syncRibbonIcons } from "./lib/toolIcons";
-import { DEFAULT_SETTINGS, EFFORTS, SETTINGS_VERSION, findModel, inferProvider, modelOption, pickToolProvider, pickerModels, resolveModel, speedLabel, tierModel } from "./lib/models";
-import { PROVIDERS, getProvider } from "./agent/providers";
-import { ProviderError, errorText } from "./agent/providers/errors";
+import { DEFAULT_SETTINGS, SETTINGS_VERSION, effortsFor, findModel, inferProvider, modelOption, pickToolProvider, pickerModels, resolveModel, tierModel } from "./lib/models";
+import { PROVIDERS, getProvider, providerErrorText } from "./agent/providers";
+import { ProviderError } from "./agent/providers/errors";
+import { unreadableNote } from "./agent/providers/media";
 import type {
   Attachment,
   ChatData,
@@ -684,10 +685,13 @@ function keySources(host: Pick<HostState, "apiKeySource" | "apiKeySources">): Re
   return { ...NO_KEYS, anthropic: host.apiKeySource, ...(host.apiKeySources ?? {}) };
 }
 
-/** The OpenAI speed setting for a model that offers it; standard (or a model without tiers) sends nothing. */
-export function serviceTierFor(model: string, settings: Settings): "fast" | "ultrafast" | undefined {
+/**
+ * The OpenAI speed setting for a run; standard sends nothing. Not filtered by the run's model: a sub-agent may run on
+ * another one, and each adapter sends the tier only to models that offer it.
+ */
+export function serviceTierFor(settings: Settings): "fast" | "ultrafast" | undefined {
   const speed = settings.openaiSpeed;
-  return speed === "fast" || speed === "ultrafast" ? (modelOption(model).caps.serviceTiers.includes(speed) ? speed : undefined) : undefined;
+  return speed === "fast" || speed === "ultrafast" ? speed : undefined;
 }
 
 /** The notice when a run's provider has no key: today's text when there is no key at all. */
@@ -879,7 +883,7 @@ export const useStore = create<State>((set, get) => {
     try {
       const result = await runAgent({
         keys,
-        serviceTier: serviceTierFor(runModel, get().settings),
+        serviceTier: serviceTierFor(get().settings),
         onServedTier: (tier) => patchTurn({ serviceTier: tier }),
         model: runModel,
         effort: run.effort ?? thread.effort,
@@ -1007,7 +1011,7 @@ export const useStore = create<State>((set, get) => {
       const status = err?.status;
       if (err instanceof ProviderError && err.requestId) console.warn(`${err.provider} request ${err.requestId} failed: ${err.kind}`);
       const message =
-        err instanceof ProviderError ? errorText(err, { tier: speedLabel(get().settings.openaiSpeed) })
+        err instanceof ProviderError ? providerErrorText(err)
         // An SDK error from before the provider adapters (the Claude path): the same texts.
         : status === 401 ? "The API key was rejected. Check it in Settings."
         : status === 429 ? "Rate limited by the API. Wait a moment and press Retry."
@@ -1705,9 +1709,11 @@ export const useStore = create<State>((set, get) => {
       }
       case "effort": {
         const a = args.toLowerCase().replace(/[\s-]/g, "");
-        const e = EFFORTS.find((x) => x.id === a || x.label.toLowerCase().replace(/[\s-]/g, "") === a);
+        // Only the levels the chat's model offers.
+        const offered = effortsFor(currentThread(s)?.model ?? s.settings.defaultModel);
+        const e = offered.find((x) => x.id === a || x.label.toLowerCase().replace(/[\s-]/g, "") === a);
         if (!e) {
-          set({ notice: `Effort levels: ${EFFORTS.map((x) => x.id).join(", ")} - e.g. /effort high.` });
+          set({ notice: `Effort levels: ${offered.map((x) => x.id).join(", ")} - e.g. /effort high.` });
           return true;
         }
         done();
@@ -2259,6 +2265,10 @@ export const useStore = create<State>((set, get) => {
 
     addAttachment(a) {
       const key = draftKey(get());
+      // A model without vision or PDF support gets a note instead (agent/providers/media.ts): say so now.
+      const model = modelOption(currentThread(get())?.model ?? get().settings.defaultModel);
+      const note = a.kind === "image" || a.kind === "pdf" ? unreadableNote(a.kind, model.label, model.caps) : null;
+      if (note) set({ notice: note });
       set((s) => ({ attachments: { ...s.attachments, [key]: [...(s.attachments[key] ?? []), a] } }));
     },
 

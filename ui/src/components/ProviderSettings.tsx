@@ -2,8 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useStore } from "../store";
 import { rpc } from "../lib/bridge";
 import { SPEEDS } from "../lib/models";
-import { PROVIDERS } from "../agent/providers";
-import { errorText } from "../agent/providers/errors";
+import { PROVIDERS, providerErrorText } from "../agent/providers";
 import type { Provider } from "../agent/providers/types";
 import type { Settings } from "../lib/types";
 import { IconKey } from "./SwIcons";
@@ -50,7 +49,7 @@ function ProviderKeyRow({ provider: p }: { provider: Provider }) {
     const k = typed || (await rpc<{ key: string | null }>("apiKey.get", { provider: p.id }).catch(() => null))?.key;
     if (!k) return setTest({ busy: false, ok: false, text: "No key to test." });
     const r = await p.testKey(k);
-    setTest(r.ok ? { busy: false, ok: true, text: "Key works." } : { busy: false, ok: false, text: errorText(r.error) });
+    setTest(r.ok ? { busy: false, ok: true, text: "Key works." } : { busy: false, ok: false, text: providerErrorText(r.error) });
   };
 
   return (

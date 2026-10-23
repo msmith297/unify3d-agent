@@ -946,7 +946,7 @@ function mockKeySource(provider: string | undefined): "stored" | "none" {
 }
 
 // ?fake: the model APIs answer from canned streams; nothing leaves the browser.
-if (!(window as any).chrome?.webview && location.search.includes("fake")) window.fetch = fakeFetch(defaultFakeScript, window.fetch.bind(window));
+if (!(window as any).chrome?.webview && location.search.includes("fake")) window.fetch = fakeFetch(defaultFakeScript);
 
 /** Queue a wake as the add-in would (an async hook exited with code 2) and nudge the panel. Also: ?wake in the URL. */
 function mockWake(text = '"Claude Code - laptop": the drawings are done - can you check the bracket\'s hole pattern against them?') {

@@ -23,6 +23,7 @@ import { clampSteps } from "../lib/toolRun";
 import type { SecretAsk } from "../lib/creator";
 import { getProvider } from "./providers";
 import { AbortedError, MalformedOutputError } from "./providers/errors";
+import { readableHistory } from "./providers/media";
 import type { ClearingRules, TurnResult } from "./providers/types";
 
 /**
@@ -253,9 +254,7 @@ export interface AgentKeys {
 }
 
 export interface AgentRunOptions {
-  keys?: AgentKeys;
-  /** @deprecated The Anthropic key, for callers that predate `keys`; used only when `keys` is missing. */
-  apiKey?: string;
+  keys: AgentKeys;
   model: string;
   effort: Effort;
   tools: ToolDef[];
@@ -321,7 +320,7 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
   const { cb, signal } = opts;
   const m = modelOption(opts.model);
   const provider = getProvider(m.provider);
-  const key = opts.keys ? await opts.keys.get(m.provider) : m.provider === "anthropic" ? (opts.apiKey ?? null) : null;
+  const key = await opts.keys.get(m.provider);
   if (!key) return { stop: "error", error: `${m.label} needs an ${provider.vendor} API key. Add one in Options, or pick another model.` };
   // Liveness: every byte the API sends - text, thinking, reasoning summaries or keep-alive pings - counts. A long think
   // keeps the connection busy; a silent connection is stalled.
@@ -329,8 +328,9 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
   const session = provider.open(key, liveness);
   const stallMs = opts.stallMs ?? provider.stallMs;
 
-  // Web research runs on the provider's side (server tools); a sub-agent (its own system prompt) never gets it.
-  const web = !opts.system && !!opts.webResearch;
+  // Web research runs on the provider's side (server tools); a sub-agent (its own system prompt) never gets it, nor a
+  // model without web tools.
+  const web = !opts.system && !!opts.webResearch && m.caps.web !== null;
   const tools = [...opts.tools, ...localTools(opts)];
   // use_skill exists only with plugins (and a sub-agent may lack read_user_tool): exclude only tools this run has.
   const names = new Set(tools.map((t) => t.name));
@@ -393,7 +393,7 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
       };
       try {
         r = await session.turn(
-          { model: m, effort: opts.effort, system, tools, messages: cb.getMessages(), web, longRun: !!opts.longRun, clearing, serviceTier: opts.serviceTier },
+          { model: m, effort: opts.effort, system, tools, messages: readableHistory(cb.getMessages(), m.caps), web, longRun: !!opts.longRun, clearing, serviceTier: opts.serviceTier },
           { signal: request.signal, onLive: schedule },
         );
         malformedRetries = 0;
@@ -608,7 +608,7 @@ async function runSubAgent(tu: ToolUseBlockParam, opts: AgentRunOptions): Promis
     res = await runAgent({
       ...opts,
       // An alias resolves on the chat's provider; the sub-agent gets its own provider's key through opts.keys.
-      model: resolveModel(agent.model, { chatModel: opts.model, hasKey: (p) => (opts.keys ? opts.keys.has(p) : p === "anthropic") }) ?? opts.model,
+      model: resolveModel(agent.model, { chatModel: opts.model, hasKey: opts.keys.has }) ?? opts.model,
       tools: subAgentTools(agent.tools, opts.tools).filter((t) => !MEMORY_WRITE_TOOLS.has(t.name)), // only the user's own words are remembered
       maxSteps: SUB_AGENT_STEPS,
       longRun: false,

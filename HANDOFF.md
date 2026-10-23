@@ -39,7 +39,7 @@ All commands run from the working folder.
 |---|---|
 | Debug build | `"/c/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/MSBuild.exe" src/SwAgent/SwAgent.csproj -restore -nologo -v:minimal -p:Configuration=Debug` |
 | Tests | `dotnet test tests/SwAgent.Tests`. Expect **710 passed, 0 failed, 4 skipped** (2026-10-22, after the creator v2 / memory / profiles review; about 7.5 minutes). The skipped four are the long FE sweeps; run them with `MOLD_SWEEP=1`. Some plugin tests need node, Git for Windows or a local agent-bridge clone and skip without them (section 7). Tests set `SWAGENT_DATA_DIR` through `tests/SwAgent.Tests/test.runsettings`, so they never touch the user's real data. Keep it that way. |
-| UI | `cd ui && npx tsc -b && npm run build` (node_modules is installed). Panel logic checks: `node ui/src/lib/checks/lib.check.mjs`. |
+| UI | `cd ui && npx tsc -b && npm run build` (node_modules is installed). Panel logic checks: `node ui/src/lib/checks/<name>.check.mjs` for agent, providers, integration, lib, models, creator and cheatsheet (section 13). |
 | Mold data generators | `python -I tools/dev/mold-data/<gen>.py --check`. Each must report that its output matches the shipped files. See `tools/dev/mold-data/README.md`. |
 | FE sweeps / Monte Carlo | `tools/dev/MoldSweep` (README inside). Build it in Release **from a scratch copy**, never into `src/SwAgent/bin/Release`. |
 
@@ -177,7 +177,7 @@ To read a future SolidWorks crash dump: unzip the newest `%LOCALAPPDATA%\SolidWo
 |---|---|
 | Agent system prompt | `ui/src/agent/systemPrompt.ts` |
 | SolidWorks knowledge base | `ui/src/agent/cad/solidworks.ts` |
-| Agent loop and API usage | `ui/src/agent/runAgent.ts`: Opus 5.5 default, adaptive thinking, effort, context clearing, history repair, prompt caching |
+| Agent loop and API usage | `ui/src/agent/runAgent.ts` (the provider-neutral loop) and `ui/src/agent/providers/` (Claude and OpenAI adapters: requests, streaming, caching, context clearing, history translation); section 13 |
 | Panel state | `ui/src/store.ts` |
 | Tool registry and pages | `src/SwAgent/Tools/{UserTools,ToolSpec,ToolRunner,ToolRegistry}.cs`, `src/SwAgent/UI/ToolPage.cs` |
 | Ribbon | `src/SwAgent/UI/UnifyRibbon.cs`. Tools reach the ribbon only after a SolidWorks restart, through the "Save and restart" offer. |
@@ -418,28 +418,41 @@ its checkbox says what it does ("Leave out fields at the tool default").
 the dialogs (export, load from file, open folder). Deleting a tool still leaves its `last-inputs\` entry (harmless; a new
 tool of the name starts with those remembered values).
 
-## 13. Model providers: Claude and OpenAI (EDGES track built 2026-10-23, on `providers/edges`)
+## 13. Model providers: Claude and OpenAI (built 2026-10-23; CORE and EDGES tracks, then integration)
 
-**Design:** `docs/providers/design.md` (the contract; section 1 is the one-page summary). Built in two parallel tracks:
-CORE (the provider layer in `ui/src/agent/providers/`, the neutral `runAgent`, the Claude golden check, the OpenAI
-adapter) and EDGES (everything around it). This section is EDGES; integration merges both.
+**Design:** `docs/providers/design.md` (the contract; section 1 is the one-page summary). Built in two parallel tracks,
+CORE (the provider layer, the neutral agent loop, the adapters) and EDGES (keys, settings, pickers, docs), merged and
+wired together in "Model providers: integration". The chat's model picks the provider; a chat can switch model, and so
+provider, between turns. Stored chats keep the Anthropic block format; OpenAI's own output items ride along in an
+optional `replay` field on its assistant messages.
 
 | Area | Where |
 |---|---|
+| Neutral agent loop: hooks, approval, local tools, sub-agents, steering, step limit, stall watchdog (`provider.stallMs`), malformed-output re-sends; images and PDFs become a note for a model without vision / PDF support | `ui/src/agent/runAgent.ts`, `ui/src/agent/providers/media.ts` |
+| Provider layer: `PROVIDERS`, `getProvider`, `providerOf`, `displayParts`, `providerErrorText`; errors by kind; `livenessFetch`, `redactKeys` | `ui/src/agent/providers/{index,types,errors,transport}.ts` |
+| Claude adapter (the old request and stream code, moved unchanged) | `ui/src/agent/providers/anthropic.ts` |
+| OpenAI adapter: Responses API, streamed, `store: false`; history translation and replay; client-side context clearing; `web_search`; 12 h cache for long runs; speed (`service_tier`); quota 429s not retried | `ui/src/agent/providers/openai/{client,history,stream,display}.ts`; `openai` pinned at 7.32.0 |
+| Fake model APIs for the checks and the mock host (`?fake`) | `ui/src/agent/providers/fake.ts`, `fixtures/` |
+| Model registry: providers, caps, families, tiers per provider, `resolveModel` (aliases into the chat's provider), tool provider choice, grouped pickers, effort clamp, `/model` | `ui/src/lib/models.ts` |
 | Keys (C#): one DPAPI file per provider, `apikey.bin` unchanged, `apikey-openai.bin` new, writes through `AtomicFile` (settings.json too); `apiKey.get/set {provider?}` (no provider: Anthropic), `getState.apiKeySources` | `src/SwAgent/Infrastructure/SettingsStore.cs` (`ProviderKeys`), `AgentController.cs` |
 | Secrets away from children: `ANTHROPIC_*` and `OPENAI_*` hidden from plugin, hook, MCP and git processes and `check_prerequisites`' programs; `${OPENAI_*}` expands to "" (plugins may still set `OPENAI_API_KEY` for their own servers) | `Infrastructure/SecretEnv.cs`, `ChildEnv.Hidden`, `PluginManager.Expand`, `Fetcher.GitStartInfo`, `CreatorTools.VersionStartInfo` |
-| Model registry and its helpers: providers, caps, families, tiers per provider, `resolveModel` (aliases into the chat's provider), tool provider choice, grouped pickers, effort clamp, `/model` | `ui/src/lib/models.ts` |
-| Panel: per-provider key state, the no-key notice per provider, tool runs on `tierModel(tier, toolProvider())`, error texts by `ProviderError.kind`, OpenAI speed | `ui/src/store.ts` |
-| Options > AI providers (save, test, remove, get a key, Speed), grouped model pickers, effort pickers by model, the tour's provider choice | `ui/src/components/ProviderSettings.tsx`, `SettingsPanel.tsx`, `Composer.tsx` (+ group headers in `Menu.tsx`), `Tour.tsx` |
+| Panel: per-provider keys (`keys.get` asks the add-in for one provider's key when a run needs it), the no-key notice, tool runs on `tierModel(tier, toolProvider())`, error texts by kind, the speed setting (sent to every run; each adapter sends it only to models that offer it), the served tier in the turn's footer | `ui/src/store.ts`, `ui/src/components/ChatView.tsx` (`chatItems.ts`) |
+| Options > AI providers (save, test, remove, get a key, Speed), grouped model pickers, effort pickers and `/effort` by model, the tour's provider choice | `ui/src/components/ProviderSettings.tsx`, `SettingsPanel.tsx`, `Composer.tsx` (+ group headers in `Menu.tsx`), `Tour.tsx` |
 | Mock host: per-provider keys, `?fake`, a demo chat on GPT-6.1 Sol with `replay` | `ui/src/lib/mockHost.ts` |
 
-**How to test.** `SettingsStoreTests.cs` and the OpenAI cases in `HookProtocolTests`, `HookRunnerTests`,
-`PluginManagerTests`, `PluginReviewTests`; `node ui/src/lib/checks/models.check.mjs` (also run by `lib.check.mjs`).
+**Adding a provider** (design section 10): an adapter in `ui/src/agent/providers/<id>/` added to `PROVIDERS`, its rows in
+`MODELS` and a column in `TIERS`, a line in `ProviderKeys.All` and `SecretEnv.ProviderPrefixes`, its origin in
+`ui/index.html`'s CSP (the O19 check fails until it is there), fixtures and scenarios in `providers.check.mjs`.
 
-**Stubs for integration.** Files and lines marked `// CORE-STUB` stand in for CORE's work and are replaced by it:
-`ui/src/agent/providers/{types,errors,index,fake}.ts`, the C0 types in `ui/src/lib/types.ts` and the registry half of
-`ui/src/lib/models.ts`, and the `keys` / `serviceTier` options in `ui/src/agent/runAgent.ts` (which runs only Claude in
-this branch).
+**How to test.** All under node, no network (`fetch` is the fake, the keys are fakes):
+- `node ui/src/lib/checks/agent.check.mjs`: the Claude goldens C1-C8, captured from the code before the refactor (`7a2bf2d`). Every request body must stay string-equal: **never regenerate them**; a changed golden is a regression.
+- `providers.check.mjs`: the OpenAI adapter O1-O19, provider switches, clearing, stalls, errors, the CSP, the chat items.
+- `integration.check.mjs`: full turns with tool calls on each provider through the mock's fake script, a chat that switches Claude -> OpenAI -> Claude, keys reaching only their provider, sub-agent aliases, speed for sub-agents, capability flags.
+- `models.check.mjs` (also run by `lib.check.mjs`).
+- C#: `SettingsStoreTests.cs` and the OpenAI cases in `HookProtocolTests`, `HookRunnerTests`, `PluginManagerTests`, `PluginReviewTests`.
+- Browser: `npm --prefix ui run dev`, open `/?demo&fake`, and set `localStorage["swagent-mock:apiKey"]` and `["swagent-mock:apiKey:openai"]` to any test string.
 
 **Not tested:** nothing ran in SolidWorks or against a real API (there is no OpenAI key on this PC). Hand checks H1-H12
-are in design section 11.
+are in design section 11; also not covered by them: whether replayed item ids and `web_search_call` items are accepted
+with `store: false`. While OpenAI streams, the live reasoning text shows the summaries raw (bold `**` headings); the
+saved chat shows them as sentences.

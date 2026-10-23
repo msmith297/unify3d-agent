@@ -3,7 +3,7 @@ import { BrandMark } from "./Brand";
 import { IconAgent, IconKey, IconMarkup, IconMic, IconOk, IconSend, IconShield, IconToolbox, IconUndo } from "./SwIcons";
 import { anyKey, draftKey, talkKeyName, useStore } from "../store";
 import { rpc } from "../lib/bridge";
-import { modelOption } from "../lib/models";
+import { EFFORTS, clampEffort, modelOption } from "../lib/models";
 import { PROVIDERS, getProvider } from "../agent/providers";
 import type { ProviderId } from "../lib/types";
 import { providerTitle } from "./ProviderSettings";
@@ -33,6 +33,7 @@ export function Tour() {
   const step = useStore((s) => s.tourStep);
   const hasAnyKey = useStore(anyKey);
   const defaultModel = useStore((s) => modelOption(s.settings.defaultModel).label);
+  const defaultEffort = useStore((s) => EFFORTS.find((e) => e.id === clampEffort(s.settings.defaultEffort, s.settings.defaultModel))?.label ?? "High");
   const talkKey = useStore((s) => talkKeyName(s.settings.voiceKey));
   const { setTourStep, endTour } = useStore.getState();
 
@@ -105,7 +106,7 @@ export function Tour() {
       target: "model",
       icon: <IconAgent size={20} />,
       title: "Choose how hard it thinks",
-      body: <p>{defaultModel} at High is the default for modelling. Lower effort is quicker and cheaper for simple questions; Max is for the hardest problems. Each chat remembers its own choice.</p>,
+      body: <p>{defaultModel} at {defaultEffort} is the default for modelling. Lower effort is quicker and cheaper for simple questions; Max is for the hardest problems. Each chat remembers its own choice.</p>,
     },
     {
       id: "tools",

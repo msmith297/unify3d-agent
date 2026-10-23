@@ -129,7 +129,6 @@ export const TOOLS = [
 ];
 
 export const BASE = {
-  apiKey: KEY,
   keys: { get: async (p) => (p === "anthropic" ? KEY : OPENAI_KEY), has: () => true },
   model: "claude-opus-5-5",
   effort: "high",
