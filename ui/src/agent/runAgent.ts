@@ -334,8 +334,8 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
   const m = modelOption(opts.model);
 
   const betas = ["thinking-binding-controls-2026-08-01", "context-management-2025-06-27"];
-  if (m.progressUpdates) betas.push("thinking-display-updates-2026-08-18");
-  if (m.fallbacks) betas.push("server-side-fallback-2026-07-01");
+  if (m.caps.progressUpdates) betas.push("thinking-display-updates-2026-08-18");
+  if (m.caps.fallbacks) betas.push("server-side-fallback-2026-07-01");
   // Web research runs on Anthropic's side (server tools); a sub-agent (its own system prompt) never gets it.
   const web = !opts.system && !!opts.webResearch;
   betas.push(...webBetas(m.id, web));
@@ -400,7 +400,7 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
           // reloaded from a file (or continued after an add-in update) valid instead of failing with a 400.
           thinking: {
             type: "adaptive",
-            display: m.progressUpdates ? "updates" : "summarized",
+            display: m.caps.progressUpdates ? "updates" : "summarized",
             block_binding: { prefix_mismatch_behavior: "drop_block" },
           },
           output_config: { effort: opts.effort },
@@ -410,7 +410,7 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
           // Old tool calls (C# cells, screenshots, model dumps) are cleared server-side once the prompt grows, keeping
           // only the most recent ones. The stored history stays complete and append-only, so thinking stays valid.
           context_management: { edits: [clearing] },
-          ...(m.fallbacks ? { fallbacks: "default" as const } : {}),
+          ...(m.caps.fallbacks ? { fallbacks: "default" as const } : {}),
           betas,
         },
         { signal: request.signal },

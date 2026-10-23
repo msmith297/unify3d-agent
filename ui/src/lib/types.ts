@@ -8,6 +8,27 @@ export type TextBlockParam = Anthropic.Beta.Messages.BetaTextBlockParam;
 export type ToolUseBlockParam = Anthropic.Beta.Messages.BetaToolUseBlockParam;
 
 export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
+
+/** A model provider (docs/providers/design.md). Every model id belongs to one (lib/models.ts). */
+export type ProviderId = "anthropic" | "openai";
+
+/** Where the add-in found a provider's key. */
+export type KeySource = "stored" | "environment" | "none";
+
+/** Data only the provider that wrote a message can use. Never shown; never sent to another provider. */
+export interface ProviderReplay {
+  provider: ProviderId;
+  /** The model that produced the message (OpenAI carries reasoning only within a model family). */
+  model: string;
+  /** Provider-defined. OpenAI: { output: ResponseOutputItem[] } - response.output exactly as returned. */
+  data: unknown;
+}
+
+/**
+ * A stored message: the Anthropic message plus, on assistant messages from some providers, replay data. repairHistory
+ * rebuilds every message as { role, content }, so `replay` never reaches an API request by itself.
+ */
+export type StoredMessage = MessageParam & { replay?: ProviderReplay };
 export type ApprovalMode = "ask" | "auto" | "read_only";
 export type Theme = "solidworks" | "system" | "light" | "dark";
 
@@ -40,9 +61,14 @@ export interface TurnMeta {
   durationMs?: number;
   stop?: string;
   error?: string;
+  /** The OpenAI speed tier that served the turn, when not the standard one. */
+  serviceTier?: string;
 }
 
-/** A conversation. `messages` is the exact Claude API history so it can be replayed verbatim. */
+/**
+ * A conversation. `messages` is the Anthropic Messages history (the one stored format for every provider; each
+ * provider's adapter translates it at request time), plus `replay` on some assistant messages.
+ */
 export interface Thread {
   id: string;
   title: string;
@@ -50,7 +76,7 @@ export interface Thread {
   updatedAt: string;
   model: string;
   effort: Effort;
-  messages: MessageParam[];
+  messages: StoredMessage[];
   turns: TurnMeta[];
   /** "Always allow" was chosen for code execution in this chat. */
   autoApprove?: boolean;
@@ -174,8 +200,10 @@ export interface Settings {
   toolInputs?: "panel" | "page";
   /** Seconds a question (ask_user / ask_form) waits for an answer before the agent decides on its own; 0 = never. Default 60. */
   questionTimeoutSec?: number;
-  /** The agent may search the web and read web pages (Anthropic's web_search / web_fetch). Default on. */
+  /** The agent may search the web and read web pages (the provider's web tools). Default on. */
   webResearch?: boolean;
+  /** OpenAI speed (service_tier) for models that offer it; "standard" sends nothing. Default "standard". */
+  openaiSpeed?: "standard" | "fast" | "ultrafast";
   /** Save standing instructions the user gives ("always ...", "from now on ..."). Default on. */
   saveMemory?: boolean;
 }
@@ -411,7 +439,10 @@ export interface UpdateInfo {
 export interface HostState {
   version: string;
   solidworksVersion: string | null;
-  apiKeySource: "stored" | "environment" | "none";
+  /** The Anthropic key's source (kept for older panels; apiKeySources has every provider). */
+  apiKeySource: KeySource;
+  /** Every provider's key source. */
+  apiKeySources?: Partial<Record<ProviderId, KeySource>>;
   settings: Partial<Settings>;
   scratchKey: string;
   activeDoc: DocInfo | null;
