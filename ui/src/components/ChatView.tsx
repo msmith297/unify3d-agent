@@ -9,6 +9,8 @@ import { SelectionCard } from "./SelectionCard";
 import { Answered } from "./Answered";
 import { RestartCard } from "./Recovery";
 import { ToolFormCard, ToolFormPane } from "./ToolFormCard";
+import { MemoryChip } from "./MemoryChip";
+import { rememberedChip, type RememberedChip } from "../lib/memory";
 import { useToolForm } from "../lib/toolForm";
 import { svgDataUrl } from "../lib/toolIcons";
 import { breakLabel, isBreak } from "../lib/sessions";
@@ -54,7 +56,8 @@ type Item =
   | { kind: "footer"; key: string; turn: TurnMeta; isLast: boolean }
   | { kind: "work"; key: string; items: Item[]; highlights: Item[]; steps: number; durationMs?: number; breakdown: string; more: number }
   | { kind: "thinking"; key: string }
-  | { kind: "hook"; key: string; extra: Extra };
+  | { kind: "hook"; key: string; extra: Extra }
+  | { kind: "memory"; key: string; chip: RememberedChip };
 
 export function ChatView() {
   const thread = useStore(currentThread);
@@ -164,6 +167,8 @@ function renderItem(item: Item, thread: Thread, run: RunState | undefined, onIma
       return <WorkGroup item={item} thread={thread} run={run} onImage={onImage} />;
     case "hook":
       return <HookCard extra={item.extra} />;
+    case "memory":
+      return <MemoryChip chip={item.chip} threadId={thread.id} undone={!!thread.memoryUndone?.includes(item.chip.id)} />;
   }
 }
 
@@ -222,7 +227,9 @@ function foldTurn(segment: Item[], turn: TurnMeta | undefined, key: string): Ite
     if (it.kind === "tool" || it.kind === "question") last = i;
   });
   if (last < 0) return segment;
-  const work = segment.slice(0, last + 1);
+  // "Remembered" chips stay in view: they carry Undo.
+  const chips = segment.slice(0, last + 1).filter((it) => it.kind === "memory");
+  const work = segment.slice(0, last + 1).filter((it) => it.kind !== "memory");
   const calls = work.filter((it): it is Extract<Item, { kind: "tool" | "question" }> => it.kind === "tool" || it.kind === "question");
   const picked = pickHighlights(calls.map((c) => c.call));
   const keep = new Set(picked.map((c) => c.id));
@@ -236,7 +243,7 @@ function foldTurn(segment: Item[], turn: TurnMeta | undefined, key: string): Ite
     breakdown: breakdown(calls.map((c) => c.call)),
     more: picked.more ?? 0,
   };
-  return [group, ...segment.slice(last + 1)];
+  return [group, ...chips, ...segment.slice(last + 1)];
 }
 
 /**
@@ -317,7 +324,7 @@ function restartOffer(thread: Thread): { id: string; reason?: string; title?: st
       if (b.type !== "tool_use") continue;
       const input = b.input as { reason?: string; kind?: string; title?: string };
       if (b.name === "offer_restart") return { id: b.id, reason: input?.reason };
-      if ((b.name === "save_user_tool" || b.name === "edit_user_tool") && input?.kind !== "workflow" && savedTool === undefined) {
+      if ((b.name === "save_user_tool" || b.name === "edit_user_tool" || b.name === "fork_tool") && input?.kind !== "workflow" && savedTool === undefined) {
         savedTool = input?.title ?? "";
         savedId = b.id;
       }
@@ -393,6 +400,9 @@ function buildItems(thread: Thread, run: RunState | undefined, showProgress: boo
         const call: ToolCall = { id: b.id, name: b.name, input: b.input, result: results.get(b.id) };
         if (call.name === "offer_restart") return; // shown as the button under the reply
         segment.push(call.name === "ask_user" || call.name === "ask_form" || call.name === "ask_selection" ? { kind: "question", key, call } : { kind: "tool", key, call });
+        // a saved standing instruction: a chip with Undo after the call
+        const chip = call.name === "remember" ? rememberedChip(resultText(call.result), !!call.result?.is_error) : null;
+        if (chip) segment.push({ kind: "memory", key: `${key}mem`, chip });
       }
     });
   });
@@ -405,6 +415,12 @@ function buildItems(thread: Thread, run: RunState | undefined, showProgress: boo
   else if (currentPrompt >= 0) flushFooter(currentPrompt);
   else flushSegment(-1, false);
   return items;
+}
+
+function resultText(r: ToolResultBlockParam | undefined): string {
+  if (!r) return "";
+  if (typeof r.content === "string") return r.content;
+  return (r.content ?? []).map((c) => (c.type === "text" ? c.text : "")).join("\n");
 }
 
 function liveItems(live: LiveBlock[] | null, showProgress: boolean): Item[] {

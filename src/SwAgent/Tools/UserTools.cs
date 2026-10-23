@@ -410,14 +410,22 @@ namespace SwAgent.Tools
             if (!File.Exists(target)) return ToolResult.Error($"No file '{input.File}' in tool '{input.Name}'.");
             var others = Directory.GetFiles(dir, "*", SearchOption.AllDirectories)
                 .Select(f => f.Substring(dir.Length + 1).Replace('\\', '/'))
-                .Where(f => f != "TOOL.md")
+                .Where(f => f != "TOOL.md" && f != ToolForks.RecordFile)
                 .ToList();
             var text = File.ReadAllText(target);
-            if (others.Count > 0 && string.IsNullOrWhiteSpace(input.File)) text += "\n\n---\nExtra files in this tool: " + string.Join(", ", others);
+            if (string.IsNullOrWhiteSpace(input.File))
+            {
+                // A read-only tool's standing instructions live outside its folder (agent-knowledge\tool-notes): they come with it.
+                var notes = IsReadOnly(input.Name) ? Memory.MemoryStore.Instance.OverlayText(input.Name) : null;
+                if (notes != null) text = text.TrimEnd() + "\n\n## " + notes;
+                if (others.Count > 0) text += "\n\n---\nExtra files in this tool: " + string.Join(", ", others);
+                var source = IsReadOnly(input.Name) ? null : ToolForks.SourceOfDir(dir);
+                if (source != null && ToolForks.SourceChanged(dir))
+                    text += $"\n\n(This is the user's copy of {source}, which changed since it was copied: compare_fork shows how. Offer it; don't merge unasked.)";
+            }
             if (IsReadOnly(input.Name))
-                text += IsPluginTool(input.Name)
-                    ? "\n\n(Tool of an installed plugin: read-only. If the user wants it to work differently, save their own version under a new name.)"
-                    : "\n\n(Built-in Unify3D tool: read-only. If the user wants it to work differently, save their own version under a new name.)";
+                text += $"\n\n({(IsPluginTool(input.Name) ? "Tool of an installed plugin" : "Built-in Unify3D tool")}: read-only, but never a dead end. A behaviour rule " +
+                        "for it goes in remember(tool:" + input.Name.Trim().ToLowerInvariant() + "); a real change (inputs, steps, data, code) goes in the user's own copy: fork_tool.)";
             return ToolResult.Ok(text);
         }
 
@@ -428,13 +436,17 @@ namespace SwAgent.Tools
         {
             var name = (input.Name ?? "").Trim().ToLowerInvariant();
             if (!NamePattern.IsMatch(name)) return ToolResult.Error("Name must be 2-48 characters: lowercase letters, digits and dashes.");
-            if (BuiltInExists(name)) return ToolResult.Error($"'{name}' is a built-in Unify3D tool. Save the user's version under another name (e.g. \"{name}-custom\").");
+            if (BuiltInExists(name)) return ToolResult.Error($"'{name}' is a built-in Unify3D tool. Make the user's own copy with fork_tool (it keeps the data, page and code), then change that.");
             if (ReservedNames.Contains(name)) return ToolResult.Error($"'{name}' is reserved for the tools' own settings folder. Choose another name.");
             var icon = Icons.Contains(input.Icon) ? input.Icon : "macro";
             var kind = string.Equals((input.Kind ?? "").Trim(), "tool", StringComparison.OrdinalIgnoreCase) ? "tool" : "workflow";
             var dir = Directory.CreateDirectory(Path.Combine(Root, name)).FullName;
             var md = Path.Combine(dir, "TOOL.md");
             var created = File.Exists(md) ? ReadFrontMatter(File.ReadAllText(md)).TryGetValue("created", out var c) ? c : Now() : Now();
+            // Rewriting the instructions keeps the user's standing instructions (remember) unless the new text has its own,
+            // and a copy keeps where it came from (fork_tool).
+            var standing = File.Exists(md) ? StandingSection(File.ReadAllText(md)) : null;
+            var forkedFrom = File.Exists(md) ? FrontValue(ReadFrontMatter(File.ReadAllText(md)), "forked_from") : null;
 
             var sb = new StringBuilder();
             sb.AppendLine("---");
@@ -453,11 +465,13 @@ namespace SwAgent.Tools
                 sb.AppendLine($"confirm: {(input.Confirm == "always" ? "always" : "missing")}");
                 if (input.Context?.Length > 0) sb.AppendLine($"context: {string.Join(", ", input.Context.Select(c => c.Trim().ToLowerInvariant()))}");
             }
+            if (forkedFrom != null) sb.AppendLine($"forked_from: {forkedFrom}");
             sb.AppendLine($"created: {created}");
             sb.AppendLine($"updated: {Now()}");
             sb.AppendLine("---");
             sb.AppendLine();
             sb.Append(input.Instructions.Trim()).AppendLine();
+            if (standing != null && StandingSection(input.Instructions) == null) sb.AppendLine().Append(standing).AppendLine();
             File.WriteAllText(md, sb.ToString(), new UTF8Encoding(false));
 
             WriteIcon(dir, input.IconSvg, iconChanged: !string.IsNullOrWhiteSpace(input.IconSvg) || input.Icon != null);
@@ -645,7 +659,17 @@ namespace SwAgent.Tools
             Changed?.Invoke();
         }
 
-        private static void SetHeader(List<string> header, string key, string value)
+        /// <summary>The "## Standing instructions" section of a TOOL.md (heading to the next # or ## heading), or null.</summary>
+        internal static string StandingSection(string text)
+        {
+            var lines = (text ?? "").Replace("\r\n", "\n").Split('\n');
+            var at = Array.FindIndex(lines, l => Regex.IsMatch(l, @"^##\s+Standing instructions\s*$", RegexOptions.IgnoreCase));
+            if (at < 0) return null;
+            var end = Array.FindIndex(lines, at + 1, l => l.StartsWith("# ") || l.StartsWith("## "));
+            return string.Join("\n", lines.Skip(at).Take((end < 0 ? lines.Length : end) - at)).TrimEnd();
+        }
+
+        internal static void SetHeader(List<string> header, string key, string value)
         {
             var i = header.FindIndex(1, l => l.StartsWith(key + ":", StringComparison.OrdinalIgnoreCase));
             if (string.IsNullOrEmpty(value) && string.Equals(key, "category", StringComparison.OrdinalIgnoreCase))
@@ -677,6 +701,7 @@ namespace SwAgent.Tools
                 {
                     var fm = EffectiveFrontMatter(name, dir);
                     var readOnly = IsReadOnlyDir(dir);
+                    var forkedFrom = readOnly ? null : ToolForks.SourceOfDir(dir);
                     result.Add(new JObject
                     {
                         ["name"] = name,
@@ -709,6 +734,11 @@ namespace SwAgent.Tools
                         ["longRun"] = LongRunOf(fm),
                         ["maxSteps"] = MaxStepsOf(fm),
                         ["requires"] = new JArray(RequiresOf(fm)),
+                        // docs/agent-memory.md: kept off the ribbon and palette, has the user's standing instructions, a copy's original.
+                        ["hidden"] = readOnly && FrontValue(fm, "hidden") == "true",
+                        ["hasNotes"] = Memory.MemoryStore.Instance.HasNotes(name, dir, readOnly),
+                        ["forkedFrom"] = forkedFrom,
+                        ["sourceChanged"] = forkedFrom != null && ToolForks.SourceChanged(dir),
                     });
                 }
                 catch (Exception ex)
@@ -751,16 +781,16 @@ namespace SwAgent.Tools
                 // A plugin's tool: editable only in the user's own plugins (plugins\local); never created here.
                 var pluginDir = DirOf(name) ?? throw new ToolException($"No tool named '{name}' (is its plugin enabled?). Use list_user_tools to see what exists.");
                 if (forWrite && IsReadOnlyDir(pluginDir))
-                    throw new ToolException($"'{name}' belongs to an installed plugin and can't be changed or deleted. If the user wants it to work differently, " +
-                                            "save their own version under a new name with save_user_tool.");
+                    throw new ToolException($"'{name}' belongs to an installed plugin and can't be changed in place. For a behaviour rule use remember(tool:{name}); " +
+                                            "for a real change make the user's own copy with fork_tool, then change that.");
                 return pluginDir;
             }
             if (!NamePattern.IsMatch(name)) throw new ToolException($"'{name}' is not a valid tool name.");
             if (IsBuiltIn(name))
             {
                 if (forWrite)
-                    throw new ToolException($"'{name}' is a built-in Unify3D tool and can't be changed or deleted. If the user wants it to work differently, " +
-                                            "save their own version under a new name with save_user_tool.");
+                    throw new ToolException($"'{name}' is a built-in Unify3D tool and can't be changed in place. For a behaviour rule use remember(tool:{name}); " +
+                                            "for a real change make the user's own copy with fork_tool, then change that.");
                 return DirOf(name);
             }
             var dir = Path.Combine(Root, name);

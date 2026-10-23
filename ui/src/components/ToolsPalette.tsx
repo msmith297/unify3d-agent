@@ -75,7 +75,9 @@ export function ToolsPalette({ disabled, labelClassName = "" }: { disabled?: boo
   useOutside(ref, useCallback(() => setOpen(false), []));
   const all = useStore((s) => s.userTools ?? EMPTY);
   // One section per category (built-ins first, then the user's), then the uncategorised ones as before.
-  const { categories, workflows, builtIn, tools } = paletteSections(all);
+  const { categories, workflows, builtIn, tools } = paletteSections(all.filter((t) => !t.hidden));
+  // built-in or plugin tools the user hid because they use their own copy (fork_tool): shown again from here or Options
+  const hidden = all.filter((t) => t.hidden);
   const hasDoc = useStore((s) => !!s.docs[s.activeDocKey ?? ""]);
   const { runUserTool, deleteUserTool, send, setDraft } = useStore.getState();
 
@@ -93,6 +95,16 @@ export function ToolsPalette({ disabled, labelClassName = "" }: { disabled?: boo
       <div className="min-w-0 flex-1">
         <div className="truncate text-[12px] font-semibold text-text">{t.title}</div>
         <div className="line-clamp-2 text-[11px] text-text-3">{t.description}</div>
+        {t.hasNotes && <div className="text-[10.5px] text-text-3" title="The agent follows the instructions you gave it for this tool (Options > What the agent remembers)">Has your notes</div>}
+        {t.sourceChanged && (
+          <button
+            className="text-left text-[10.5px] text-accent hover:underline"
+            title="See what changed and choose what to take"
+            onClick={() => prefill(`The original of my "${t.name}" changed since I copied it. Show me what changed: `)}
+          >
+            The original {all.find((x) => x.name === t.forkedFrom)?.title ?? t.forkedFrom} changed since you copied it
+          </button>
+        )}
       </div>
       <div className="flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
         <button
@@ -105,6 +117,15 @@ export function ToolsPalette({ disabled, labelClassName = "" }: { disabled?: boo
         >
           <IconTree size={12} />
         </button>
+        {(t.builtIn || t.readOnly) && (
+          <button
+            className="sw-tool !h-[22px] !min-w-[22px] !p-0"
+            title="Make your own copy to change it"
+            onClick={() => prefill(`Make my own copy of "${t.name}" and change it: `)}
+          >
+            <IconEdit size={12} />
+          </button>
+        )}
         {!t.builtIn && !t.readOnly && (
         <>
         <button
@@ -217,6 +238,20 @@ export function ToolsPalette({ disabled, labelClassName = "" }: { disabled?: boo
                 </div>
                 {tools.map((t) => row(t, false))}
               </>
+            )}
+
+            {hidden.length > 0 && (
+              <div className="border-t border-line px-2 py-1 text-[11px] text-text-3">
+                Hidden (you use your own copy):{" "}
+                {hidden.map((t, i) => (
+                  <Fragment key={t.name}>
+                    {i > 0 && ", "}
+                    <button className="text-accent hover:underline" title="Show it on the ribbon (after a restart) and here again" onClick={() => rpc("userTools.setHidden", { name: t.name, hidden: false })}>
+                      show {t.title}
+                    </button>
+                  </Fragment>
+                ))}
+              </div>
             )}
           </div>
 

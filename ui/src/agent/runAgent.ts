@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { buildAgentPrompt, buildSystemPrompt, type IndexedSkill, type Verbosity } from "./systemPrompt";
+import { buildAgentPrompt, buildSystemPrompt, type IndexedSkill, type IndexedTool, type Verbosity } from "./systemPrompt";
+import { MEMORY_WRITE_TOOLS, memoryRefusal, type MemoryIndex } from "../lib/memory";
 import { repairHistory } from "./history";
 import { modelFromAlias, modelOption } from "../lib/models";
 import { hookContextText, hookToolResponse } from "../lib/hooks";
@@ -223,7 +224,7 @@ export interface AgentRunOptions {
   approval: ApprovalMode;
   realisticAppearance: boolean;
   verbosity: Verbosity;
-  userTools: { name: string; title: string; description: string; kind?: string; builtIn?: boolean; category?: string | null }[];
+  userTools: IndexedTool[];
   /** API round trips before the turn stops (a tool's max_steps; default 200, cap 1000). */
   maxSteps?: number;
   /** A long tool run: the prompt cache lives 1 hour (answers to its gate questions often take 5-60 min). */
@@ -235,6 +236,10 @@ export interface AgentRunOptions {
   sessionContext?: string[];
   /** The helpers cells can call and the saved API notes (knowledge.index), for the system prompt. */
   knowledge?: KnowledgeIndex | null;
+  /** Standing instructions (memory.index), for the system prompt. */
+  memory?: MemoryIndex | null;
+  /** A turn a plugin or another agent started: remember, forget and fork_tool are refused (lib/memory.ts). */
+  fromWake?: boolean;
   /** A sub-agent run: its own system prompt and no local tools. */
   system?: string;
   localTools?: ToolDef[];
@@ -324,6 +329,7 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
       mcpInstructions: opts.mcpInstructions,
       sessionContext: opts.sessionContext,
       knowledge: opts.knowledge,
+      memory: opts.memory,
     });
   let malformedRetries = 0;
   let stallRetries = 0;
@@ -523,6 +529,9 @@ async function executeTool(tu: Anthropic.Beta.Messages.BetaToolUseBlock, opts: A
   const { cb } = opts;
   const err = (text: string): ToolResultBlockParam => ({ type: "tool_result", tool_use_id: tu.id, is_error: true, content: text });
 
+  const refused = memoryRefusal(tu.name, { fromWake: opts.fromWake, subAgent: !!opts.system });
+  if (refused) return err(refused);
+
   const local = localTools(opts).find((t) => t.name === tu.name);
   const def = local ?? opts.tools.find((t) => t.name === tu.name);
   if (!def) return err(`Unknown tool '${tu.name}'.`);
@@ -616,7 +625,7 @@ async function runSubAgent(tu: Anthropic.Beta.Messages.BetaToolUseBlock, opts: A
     res = await runAgent({
       ...opts,
       model: modelFromAlias(agent.model) ?? opts.model,
-      tools: subAgentTools(agent.tools, opts.tools),
+      tools: subAgentTools(agent.tools, opts.tools).filter((t) => !MEMORY_WRITE_TOOLS.has(t.name)), // only the user's own words are remembered
       maxSteps: SUB_AGENT_STEPS,
       longRun: false,
       agents: [],

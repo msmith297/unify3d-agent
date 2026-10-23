@@ -115,6 +115,9 @@ namespace SwAgent.Plugins
                 .Select(f => f.Substring(root.Length + 1).Replace('\\', '/')).Take(100).ToList();
             var sb = new StringBuilder();
             sb.AppendLine($"Skill {skill.Id} (plugin \"{skill.Plugin}\")").AppendLine().Append(text.Trim()).AppendLine();
+            // The user's standing instructions for an installed plugin's skill live outside it (docs/agent-memory.md).
+            var notes = plugin?.Local == true ? null : Memory.MemoryStore.Instance.SkillOverlayText(skill.Id);
+            if (notes != null) sb.AppendLine().AppendLine("## " + notes);
             if (others.Count > 0)
                 sb.AppendLine().AppendLine("---").AppendLine($"Other files of this skill (read_plugin_file with plugin \"{skill.Plugin}\"): {string.Join(", ", others)}");
             return ToolResult.Ok(sb.ToString());

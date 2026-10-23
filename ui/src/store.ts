@@ -53,6 +53,7 @@ import { DEFAULT_STEPS, LONG_RUN_STEPS, clampSteps, runReportsDone, stickyState,
 import { WRITE_TOOLS, runAgent, type ApprovalDecision, type ApprovalRequest, type LiveBlock, type SubAgentProgress } from "./agent/runAgent";
 import { BUILTIN_COMMANDS, commandHead, parseSlash, resolveSlash, tagLines, type CommandSources, type TagKind } from "./lib/commands";
 import { EVENT_TAG, HOOK_TAG, autoTurnAllowed, hasHook, hookContextText, systemEventText, wakeApproval, wakesMayFollow } from "./lib/hooks";
+import type { MemoryIndex } from "./lib/memory";
 
 export interface ChatSlot {
   docKey: string;
@@ -212,6 +213,10 @@ interface State {
   session: SessionInfo | null;
   /** The helpers cells can call and the saved API notes (knowledge.index), for the system prompt; null with older add-ins. */
   knowledge: KnowledgeIndex | null;
+  /** Standing instructions (memory.index): what the user told the agent to do from now on; null with older add-ins. */
+  memory: MemoryIndex | null;
+  /** Undo on a "Remembered" chip: the note goes (and any it replaced come back); the chip shows it was undone. */
+  undoMemory(threadId: string, noteId: string): Promise<void>;
   loadPlugins(): Promise<void>;
   pluginsTab: "discover" | "installed" | "marketplaces" | "create";
   setPluginsTab(tab: State["pluginsTab"]): void;
@@ -440,6 +445,7 @@ Finish this case yourself.${p.builtIn ? "" : " If it is a case the macro should 
         : `The macro in the "${toolName}" tool failed - finish the job, then fix the macro (edit_user_tool) so the next run works:\n${c.failure.slice(0, 4000)}`,
     );
   if (c.macroOutput) contextLines.unshift(`Output of the macro in the "${toolName}" tool (already run):\n${c.macroOutput.slice(0, 6000)}`);
+  if (p.notes?.trim()) contextLines.unshift(p.notes.trim()); // a read-only tool's standing instructions (docs/agent-memory.md)
   if (c.model) contextLines.push(`Model:\n${c.model}`);
   if (c.history) contextLines.push(`Feature history:\n${c.history}`);
 
@@ -824,6 +830,8 @@ export const useStore = create<State>((set, get) => {
         mcpInstructions: get().session?.mcpInstructions ?? [],
         sessionContext: get().session?.sessionContext ?? [],
         knowledge: get().knowledge,
+        memory: get().memory,
+        fromWake: !!run.fromWake,
         signal: controller.signal,
         cb: {
           getMessages: () => get().chats[docKey]?.data.threads.find((t) => t.id === threadId)?.messages ?? [],
@@ -890,6 +898,8 @@ export const useStore = create<State>((set, get) => {
               input,
               toolUseId,
               refs: get().chats[docKey]?.data.threads.find((t) => t.id === threadId)?.selRefs ?? {},
+              // the tool run this call belongs to (a copy of the mold tool reads its own data)
+              tool: run.tool ?? get().chats[docKey]?.data.threads.find((t) => t.id === threadId)?.toolRun?.tool,
             }),
           takeSteering: () => {
             const q = get().queue[threadId] ?? [];
@@ -1759,6 +1769,7 @@ export const useStore = create<State>((set, get) => {
     mcpServers: [],
     session: null,
     knowledge: null,
+    memory: null,
     pluginsTab: "discover",
     wakes: {},
 
@@ -1893,6 +1904,13 @@ export const useStore = create<State>((set, get) => {
           .catch(() => {});
       on("knowledge.changed", () => void loadKnowledge());
       void loadKnowledge();
+      // Standing instructions for the system prompt: at boot, and again when one is saved, edited or undone.
+      const loadMemory = () =>
+        rpc<MemoryIndex | null>("memory.index")
+          .then((memory) => set({ memory: memory ?? null }))
+          .catch(() => {});
+      on("memory.changed", () => void loadMemory());
+      void loadMemory();
 
       on("doc.activated", (doc: DocInfo) => {
         set((s) => ({ docs: { ...s.docs, [doc.key]: doc }, activeDocKey: doc.key }));
@@ -2072,6 +2090,13 @@ export const useStore = create<State>((set, get) => {
       await loadChat(key);
       updateSlot(key, (d) => ({ ...d, activeThreadId: null }));
       set((s) => ({ focusTick: s.focusTick + 1 }));
+    },
+
+    async undoMemory(threadId, noteId) {
+      const key = get().viewKey;
+      await rpc<boolean>("memory.undo", { id: noteId });
+      updateThread(key, threadId, (t) => ({ ...t, memoryUndone: [...(t.memoryUndone ?? []), noteId] }));
+      void persist(key);
     },
 
     dismissRestart(threadId, offerId) {

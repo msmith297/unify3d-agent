@@ -57,7 +57,10 @@ namespace SwAgent.UI
         /// <summary>Tools were added, removed, renamed or re-iconed since the ribbon was built.</summary>
         public bool IsStale() => _builtSignature != null && Signature() != _builtSignature;
 
-        private static string Signature() => string.Join("|", UserTools.ListTools().Where(t => (string)t["kind"] == "tool").Select(t =>
+        /// <summary>Tools get a button; a built-in or plugin tool the user hid (they use their own copy, fork_tool) doesn't.</summary>
+        private static bool OnRibbon(JObject t) => (string)t["kind"] == "tool" && (bool?)t["hidden"] != true;
+
+        private static string Signature() => string.Join("|", UserTools.ListTools().Where(OnRibbon).Select(t =>
         {
             var png = Path.Combine(UserTools.DirOf((string)t["name"]) ?? "", "icon.png");
             // Category and ribbon title too: re-categorising moves a button to another box, which also needs a restart.
@@ -90,7 +93,7 @@ namespace SwAgent.UI
             try
             {
                 _builtSignature = Signature();
-                var tools = UserTools.ListTools().Where(t => (string)t["kind"] == "tool").ToList();
+                var tools = UserTools.ListTools().Where(OnRibbon).ToList();
                 var ids = StableIds(tools.Select(t => (string)t["name"]).ToList());
 
                 var commands = new List<(string Arg, int Id, string Title, string Hint, byte[] Icon)>();

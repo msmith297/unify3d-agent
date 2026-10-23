@@ -31,6 +31,9 @@ namespace SwAgent.Tools
         /// <summary>The agent's tool_use id for this call, when it came from the agent (see UndoLedger).</summary>
         public string ToolUseId { get; set; }
 
+        /// <summary>The tool or workflow whose run this call is part of (the panel's run, or a long run's follow-up), else null.</summary>
+        public string RunTool { get; set; }
+
         /// <summary>Selection references from the chat ([S1] -> persistent-reference bytes, base64).</summary>
         public IReadOnlyDictionary<string, string> Refs { get; }
 
