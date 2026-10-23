@@ -1,0 +1,15 @@
+event: response.created
+data: {"type":"response.created","sequence_number":0,"response":{"id":"resp_bad","object":"response","created_at":1761200090,"status":"in_progress","model":"gpt-6.1-sol","output":[],"usage":null,"service_tier":"auto","error":null,"incomplete_details":null}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","sequence_number":1,"output_index":0,"item":{"id":"fc_bad","type":"function_call","status":"in_progress","call_id":"call_bad","name":"execute_csharp","arguments":""}}
+
+event: response.function_call_arguments.delta
+data: {"type":"response.function_call_arguments.delta","sequence_number":2,"item_id":"fc_bad","output_index":0,"delta":"{\"title\": \"Broken\", \"code\": }"}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","sequence_number":3,"output_index":0,"item":{"id":"fc_bad","type":"function_call","status":"completed","call_id":"call_bad","name":"execute_csharp","arguments":"{\"title\": \"Broken\", \"code\": }"}}
+
+event: response.completed
+data: {"type":"response.completed","sequence_number":4,"response":{"id":"resp_bad","object":"response","created_at":1761200090,"status":"completed","model":"gpt-6.1-sol","output":[{"id":"fc_bad","type":"function_call","status":"completed","call_id":"call_bad","name":"execute_csharp","arguments":"{\"title\": \"Broken\", \"code\": }"}],"usage":{"input_tokens":20000,"input_tokens_details":{"cached_tokens":0,"cache_write_tokens":0},"output_tokens":12,"output_tokens_details":{"reasoning_tokens":0},"total_tokens":20012},"service_tier":"default","error":null,"incomplete_details":null}}
+

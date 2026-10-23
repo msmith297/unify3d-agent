@@ -19,7 +19,7 @@ import {
 import { paletteSections, categoryNames } from "../toolGroups.ts";
 import { slashQuery, slashRows, parseSlash, resolveSlash, splitArgs, substituteArgs, fileRefs, atQuery, tagRows, tagLines, commandHead } from "../commands.ts";
 import { matcherMatches, hasHook, hookToolResponse, HOOK_RESPONSE_CAP, hookContextText, systemEventText, parseTagged, autoTurnAllowed, AUTO_WINDOW_MS, wakesMayFollow, wakeApproval } from "../hooks.ts";
-import { modelFromAlias } from "../models.ts";
+import { modelFromAlias, resolveModel } from "../models.ts";
 import { formatNumber, parseNumber, stepNumber, visibleGroups, chipText, takesText, acceptText, tableHint } from "../toolFormLogic.ts";
 import { splitProfileArg, profileLine, profileButtons, profileCaption, isProfileFile } from "../toolFormLogic.ts";
 import { mockOpenToolForm, mockToolForm } from "../toolFormMock.ts";
@@ -413,7 +413,9 @@ t("model aliases of commands and agents", () => {
   assert.equal(modelFromAlias(""), null);
   assert.equal(modelFromAlias(null), null);
   assert.equal(modelFromAlias("claude-sonnet-5-5"), "claude-sonnet-5-5");
-  assert.equal(modelFromAlias("gpt-5"), null);
+  // An id from another provider: as written when that provider has a key (docs/providers/design.md 7.4).
+  assert.equal(resolveModel("gpt-5", { chatModel: "claude-opus-5-5", hasKey: (p) => p === "openai" }), "gpt-5");
+  assert.equal(resolveModel("gpt-5", { chatModel: "claude-opus-5-5", hasKey: (p) => p === "anthropic" }), null);
 });
 
 // ---- hooks (lib/hooks.ts) ----

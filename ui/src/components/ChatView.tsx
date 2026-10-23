@@ -7,17 +7,17 @@ import { FormCard } from "./FormCard";
 import { QuestionTimer } from "./QuestionTimer";
 import { SelectionCard } from "./SelectionCard";
 import { SecretCard } from "./SecretCard";
-import { webResultSummary } from "../lib/creator";
 import { Answered } from "./Answered";
 import { RestartCard } from "./Recovery";
 import { ToolFormCard, ToolFormPane } from "./ToolFormCard";
 import { MemoryChip } from "./MemoryChip";
-import { rememberedChip, type RememberedChip } from "../lib/memory";
+import type { RememberedChip } from "../lib/memory";
 import { useToolForm } from "../lib/toolForm";
 import { svgDataUrl } from "../lib/toolIcons";
 import { breakLabel, isBreak } from "../lib/sessions";
 import { Caret } from "./SwIcons";
 import { ToolCard, statusFor, toolTitle, type ToolCall } from "./ToolCard";
+import { assistantItems } from "./chatItems";
 import { breakdown, highlights as pickHighlights } from "../agent/workSummary";
 import { EVENT_TAG, HOOK_TAG, MODEL_TAG, VOICE_TAG, WATCH_TAG, cellIdsAfter, currentThread, isPrompt, promptText, useStore, writesAfter, type RunState } from "../store";
 import { parseTagged } from "../lib/hooks";
@@ -394,26 +394,8 @@ function buildItems(thread: Thread, run: RunState | undefined, showProgress: boo
       items.push(promptItem(m, i));
       return;
     }
-    if (m.role !== "assistant" || typeof m.content === "string") return;
-    m.content.forEach((b, j) => {
-      const key = `m${i}b${j}`;
-      if (b.type === "thinking" && b.thinking.trim() && showProgress) segment.push({ kind: "progress", key, text: b.thinking.trim() });
-      else if (b.type === "text" && b.text.trim()) segment.push({ kind: "text", key, text: b.text });
-      else if (b.type === "tool_use") {
-        const call: ToolCall = { id: b.id, name: b.name, input: b.input, result: results.get(b.id) };
-        if (call.name === "offer_restart") return; // shown as the button under the reply
-        segment.push(call.name === "ask_user" || call.name === "ask_form" || call.name === "ask_selection" || call.name === "ask_secret" ? { kind: "question", key, call } : { kind: "tool", key, call });
-        // a saved standing instruction: a chip with Undo after the call
-        const chip = call.name === "remember" ? rememberedChip(resultText(call.result), !!call.result?.is_error) : null;
-        if (chip) segment.push({ kind: "memory", key: `${key}mem`, chip });
-      } else if (b.type === "server_tool_use") {
-        // Web research runs on Anthropic's side: its result is in this same message.
-        const blocks = m.content as ContentBlockParam[];
-        const sum = webResultSummary(blocks.find((r) => "tool_use_id" in r && r.type !== "tool_result" && r.tool_use_id === b.id));
-        const result: ToolResultBlockParam | undefined = sum ? { type: "tool_result", tool_use_id: b.id, content: sum.text, ...(sum.isError ? { is_error: true } : {}) } : undefined;
-        segment.push({ kind: "tool", key, call: { id: b.id, name: b.name, input: b.input, result } });
-      }
-    });
+    // Claude: one item per block; other providers add their progress notes and web steps in output order.
+    segment.push(...assistantItems(m, i, results, showProgress));
   });
 
   if (run) {
@@ -424,12 +406,6 @@ function buildItems(thread: Thread, run: RunState | undefined, showProgress: boo
   else if (currentPrompt >= 0) flushFooter(currentPrompt);
   else flushSegment(-1, false);
   return items;
-}
-
-function resultText(r: ToolResultBlockParam | undefined): string {
-  if (!r) return "";
-  if (typeof r.content === "string") return r.content;
-  return (r.content ?? []).map((c) => (c.type === "text" ? c.text : "")).join("\n");
 }
 
 function liveItems(live: LiveBlock[] | null, showProgress: boolean): Item[] {
@@ -971,6 +947,12 @@ function TurnFooter({ turn, isLast, running }: { turn: TurnMeta; isLast: boolean
         <span>{modelOption(turn.model).label}</span>
         <span>·</span>
         <span>{turn.effort}</span>
+        {turn.serviceTier && (
+          <>
+            <span>·</span>
+            <span>{turn.serviceTier === "ultrafast" ? "Ultrafast" : turn.serviceTier === "fast" ? "Fast" : turn.serviceTier}</span>
+          </>
+        )}
         {turn.durationMs !== undefined && (
           <>
             <span>·</span>
@@ -983,7 +965,7 @@ function TurnFooter({ turn, isLast, running }: { turn: TurnMeta; isLast: boolean
             <span
               title={
                 `Largest prompt: ${(u.context ?? 0).toLocaleString()} tokens\n` +
-                `Sent over all steps: ${tokens.toLocaleString()} (${cachedPct}% from cache, billed at 10%)\n` +
+                `Sent over all steps: ${tokens.toLocaleString()} (${cachedPct}% from cache, billed at ${Math.round(modelOption(turn.model).caps.cacheReadRatio * 100)}%)\n` +
                 `uncached ${u.input.toLocaleString()} · cache write ${u.cacheWrite.toLocaleString()} · output ${u.output.toLocaleString()}`
               }
             >
