@@ -76,6 +76,11 @@ function Card({ form }: { form: ToolFormState }) {
         <span className="min-w-0 flex-1 truncate text-[12px]" title={form.title}>
           {form.title}
         </span>
+        {info?.hasNotes && (
+          <span className="shrink-0 text-[10.5px] text-text-3" title="The agent follows the instructions you gave it for this tool (Options > What the agent remembers)">
+            your notes
+          </span>
+        )}
         <button type="button" onClick={() => void cancel()} className="text-text-3 hover:text-text" title="Cancel (Esc)" disabled={!!closing}>
           <X size={15} />
         </button>

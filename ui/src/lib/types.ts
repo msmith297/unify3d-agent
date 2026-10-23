@@ -60,6 +60,8 @@ export interface Thread {
   kind?: "tools";
   /** Save-and-restart offers the user answered "Not now" to (offer ids, see ChatView restartOffer). */
   restartDismissed?: string[];
+  /** "Remembered" chips the user undid (note ids). */
+  memoryUndone?: string[];
   /** The files this chat worked in (the chat follows the work from file to file). key: the add-in's runtime key. */
   files?: { title: string; path?: string | null; key?: string }[];
   /** A long tool's run in this chat: its settings carry over to follow-ups while it is open (lib/toolRun.ts). */
@@ -174,6 +176,8 @@ export interface Settings {
   questionTimeoutSec?: number;
   /** The agent may search the web and read web pages (Anthropic's web_search / web_fetch). Default on. */
   webResearch?: boolean;
+  /** Save standing instructions the user gives ("always ...", "from now on ..."). Default on. */
+  saveMemory?: boolean;
 }
 
 // ---- plugins (docs/plugins/design.md; RPCs implemented by the add-in's PluginsBridge, hooks and MCP runtime) ----
@@ -523,6 +527,8 @@ export interface ToolRunPayload {
   longRun?: boolean;
   /** A built-in Unify3D tool: read-only, so the agent is never told to fix its macro with edit_user_tool. */
   builtIn?: boolean;
+  /** A read-only tool's standing instructions (the user's notes on it), already worded for the agent. */
+  notes?: string | null;
 }
 
 export interface UserToolInfo {
@@ -569,6 +575,13 @@ export interface UserToolInfo {
   maxSteps?: number | null;
   /** Agent tools the tool needs from the add-in. */
   requires?: string[];
+  /** A built-in or plugin tool the user keeps off the ribbon and palette (they use their own copy). */
+  hidden?: boolean;
+  /** The user's standing instructions on it (docs/agent-memory.md). */
+  hasNotes?: boolean;
+  /** The user's copy of this tool (fork_tool), and whether the original changed since. */
+  forkedFrom?: string | null;
+  sourceChanged?: boolean;
 }
 
 export interface SelectionItem {

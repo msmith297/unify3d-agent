@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { BrandMark } from "./Brand";
 import { UpdateSettings } from "./Update";
 import { WebResearchSettings } from "./WebResearchSettings";
+import { MemorySettings } from "./MemorySettings";
 import { stepZoom } from "../lib/zoom";
 import { useStore } from "../store";
 import { rpc } from "../lib/bridge";
@@ -152,6 +153,8 @@ export function SettingsPanel() {
             ))}
           </div>
         </Rollout>
+
+        <MemorySettings Rollout={Rollout} Toggle={Toggle} />
 
         <Rollout title="Plugins" icon={<IconPlugin size={14} />}>
           <Toggle

@@ -244,7 +244,7 @@ namespace SwAgent
                     return (object)await Runtime.CallAsync((string)p["name"], p["input"] as JObject, (string)p["threadId"], (string)p["toolUseId"]);
                 var doc = DocumentFor((string)p["docKey"]);
                 var refs = (p["refs"] as JObject)?.Properties().ToDictionary(x => x.Name, x => (string)x.Value);
-                var ctx = new ToolContext(_app, doc, (string)p["threadId"], _tools, refs) { ToolUseId = (string)p["toolUseId"] };
+                var ctx = new ToolContext(_app, doc, (string)p["threadId"], _tools, refs) { ToolUseId = (string)p["toolUseId"], RunTool = (string)p["tool"] };
                 // A tool that touches the model never runs while the user is in a command (a sketch edit, an open
                 // PropertyManager page, a rebuild): a geometry call then can crash SolidWorks (SwBusy, SceneOverlay). Wait for
                 // the command to end; the add-in's own tool page doesn't count.
@@ -404,6 +404,7 @@ namespace SwAgent
             UserTools.Changed += OnUserToolsChanged;
             Plugins.PluginsBridge.Attach(bridge); // plugins.* RPCs: store, marketplaces, commands, skills, agents
             KnowledgeBridge.Attach(bridge); // knowledge.index (helpers and API notes for the system prompt), knowledge.changed
+            Memory.MemoryBridge.Attach(bridge); // memory.* (standing instructions: prompt, Options, Undo), userTools.setHidden
             bridge.Register("doc.activate", p =>
             {
                 var model = DocumentFor((string)p["docKey"])?.Model;

@@ -45,6 +45,8 @@ namespace SwAgent.Tools
             {
                 if (UserTools.IsReadOnlyDir(spec.Dir)) // built in, or from an installed plugin ("plugin:tool" -> builtin-data\plugin+tool)
                     overrides = Path.Combine(UserTools.Root, "builtin-data", UserTools.StorageKey(spec.Name));
+                else if (ToolForks.SourceOfDir(spec.Dir) is string source) // the user's copy keeps the shop's values for the original
+                    overrides = Path.Combine(UserTools.Root, "builtin-data", UserTools.StorageKey(source));
             }
             catch (Exception ex)
             {

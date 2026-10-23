@@ -61,6 +61,8 @@ namespace SwAgent
             tools.RegisterAll(new Plugins.PluginTools());
             tools.RegisterAll(new Plugins.CreatorTools()); // plugin creator: check_prerequisites, plugin_try_mcp
             tools.RegisterAll(new KnowledgeTools(scripts));
+            tools.RegisterAll(new Memory.MemoryTools());
+            tools.RegisterAll(new ForkTools());
             CompileAdvisor.Extra = UserHelpers.LastBuild; // compile errors can point at the helpers the agent saved
             return tools;
         }

@@ -34,7 +34,43 @@ namespace SwAgent.Tools
         /// <summary>The shop's overrides of the shipped data (survive reinstalls): %APPDATA%\SwAgent\tools\builtin-data\design-compression-mold.</summary>
         internal static string OverrideDir => Path.Combine(UserTools.Root, "builtin-data", ToolName);
 
-        private static MoldData LoadData() => MoldData.Load(ToolDir, Directory.Exists(OverrideDir) ? OverrideDir : null);
+        /// <summary>
+        /// The data of the mold tool a call works for: the built-in's, or the user's copy's (fork_tool) - its own data\ folder,
+        /// with the shop's overrides of the built-in on top (shared by the original and its copies).
+        /// </summary>
+        internal static MoldData LoadData(string tool) => MoldData.Load(DirFor(tool), Directory.Exists(OverrideDir) ? OverrideDir : null);
+
+        /// <summary>A copy of the mold tool runs exactly like the original: its own folder (data, sheets), else the built-in's.</summary>
+        internal static string DirFor(string tool) => (tool == null || tool == ToolName ? null : UserTools.DirOf(tool)) ?? ToolDir;
+
+        /// <summary>The built-in mold tool, or one of the user's copies of it (fork_tool).</summary>
+        internal static bool IsMoldTool(string tool) => tool != null && (tool == ToolName || ToolForks.SourceOf(tool) == ToolName);
+
+        /// <summary>
+        /// Which mold tool a call works for: the run it is part of; else the tool that started this part's record; else the
+        /// user's newest copy when they hid the original; else the built-in.
+        /// </summary>
+        internal static string ActiveTool(ToolContext ctx)
+        {
+            var run = ctx?.RunTool?.Trim().ToLowerInvariant();
+            if (IsMoldTool(run)) return run;
+            try
+            {
+                var recorded = ctx?.Model == null ? null : (string)RecordOf(ctx.Model)?.Json?.SelectToken("tool.name");
+                if (IsMoldTool(recorded)) return recorded;
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("Mold tool of the record: " + ex.Message);
+            }
+            if (UserTools.BuiltInSettings(ToolName).TryGetValue("hidden", out var hidden) && hidden == "true")
+            {
+                var copy = Directory.GetDirectories(UserTools.Root).Where(d => ToolForks.SourceOfDir(d) == ToolName)
+                    .OrderByDescending(d => File.GetLastWriteTimeUtc(Path.Combine(d, "TOOL.md"))).FirstOrDefault();
+                if (copy != null) return Path.GetFileName(copy);
+            }
+            return ToolName;
+        }
 
         /// <summary>The record of the chat's mold part, or null when there is none yet.</summary>
         private static MoldRecord RecordOf(IModelDoc2 model)
@@ -91,7 +127,7 @@ namespace SwAgent.Tools
             if (!known.Contains(action)) return ToolResult.Error("action must be one of: " + string.Join(", ", known));
             try
             {
-                var data = LoadData();
+                var data = LoadData(ActiveTool(ctx));
                 MoldRecord record = null;
                 var design = input.Design;
                 if (ctx.Model != null)
@@ -484,7 +520,7 @@ namespace SwAgent.Tools
                     MoldData data = null;
                     try
                     {
-                        data = LoadData();
+                        data = LoadData(ActiveTool(ctx));
                     }
                     catch (Exception ex)
                     {
@@ -858,7 +894,8 @@ namespace SwAgent.Tools
             var action = (input.Action ?? "").Trim().ToLowerInvariant();
             try
             {
-                if (action == "save_default") return SaveDefault(input);
+                var tool = ActiveTool(ctx);
+                if (action == "save_default") return SaveDefault(input, tool);
                 var model = ctx.RequireModel();
                 SwGeo.RequirePart(model);
                 var path = model.GetPathName();
@@ -882,7 +919,7 @@ namespace SwAgent.Tools
                         }
                         MoldRecord rec;
                         // the page values of this tool's run on THIS document (never another mold's run or a stale slot)
-                        var page = ToolRunner.InputsFor(ToolName, model);
+                        var page = ToolRunner.InputsFor(tool, model);
                         var pageNote = "";
                         if (exists)
                         {
@@ -902,7 +939,8 @@ namespace SwAgent.Tools
                                 Directory.CreateDirectory(Path.Combine(folder, sub));
                             if (page == null)
                                 pageNote = "\nNO PAGE VALUES - this session has no page run for this document (SolidWorks restarted, or the tool ran on another document): inputs is empty. Merge the values from <tool_inputs> into inputs as \"<number> <unit>\" strings before mold_calc.\n";
-                            rec = MoldRecord.Init(folder, path, InputsJson(page), ToolVersion(), typeof(MoldTools).Assembly.GetName().Version?.ToString());
+                            rec = MoldRecord.Init(folder, path, InputsJson(page), ToolVersion(tool), typeof(MoldTools).Assembly.GetName().Version?.ToString());
+                            if (tool != ToolName) rec.Json["tool"]["name"] = tool; // the user's copy owns this mold: later calls use its data
                             // the calculator reads the display system from here (screws, stock and rounding follow it): MMGS, CGS
                             // and MKS are metric, IPS (and custom inch or pound units) imperial
                             rec.Json["units"]["display"] = Units.IsImperial(model) ? "imperial" : "metric";
@@ -943,12 +981,12 @@ namespace SwAgent.Tools
                     }
                     case "setup_sheet":
                     {
-                        var written = SetupSheet.Write(record, Path.Combine(ToolDir, "data", "setup-sheet.html"), LoadData(), out var unresolved);
+                        var written = SetupSheet.Write(record, Path.Combine(DirFor(tool), "data", "setup-sheet.html"), LoadData(tool), out var unresolved);
                         return ToolResult.Ok("Setup sheet: " + written + Unresolved(unresolved) + StatusLine(record));
                     }
                     case "machining_sheet":
                     {
-                        var written = MachiningSheet.Write(record, Path.Combine(ToolDir, "data", "machining-sheet.html"), LoadData(), out var unresolved);
+                        var written = MachiningSheet.Write(record, Path.Combine(DirFor(tool), "data", "machining-sheet.html"), LoadData(tool), out var unresolved);
                         return ToolResult.Ok("Machining sheet: " + written + " (and hardware-bom.csv)" + Unresolved(unresolved) + StatusLine(record));
                     }
                     default:
@@ -1039,11 +1077,11 @@ namespace SwAgent.Tools
             return o;
         }
 
-        private static string ToolVersion()
+        private static string ToolVersion(string tool)
         {
             try
             {
-                var md = Path.Combine(ToolDir, "TOOL.md");
+                var md = Path.Combine(DirFor(tool), "TOOL.md");
                 if (File.Exists(md))
                 {
                     var m = Regex.Match(File.ReadAllText(md), @"^version:\s*(\S+)\s*$", RegexOptions.Multiline);
@@ -1067,12 +1105,12 @@ namespace SwAgent.Tools
             ["sizing-defaults"] = "sizing-defaults.json",
         };
 
-        private static ToolResult SaveDefault(MoldRecordInput input)
+        private static ToolResult SaveDefault(MoldRecordInput input, string tool)
         {
             var table = (input.Table ?? "").Trim().Replace(".json", "");
             if (!Tables.TryGetValue(table, out var file)) return ToolResult.Error("table must be materials, mold-materials, shop-standards or sizing-defaults.");
             if (input.Values == null || !input.Values.HasValues) return ToolResult.Error("save_default needs values {field: value}.");
-            var shippedPath = Path.Combine(ToolDir, "data", file);
+            var shippedPath = Path.Combine(DirFor(tool), "data", file);
             if (!File.Exists(shippedPath)) return ToolResult.Error($"The shipped table {file} isn't installed.");
             var shipped = JObject.Parse(File.ReadAllText(shippedPath));
             var overridePath = Path.Combine(Directory.CreateDirectory(OverrideDir).FullName, file);

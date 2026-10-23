@@ -29,6 +29,8 @@ namespace SwAgent.Infrastructure
             "save_api_note", "list_api_notes", "save_helper", "read_helper", "list_helpers", "delete_helper",
             // the plugin creator's checks (plugin_try_mcp is a plugin_ tool)
             "check_prerequisites",
+            // standing instructions and the user's copies of read-only tools (docs/agent-memory.md)
+            "remember", "list_memory", "forget", "fork_tool", "compare_fork",
         };
 
         /// <summary>

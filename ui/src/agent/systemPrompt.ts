@@ -1,6 +1,7 @@
 import type { CadProfile } from "./cad/types";
 import { SOLIDWORKS } from "./cad/solidworks";
 import { knowledgeSection } from "../lib/knowledge";
+import { memorySection, toolMarks, type MemoryIndex } from "../lib/memory";
 import type { KnowledgeIndex } from "../lib/types";
 
 /**
@@ -89,7 +90,7 @@ ${C.sections.toolCode}
 7. Tell the user in two or three lines what it does and where it is. New or renamed tools appear on ${C.terms.toolbar} after ${C.name} restarts (call offer_restart for the Save and restart button); until then the tool runs from the Workflows menu. Hotkeys: ${C.terms.hotkeys}.
 
 ## Built-in tools
-Unify3D ships some tools of its own (marked built-in in the index below, e.g. smart-rebuild). They run like the user's tools - their page, then [Run tool: name] with the inputs - and work the same way: read_user_tool(name) for the procedure, then follow it exactly. They are read-only: never edit_user_tool or save_user_tool them; if the user wants one to work differently, save their own version under a new name.
+Unify3D ships some tools of its own (marked built-in in the index below, e.g. smart-rebuild). They run like the user's tools - their page, then [Run tool: name] with the inputs - and work the same way: read_user_tool(name) for the procedure, then follow it exactly. They are read-only: never edit_user_tool or save_user_tool them; to change one, see Standing instructions below.
 Some are long, phased jobs (designing a whole mold, rebuilding a design): their TOOL.md sets the phases, the gates where you stop for the user's answer, how you keep state outside the chat and what you report - follow its reporting rules instead of the one-line finish and the reply-length preference. Such a run may span many turns; the user continues it with follow-ups in the same chat.
 
 ## Code that can crash ${C.name}
@@ -161,6 +162,10 @@ export interface IndexedTool {
   kind?: string;
   builtIn?: boolean;
   category?: string | null;
+  /** Standing instructions on it, and the original of the user's copy (docs/agent-memory.md). */
+  hasNotes?: boolean;
+  forkedFrom?: string | null;
+  sourceChanged?: boolean;
 }
 
 /** What the skills index needs of a plugin skill. */
@@ -188,6 +193,8 @@ export function buildSystemPrompt(opts: {
   knowledge?: KnowledgeIndex | null;
   /** web_search / web_fetch are offered (the "Allow web research" setting). */
   webResearch?: boolean;
+  /** What the user told the agent to do from now on (memory.index). */
+  memory?: MemoryIndex | null;
   cad?: CadProfile;
 }): string {
   const C = opts.cad ?? CAD;
@@ -202,6 +209,7 @@ export function buildSystemPrompt(opts: {
     pluginIndex(opts.skills ?? [], opts.agents ?? []) +
     mcpSection(opts.mcpInstructions ?? []) +
     sessionSection(opts.sessionContext ?? []) +
+    memorySection(opts.memory) +
     knowledgeSection(opts.knowledge)
   );
 }
@@ -290,7 +298,7 @@ ${C.sections.crashSafety}${knowledgeSection(opts.knowledge)}`;
 export function toolIndex(tools: IndexedTool[]): string {
   const lines = tools.map((t) => {
     const category = t.category?.replace(/\s+/g, " ").trim();
-    return `- ${t.name} (${t.builtIn ? "built-in " : ""}${t.kind ?? "workflow"}${category ? `, ${category}` : ""}): ${t.title} - ${t.description}`;
+    return `- ${t.name} (${t.builtIn ? "built-in " : ""}${t.kind ?? "workflow"}${category ? `, ${category}` : ""}): ${t.title} - ${t.description}${toolMarks(t)}`;
   });
   return `\n\n# The user's workflows and tools\n${lines.length ? lines.join("\n") : "(none saved yet)"}`;
 }

@@ -27,6 +27,7 @@ import type {
 import { emitLocal } from "./bridge";
 import { fileRefs, substituteArgs } from "./commands";
 import { mockOpenToolForm, mockToolForm } from "./toolFormMock";
+import type { MemoryIndex, MemoryNote, MemoryScopeInfo } from "./memory";
 
 const DOC = { key: "mock-doc", title: "Mounting Bracket.SLDPRT", path: "C:\\Work\\Mounting Bracket.SLDPRT", type: "part" as const };
 
@@ -47,7 +48,52 @@ const TOOLS: ToolDef[] = [
   tool("list_helpers", "Every helper cells can call.", { query: { type: "string" } }),
   tool("delete_helper", "Delete one of your helpers.", { name: { type: "string" } }, ["name"]),
   tool("test_helper", "Test a saved helper with a cell.", { name: { type: "string" }, code: { type: "string" } }, ["name", "code"]),
+  // Standing instructions and the user's copies of read-only tools (Memory/MemoryTools.cs, Tools/ForkTools.cs).
+  tool("remember", "Save a standing instruction the user gave.", { scope: { type: "string" }, text: { type: "string" }, replaces: { type: "array", items: { type: "string" } } }, ["scope", "text"]),
+  tool("list_memory", "The standing instructions the user gave you.", { scope: { type: "string" } }),
+  tool("forget", "Delete one standing instruction by its id.", { id: { type: "string" } }, ["id"]),
+  tool("fork_tool", "Make the user's own copy of a read-only tool.", { source: { type: "string" }, name: { type: "string" }, title: { type: "string" }, hide_original: { type: "boolean" } }, ["source"]),
+  tool("compare_fork", "What the original of the user's copy changed since.", { name: { type: "string" }, take: { type: "array", items: { type: "string" } }, done: { type: "boolean" } }, ["name"]),
 ];
+
+// ---- standing instructions in the mock: { scope: notes }, in localStorage ----
+
+type MockMemory = Record<string, MemoryNote[]>;
+const memoryLabel = (scope: string) =>
+  scope === "general" ? "your general memory" : scope.startsWith("tool:") ? `your notes for the ${scope.slice(5)} tool` : `your notes for the ${scope.slice(6)} skill`;
+const mockMemory = (): MockMemory => store.get<MockMemory>("memory", { general: [{ id: "g1a2b3c", date: "2026-10-20", text: "Answer in inches." }] });
+function setMockMemory(m: MockMemory) {
+  store.set("memory", m);
+  emitLocal("memory.changed", {});
+}
+function mockMemoryIndex(): MemoryIndex {
+  const m = mockMemory();
+  const general = m.general ?? [];
+  return {
+    general,
+    skills: Object.entries(m).filter(([k, v]) => k.startsWith("skill:") && v.length).map(([k, v]) => ({ id: k.slice(6), count: v.length })),
+    used: general.reduce((n, x) => n + x.text.length + 14, 0),
+    cap: 6000,
+    saving: store.get<{ saveMemory?: boolean }>("settings", {}).saveMemory !== false,
+  };
+}
+function mockMemoryList(): MemoryScopeInfo[] {
+  return Object.entries(mockMemory())
+    .filter(([k, v]) => k === "general" || v.length)
+    .map(([scope, notes]) => ({ scope, kind: scope.split(":")[0] as MemoryScopeInfo["kind"], name: scope.includes(":") ? scope.slice(scope.indexOf(":") + 1) : null, label: memoryLabel(scope), used: notes.reduce((n, x) => n + x.text.length + 14, 0), cap: scope === "general" ? 6000 : 3000, notes }));
+}
+function forgetMock(id: string): MemoryNote | null {
+  const m = mockMemory();
+  for (const k of Object.keys(m)) {
+    const hit = m[k].find((n) => n.id === id);
+    if (hit) {
+      m[k] = m[k].filter((n) => n.id !== id);
+      setMockMemory(m);
+      return hit;
+    }
+  }
+  return null;
+}
 
 /** knowledge.index in the mock: a built-in helper, a plugin's, two of the agent's own (one disabled) and its API notes. */
 const mockKnowledge = (): KnowledgeIndex => {
@@ -345,6 +391,27 @@ export async function mockRpc(method: string, params: any): Promise<unknown> {
     case "knowledge.index":
       return mockKnowledge();
 
+    // ---- standing instructions (Memory/MemoryTools.cs MemoryBridge) ----
+    case "memory.index":
+      return mockMemoryIndex();
+    case "memory.list":
+      return mockMemoryList();
+    case "memory.edit": {
+      const m = mockMemory();
+      for (const k of Object.keys(m)) m[k] = m[k].map((n) => (n.id === params.id ? { ...n, text: params.text } : n));
+      setMockMemory(m);
+      return { id: params.id, text: params.text };
+    }
+    case "memory.forget":
+    case "memory.undo":
+      return !!forgetMock(params.id);
+    case "userTools.setHidden": {
+      const all = store.get<Record<string, Record<string, string>>>("toolSettings", {});
+      store.set("toolSettings", { ...all, [params.name]: { ...all[params.name], hidden: params.hidden ? "true" : "" } });
+      emitLocal("userTools.changed", mockUserTools());
+      return true;
+    }
+
     default:
       return null;
   }
@@ -385,7 +452,7 @@ function mockUserTools(): UserToolInfo[] {
   return tools.map((t) => {
     const s = settings[t.name];
     if (!s) return t;
-    return { ...t, ...("category" in s ? { category: s.category || null } : {}), ...(s.intelligence ? { intelligence: s.intelligence as UserToolInfo["intelligence"] } : {}) };
+    return { ...t, ...("category" in s ? { category: s.category || null } : {}), ...(s.intelligence ? { intelligence: s.intelligence as UserToolInfo["intelligence"] } : {}), ...(s.hidden ? { hidden: true } : {}) };
   });
 }
 
@@ -578,6 +645,22 @@ async function runTool(name: string, input: any): Promise<ToolRunResult> {
     }
     case "test_helper":
       return { isError: false, content: [{ type: "text", text: "OK (compile 120 ms, run 15 ms)\n--- return value ---\nfine" }] };
+    case "remember": {
+      const scope = String(input.scope ?? "general").toLowerCase();
+      const m = mockMemory();
+      const id = `${scope[0] === "t" ? "t" : scope[0] === "s" ? "s" : "g"}${Math.random().toString(16).slice(2, 8).padEnd(6, "0")}`;
+      m[scope] = [...(m[scope] ?? []), { id, date: new Date().toISOString().slice(0, 10), text: String(input.text) }];
+      setMockMemory(m);
+      return { isError: false, content: [{ type: "text", text: `Saved to ${memoryLabel(scope)}: ${input.text} (id ${id}). Tell the user where it went in one line; the chat shows it with Undo.` }] };
+    }
+    case "list_memory":
+      return { isError: false, content: [{ type: "text", text: mockMemoryList().map((s) => `${s.scope} (${s.label}):\n${s.notes.map((n) => `  ${n.id} ${n.date}: ${n.text}`).join("\n")}`).join("\n") || "Nothing saved yet." }] };
+    case "forget": {
+      const hit = forgetMock(input.id);
+      return hit ? { isError: false, content: [{ type: "text", text: `Deleted: ${hit.text}` }] } : { isError: true, content: [{ type: "text", text: `No note with id ${input.id}.` }] };
+    }
+    case "fork_tool":
+      return { isError: false, content: [{ type: "text", text: `Made '${input.name ?? `${input.source}-custom`}' (${input.title ?? "my version"}): the user's own copy of ${input.source}. Its ribbon button appears after a restart: call offer_restart.` }] };
     default:
       return { isError: false, content: [{ type: "text", text: `(mock) ${name} ${JSON.stringify(input)}` }] };
   }
