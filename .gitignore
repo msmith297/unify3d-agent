@@ -11,3 +11,6 @@ installer/redist/
 MECAGENT_TEARDOWN.md
 .claude/settings.local.json
 *.tsbuildinfo
+
+# Private: quotes the owner's own mold tool code. Kept locally only (copy in Documents\Unify3D Agent backups\private).
+docs/compression-mold/research/existing-mold-knowledge.md
