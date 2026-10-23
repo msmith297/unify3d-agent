@@ -78,7 +78,7 @@ Everything except `.claude-plugin/plugin.json` is optional.
 | Skills | yes | yes: listed in the agent's skills index, loaded with `use_skill`, extra files read with `read_plugin_file` |
 | Agents | yes | yes, through `run_agent`; tool names Unify3D doesn't have (`Read`, `Bash`, `Edit` ...) are dropped, and an agent left with none gets read-only tools |
 | Hooks | yes | `type: "command"` only, six events (section 6); run with Git Bash as in Claude Code, or `cmd.exe` on a PC without Git for Windows |
-| MCP servers | stdio, HTTP, SSE | stdio only (section 7) |
+| MCP servers | stdio, HTTP, SSE | stdio, HTTP and SSE; no OAuth (section 7) |
 | Output styles, LSP servers, `settings.json`, status line | yes | ignored |
 | `tools/` (Unify3D tools) | ignored | yes (section 3) |
 | `unify3d` in `plugin.json` and marketplace entries | ignored | yes |
@@ -318,11 +318,29 @@ This is how agent-bridge's background listener (`Stop` / `SessionStart` with `--
 }
 ```
 
-| MCP feature | Unify3D v1 |
+A remote server, with its key in a header (never in the URL):
+
+```json
+{
+  "mcpServers": {
+    "acme": {
+      "type": "http",
+      "url": "https://mcp.acme.com/mcp",
+      "headers": { "Authorization": "Bearer ${user_config.api_key}" }
+    }
+  }
+}
+```
+
+| MCP feature | Unify3D |
 |---|---|
 | stdio transport (newline-delimited JSON-RPC 2.0) | yes |
-| Streamable HTTP, SSE | no |
-| `initialize` (protocol `2025-06-18`, client `unify3d-agent`), then `notifications/initialized` | yes; `initialize` may take up to 30 s |
+| Streamable HTTP (`"type": "http"`): JSON or SSE answers, `Mcp-Session-Id`, `MCP-Protocol-Version`, `DELETE` at the end | yes |
+| The older HTTP+SSE transport (`"type": "sse"`, or an `http` server that refuses the POST with 400/404/405) | yes |
+| `headers` with `${user_config.<key>}` (sensitive values included) and `${ENV}` | yes; values are never logged, URLs are logged without their query |
+| OAuth sign-in | no: a 401 without a configured header says "needs OAuth - not supported yet" |
+| A standalone GET stream for server messages in Streamable HTTP | no (`list_changed` is seen when an answer stream carries it) |
+| `initialize` (protocol `2025-06-18`, client `unify3d-agent`), then `notifications/initialized` | yes; `initialize` may take up to 45 s, 3 minutes for `npx`, `uvx`, `pipx`, `bunx` and `docker` (the first start downloads) |
 | Server `instructions` | yes: added to the agent's system prompt |
 | `tools/list`, `tools/call`, `notifications/tools/list_changed` | yes |
 | Tool results: text, images, `isError` | yes |
@@ -343,6 +361,13 @@ This is how agent-bridge's background listener (`Stop` / `SessionStart` with `--
   server's parent process is SolidWorks. The working folder is `%USERPROFILE%`. stderr is drained and logged.
 - **Calls** don't wait for SolidWorks: MCP tools run outside the model, with a 10-minute timeout.
 - State and errors show in Plugins > Installed, with a restart button.
+- **Trying a server.** The plugin creator's `plugin_try_mcp` starts one of the user's own plugins' servers on its own
+  (a throw-away session id and `CLAUDE_PLUGIN_DATA`, not registered as agent tools), lists its tools, calls one
+  read-only tool (or one the user agreed to), and stops it. Sensitive option values are replaced by `[hidden]` in what
+  it returns. The panel asks the user before each try.
+- **Keys from the agent.** The agent never handles a key: `ask_secret` shows the user a masked field in the chat, and
+  the value goes straight to the plugin's encrypted options. The plugin must declare the key in `userConfig` with
+  `"sensitive": true`.
 
 ## 8. Trust and safety
 

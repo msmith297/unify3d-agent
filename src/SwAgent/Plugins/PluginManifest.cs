@@ -306,6 +306,8 @@ namespace SwAgent.Plugins
                     Findings.Add($"error: {label}: MCP server \"{s.Name}\" ({type}) has no url.");
                     continue;
                 }
+                if (type != "stdio" && type != "http" && type != "sse") Findings.Add($"error: {label}: MCP server \"{s.Name}\": type \"{type}\" (use stdio, http or sse).");
+                if (server["headers"] != null && !(server["headers"] is JObject)) Findings.Add($"error: {label}: MCP server \"{s.Name}\": headers must be an object.");
                 if (server["args"] != null && !(server["args"] is JArray)) Findings.Add($"error: {label}: MCP server \"{s.Name}\": args must be a list.");
                 if (server["env"] != null && !(server["env"] is JObject)) Findings.Add($"error: {label}: MCP server \"{s.Name}\": env must be an object.");
                 if (McpServers.ContainsKey(s.Name)) Findings.Add($"warning: {label}: MCP server \"{s.Name}\" is defined twice; the later one wins.");

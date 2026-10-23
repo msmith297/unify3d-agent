@@ -110,3 +110,30 @@ Written 2026-10-22. It extends `docs/plugins/design.md` §5.3 and the built-in w
 - "Make a plugin that fillets all sharp edges" is triaged to a custom tool and handed to New Tool.
 - A remote HTTP MCP server with a bearer token works end to end (a headless test with a local fake HTTP MCP server).
 - No secret value appears in the chat, the logs or any plugin file (a test).
+
+## 5. What was built (2026-10-22, branch `v3/a-creator`)
+
+| Part | Where |
+|---|---|
+| Web research: `web_search` / `web_fetch` server tools (`_20260209` on Opus and Sonnet, the basic versions elsewhere), main agent only, setting "Allow web research (search and read web pages)" in Options, default on. Web steps show as cards with their result or error. | `ui/src/lib/creator.ts` (`webTools`, `webResultSummary`), `ui/src/agent/runAgent.ts`, `ui/src/components/WebResearchSettings.tsx`, `ToolCard`/`ChatView` |
+| The creator in the cached prompt: a plain request starts `create-plugin`; pages are data, unreadable links are said in one line (about 150 tokens; the web line, half of it, only with the setting on). The three new tool definitions add about 600 tokens to the cached tools | `ui/src/agent/systemPrompt.ts` (`creator`) |
+| MCP over Streamable HTTP with the HTTP+SSE fallback, headers from `${user_config.X}`, OAuth reported as not supported | `src/SwAgent/Mcp/McpHttpClient.cs`, `IMcpConnection.cs`, `McpHost.Create`, `PluginManager.BuildRuntime` (headers, url) |
+| `check_prerequisites(programs)` | `src/SwAgent/Plugins/CreatorTools.cs` |
+| `plugin_try_mcp(plugin, server?, call?, arguments?, user_ok?)`: gated in the panel like `execute_csharp` (it starts a program) | `CreatorTools.cs`, `WRITE_TOOLS` in `runAgent.ts` |
+| `ask_secret(plugin, key, label, help_url?)`: a masked card; the value goes to `plugins.setConfig`; the agent gets `saved` / `skipped`; typed or spoken chat messages never answer it | `ui/src/components/SecretCard.tsx`, `store.ts` (`answerSecret`), `lib/creator.ts` (`secretTarget`) |
+| The workflow, rewritten around section 2 | `tools/builtin/create-plugin/TOOL.md` |
+
+Tested headless: `tests/SwAgent.Tests/Plugins/CreatorTests.cs` (a fake local HTTP MCP server in JSON, SSE and legacy
+SSE modes with a bearer token; the stdio echo fixture through `plugin_try_mcp`; no secret in the log, plugin files,
+status or the try's output) and `ui/src/lib/checks/creator.check.mjs` (server tool choice, `ask_secret`'s rules, a fake
+`web_fetch` error for an X post, the prompt section and the workflow).
+
+Not done, or not testable here:
+
+- Nothing has run in SolidWorks or against the real API: the server tools' request shape, the web cards and the
+  secret card were checked by type-checking and the pure checks only. Check by hand: a chat with web research on
+  (search, then fetch), an X link, `ask_secret` saving a key, `plugin_try_mcp`'s approval card.
+- The model's triage ("fillets all sharp edges" goes to a custom tool) is in TOOL.md, not testable headless.
+- OAuth sign-in for remote MCP servers.
+- The Streamable HTTP standalone GET stream (server-initiated messages outside an answer).
+- `.NET Framework` reads an open SSE stream only when the server sends it chunked (as HTTP/1.1 servers do).

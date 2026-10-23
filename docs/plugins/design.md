@@ -258,8 +258,9 @@ counter; then a notice.
 
 ### 4.6 MCP servers
 
-- **Transport:** stdio (JSON-RPC 2.0, newline-delimited) in v1. Streamable HTTP is optional in v1 if cheap, else later.
-  The client lives in C#: `src/SwAgent/Mcp/` (`McpClient`, `McpHost`).
+- **Transport:** stdio (JSON-RPC 2.0, newline-delimited), Streamable HTTP and the older HTTP+SSE (added 2026-10-22,
+  creator-v2.md). The client lives in C#: `src/SwAgent/Mcp/` (`McpClient` for stdio, `McpHttpClient` for HTTP, both
+  `IMcpConnection`; `McpHost`).
 - **Life cycle:**
   1. Start when the plugin is enabled, at boot or on enable.
   2. `initialize` (protocol version `2025-06-18`, client info `unify3d-agent`), then `tools/list`.
@@ -340,6 +341,8 @@ with Install / Cancel.
 
 ### 5.3 Plugin creator
 
+- **Superseded 2026-10-22 by `docs/plugins/creator-v2.md`** (research, triage, prerequisites, `ask_secret`,
+  `plugin_try_mcp`); the steps below are the v1 flow.
 - **The built-in workflow** `tools/builtin/create-plugin` (kind `workflow`, category "Plugins"). It also runs as
   `/new-plugin`. `TOOL.md` guides the agent:
   1. ask what the plugin is for;

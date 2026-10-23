@@ -59,6 +59,7 @@ namespace SwAgent
             tools.RegisterAll(new RebuildTools());
             tools.RegisterAll(new MoldTools());
             tools.RegisterAll(new Plugins.PluginTools());
+            tools.RegisterAll(new Plugins.CreatorTools()); // plugin creator: check_prerequisites, plugin_try_mcp
             tools.RegisterAll(new KnowledgeTools(scripts));
             CompileAdvisor.Extra = UserHelpers.LastBuild; // compile errors can point at the helpers the agent saved
             return tools;

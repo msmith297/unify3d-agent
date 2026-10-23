@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { BrandMark } from "./Brand";
 import { UpdateSettings } from "./Update";
+import { WebResearchSettings } from "./WebResearchSettings";
 import { stepZoom } from "../lib/zoom";
 import { useStore } from "../store";
 import { rpc } from "../lib/bridge";
@@ -198,6 +199,8 @@ export function SettingsPanel() {
             <IconPlugin size={13} /> Manage plugins…
           </button>
         </Rollout>
+
+        <WebResearchSettings />
 
         <Rollout title="While the agent works" icon={<IconRebuild size={14} />}>
           <Toggle
@@ -466,7 +469,7 @@ function VoiceSettings() {
   );
 }
 
-function Rollout({ title, icon, children }: { title: string; icon?: ReactNode; children: ReactNode }) {
+export function Rollout({ title, icon, children }: { title: string; icon?: ReactNode; children: ReactNode }) {
   const [open, setOpen] = useState(true);
   return (
     <section className="sw-rollout">
@@ -501,7 +504,7 @@ function Select<T extends string>({ value, onChange, options }: { value: T; onCh
   );
 }
 
-function Toggle({ checked, onChange, label, note }: { checked: boolean; onChange: (v: boolean) => void; label: string; note?: string }) {
+export function Toggle({ checked, onChange, label, note }: { checked: boolean; onChange: (v: boolean) => void; label: string; note?: string }) {
   return (
     <label className="flex cursor-default items-start gap-2 py-1">
       <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="mt-0.5 accent-[var(--accent)]" />

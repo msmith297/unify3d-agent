@@ -61,8 +61,9 @@ namespace SwAgent.Plugins
         public JObject Hooks { get; set; }
 
         /// <summary>
-        /// MCP servers by name: { "command", "args", "env", "cwd" } or { "type": "http", "url", "headers" }. command and args
-        /// are as written (expand with Expand); env values are already expanded, sensitive options included.
+        /// MCP servers by name: { "command", "args", "env", "cwd" } or { "type": "http" | "sse", "url", "headers" }. command and
+        /// args are as written (expand with Expand); env, url and header values are already expanded, sensitive options
+        /// included (a remote server's key goes in a header).
         /// </summary>
         public IDictionary<string, JObject> McpServers { get; set; }
 

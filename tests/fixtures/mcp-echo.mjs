@@ -12,7 +12,7 @@ const state = { clientName: null, initialized: false, answers: {}, cancels: [], 
 const write = msg => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...msg }) + '\n');
 const schema = { $schema: 'http://json-schema.org/draft-07/schema#', type: 'object', properties: { text: { type: 'string' } } };
 const tools = () => [
-  { name: 'echo', description: 'Echoes its text.', inputSchema: schema },
+  { name: 'echo', description: 'Echoes its text.', inputSchema: schema, annotations: { readOnlyHint: true } },
   { name: 'whoami', description: 'How the server was started.', inputSchema: { type: 'object' } },
   { name: 'image', description: 'One image.', inputSchema: { anyOf: [{ type: 'object' }] } },
   { name: 'fail', description: 'Always fails.', inputSchema: { type: 'object' } },

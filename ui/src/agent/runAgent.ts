@@ -19,12 +19,14 @@ import type {
   SelectionAsk,
 } from "../lib/types";
 import { clampSteps } from "../lib/toolRun";
+import { webBetas, webTools, type SecretAsk } from "../lib/creator";
 
 /**
  * Tools that change the model; gated by the approval setting. run_tool_macro runs a tool's macro.cs (or C# the agent
- * passes as `code`) inside SolidWorks, so it is gated like execute_csharp.
+ * passes as `code`) inside SolidWorks, so it is gated like execute_csharp. plugin_try_mcp starts a program on this PC
+ * (a plugin's MCP server being tried), so it is gated the same way.
  */
-export const WRITE_TOOLS = new Set(["execute_csharp", "undo", "rebuild", "run_tool_macro", "test_helper"]);
+export const WRITE_TOOLS = new Set(["execute_csharp", "undo", "rebuild", "run_tool_macro", "test_helper", "plugin_try_mcp"]);
 
 /** Handled in the UI: a questionnaire card in the chat; the answers come back as JSON. */
 export const ASK_FORM_TOOL: ToolDef = {
@@ -140,11 +142,33 @@ export const RUN_AGENT_TOOL: ToolDef = {
   },
 };
 
+/**
+ * Handled in the UI: a password card for one of a plugin's sensitive options. The value goes straight to the plugin's
+ * encrypted options (plugins.setConfig); the agent only ever gets "saved" or "skipped".
+ */
+export const ASK_SECRET_TOOL: ToolDef = {
+  name: "ask_secret",
+  description:
+    "Ask the user for an API key, token or password a plugin needs, in a masked field. The value is stored encrypted for the plugin and " +
+    "never reaches you: you get \"saved\" or \"skipped\". The plugin must declare the key in userConfig with \"sensitive\": true first; its " +
+    "MCP server or hook then gets it as ${user_config.<key>} in env or headers. Never ask for secrets in the chat.",
+  input_schema: {
+    type: "object",
+    properties: {
+      plugin: { type: "string", description: "The plugin's name." },
+      key: { type: "string", description: "The userConfig key, e.g. \"api_key\"." },
+      label: { type: "string", description: "What to enter, e.g. \"Your Acme API key\"." },
+      help_url: { type: "string", description: "Where the user gets one (shown as a link)." },
+    },
+    required: ["plugin", "key", "label"],
+  },
+};
+
 /** The UI-handled tools, offered on every request after the add-in's (run_agent only while there are plugin agents). */
-export const LOCAL_TOOLS: ToolDef[] = [ASK_USER_TOOL, ASK_FORM_TOOL, ASK_SELECTION_TOOL, OFFER_RESTART_TOOL];
+export const LOCAL_TOOLS: ToolDef[] = [ASK_USER_TOOL, ASK_FORM_TOOL, ASK_SELECTION_TOOL, OFFER_RESTART_TOOL, ASK_SECRET_TOOL];
 
 /** Local tools that wait for the user: never offered to a sub-agent, and a hook's "ask" doesn't add an approval to them. */
-const USER_TOOLS = new Set([ASK_USER_TOOL.name, ASK_FORM_TOOL.name, ASK_SELECTION_TOOL.name]);
+const USER_TOOLS = new Set([ASK_USER_TOOL.name, ASK_FORM_TOOL.name, ASK_SELECTION_TOOL.name, ASK_SECRET_TOOL.name]);
 
 /** A sub-agent's step limit (API round trips). */
 export const SUB_AGENT_STEPS = 50;
@@ -199,6 +223,8 @@ export interface AgentCallbacks {
   ask(toolUseId: string, question: string, options: string[], form?: FormSpec): Promise<string>;
   /** ask_selection: resolves with the [S#] lines once the user presses Done (or Skip). */
   askSelection(toolUseId: string, ask: SelectionAsk): Promise<string>;
+  /** ask_secret: "saved" or "skipped" (never the value), or an error when the plugin has no such sensitive option. */
+  askSecret?(toolUseId: string, ask: SecretAsk): Promise<{ text: string; isError?: boolean }>;
   /** A request to the model started (for the "Thinking... 1m 20s" timer). */
   onRequest?(startedAt: number): void;
   /** A status line for the user (e.g. a stalled connection being retried), or null to clear it. */
@@ -235,6 +261,8 @@ export interface AgentRunOptions {
   sessionContext?: string[];
   /** The helpers cells can call and the saved API notes (knowledge.index), for the system prompt. */
   knowledge?: KnowledgeIndex | null;
+  /** Anthropic's web_search and web_fetch (setting "Allow web research"; default on). Never for a sub-agent. */
+  webResearch?: boolean;
   /** A sub-agent run: its own system prompt and no local tools. */
   system?: string;
   localTools?: ToolDef[];
@@ -261,7 +289,7 @@ const CLEAR_OLD_TOOL_USES = {
   keep: { type: "tool_uses" as const, value: 6 },
   clear_at_least: { type: "input_tokens" as const, value: 12000 },
   clear_tool_inputs: true,
-  exclude_tools: ["ask_user", "ask_form", "ask_selection", "offer_restart", "read_user_tool", "use_skill", "save_helper", "read_helper"],
+  exclude_tools: ["ask_user", "ask_form", "ask_selection", "ask_secret", "offer_restart", "read_user_tool", "use_skill", "save_helper", "read_helper"],
 };
 
 /** No bytes at all (not even keep-alive pings) for this long means the connection is dead, not thinking. */
@@ -301,13 +329,19 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
   const betas = ["thinking-binding-controls-2026-08-01", "context-management-2025-06-27"];
   if (m.progressUpdates) betas.push("thinking-display-updates-2026-08-18");
   if (m.fallbacks) betas.push("server-side-fallback-2026-07-01");
+  // Web research runs on Anthropic's side (server tools); a sub-agent (its own system prompt) never gets it.
+  const web = !opts.system && !!opts.webResearch;
+  betas.push(...webBetas(m.id, web));
 
-  const tools: Anthropic.Beta.Messages.BetaToolUnion[] = [...opts.tools, ...localTools(opts)].map((t) => ({
-    name: t.name,
-    description: t.description,
-    input_schema: t.input_schema,
-    eager_input_streaming: true,
-  }));
+  const tools: Anthropic.Beta.Messages.BetaToolUnion[] = [
+    ...[...opts.tools, ...localTools(opts)].map((t) => ({
+      name: t.name,
+      description: t.description,
+      input_schema: t.input_schema,
+      eager_input_streaming: true,
+    })),
+    ...(webTools(m.id, web) as unknown as Anthropic.Beta.Messages.BetaToolUnion[]),
+  ];
 
   // use_skill exists only with plugins (and a sub-agent may lack read_user_tool): exclude only tools this run has.
   const names = new Set([...opts.tools, ...localTools(opts)].map((t) => t.name));
@@ -324,6 +358,7 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
       mcpInstructions: opts.mcpInstructions,
       sessionContext: opts.sessionContext,
       knowledge: opts.knowledge,
+      webResearch: web,
     });
   let malformedRetries = 0;
   let stallRetries = 0;
@@ -563,6 +598,11 @@ async function executeTool(tu: Anthropic.Beta.Messages.BetaToolUseBlock, opts: A
     return { type: "tool_result", tool_use_id: tu.id, content: answer };
   }
 
+  if (tu.name === ASK_SECRET_TOOL.name) {
+    const r = cb.askSecret ? await cb.askSecret(tu.id, tu.input as SecretAsk) : { text: "The user can't be asked here.", isError: true };
+    return { type: "tool_result", tool_use_id: tu.id, content: r.text, ...(r.isError ? { is_error: true } : {}) };
+  }
+
   if (tu.name === ASK_USER_TOOL.name) {
     const input = tu.input as { question: string; options?: string[] };
     const answer = await cb.ask(tu.id, input.question, input.options ?? []);
@@ -647,6 +687,7 @@ async function runSubAgent(tu: Anthropic.Beta.Messages.BetaToolUseBlock, opts: A
         onStatus: undefined,
         ask: async () => "(A sub-agent can't ask the user.)",
         askSelection: async () => "(A sub-agent can't ask the user.)",
+        askSecret: async () => ({ text: "A sub-agent can't ask the user.", isError: true }),
       },
     });
   } finally {

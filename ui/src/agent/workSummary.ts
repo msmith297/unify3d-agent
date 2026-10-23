@@ -15,6 +15,10 @@ const MINOR_TOOLS = new Set([
   "list_open_documents",
   "search_sw_api",
   "get_sw_api_type",
+  // web research and the plugin creator's checks (Anthropic's server tools show as steps too)
+  "web_search",
+  "web_fetch",
+  "check_prerequisites",
   "capture_views",
   "describe_model_history",
   "list_user_tools",
@@ -47,7 +51,7 @@ function isCheck(call: ToolCall): boolean {
 }
 
 /** The agent asking the user (a question, a form, a selection): always shown, never counted as work. */
-const ASKS = new Set(["ask_user", "ask_form", "ask_selection"]);
+const ASKS = new Set(["ask_user", "ask_form", "ask_selection", "ask_secret"]);
 
 export function isHighlight(call: ToolCall): boolean {
   if (ASKS.has(call.name)) return true;

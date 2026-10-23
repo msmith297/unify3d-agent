@@ -253,7 +253,7 @@ namespace SwAgent.Tests
             AssertPng(Path.Combine(UserTools.BuiltInRoot, name, "icon.png"));
 
             // The design's plugin tools (5.3). Once the add-in registers plugin tools (track A), every one it needs must exist.
-            var tools = new[] { "plugin_create", "plugin_write_file", "plugin_add_tool", "plugin_validate", "plugin_enable", "plugin_package" };
+            var tools = new[] { "plugin_create", "plugin_write_file", "plugin_add_tool", "plugin_validate", "plugin_enable", "plugin_package", "check_prerequisites", "plugin_try_mcp" };
             Assert.Equal(tools, spec.Requires);
             var md = File.ReadAllText(Path.Combine(UserTools.BuiltInRoot, name, "TOOL.md"));
             foreach (var t in tools.Concat(new[] { "list_plugins", "read_plugin" })) Assert.Contains("`" + t, md);
