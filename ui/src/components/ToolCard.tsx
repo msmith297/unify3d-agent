@@ -18,6 +18,7 @@ import {
 } from "./SwIcons";
 import type { ImageBlockParam, TextBlockParam, ToolResultBlockParam } from "../lib/types";
 import type { RunState } from "../store";
+import { webTitle } from "../lib/creator";
 
 export type ToolStatus = "streaming" | "queued" | "approval" | "running" | "ok" | "error" | "retried" | "stopped";
 
@@ -54,6 +55,9 @@ export function toolTitle(name: string, input: any, partial?: string): string {
   switch (name) {
     case "execute_csharp":
       return field("title") || "Run C# in SolidWorks";
+    case "web_search":
+    case "web_fetch":
+      return webTitle(name, input) ?? name;
     case "capture_views": {
       const v = input?.views as string[] | undefined;
       return `Capture ${v?.length ? v.join(", ") : "current"} view${v && v.length > 1 ? "s" : ""}`;

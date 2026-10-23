@@ -53,6 +53,7 @@ import { DEFAULT_STEPS, LONG_RUN_STEPS, clampSteps, runReportsDone, stickyState,
 import { WRITE_TOOLS, runAgent, type ApprovalDecision, type ApprovalRequest, type LiveBlock, type SubAgentProgress } from "./agent/runAgent";
 import { BUILTIN_COMMANDS, commandHead, parseSlash, resolveSlash, tagLines, type CommandSources, type TagKind } from "./lib/commands";
 import { EVENT_TAG, HOOK_TAG, autoTurnAllowed, hasHook, hookContextText, systemEventText, wakeApproval, wakesMayFollow } from "./lib/hooks";
+import { SECRET_SAVED, SECRET_SKIPPED, secretTarget, type SecretAsk } from "./lib/creator";
 
 export interface ChatSlot {
   docKey: string;
@@ -118,6 +119,8 @@ export interface RunState {
     form?: FormSpec;
     /** ask_selection: the user picks in SolidWorks and presses Done (answerSelection). */
     selection?: Omit<SelectionAsk, "prompt">;
+    /** ask_secret: a masked field; typed or spoken messages never answer it (answerSecret). */
+    secret?: SecretAsk & { id: string; title: string; set: boolean };
     /** When an unanswered question gives the agent NO_ANSWER (epoch ms); undefined = it waits for the user. */
     deadline?: number;
     resolve: (answer: string) => void;
@@ -264,6 +267,11 @@ interface State {
    * answers with nothing. A typed or spoken answer while the card is open counts as Done with that note.
    */
   answerSelection(threadId: string, done: boolean, note?: string): Promise<void>;
+  /**
+   * ask_secret: Save stores the value in the plugin's encrypted options (plugins.setConfig) and tells the agent only
+   * "saved"; null is Skip. Throws when saving failed (the card shows it and stays open).
+   */
+  answerSecret(threadId: string, value: string | null): Promise<void>;
   /** Close a long tool run's follow-up settings (the banner chip's X). */
   endToolRun(threadId: string): void;
   /** What's typed (or dictated) into a pending question's answer box, per thread. */
@@ -824,6 +832,7 @@ export const useStore = create<State>((set, get) => {
         mcpInstructions: get().session?.mcpInstructions ?? [],
         sessionContext: get().session?.sessionContext ?? [],
         knowledge: get().knowledge,
+        webResearch: get().settings.webResearch !== false,
         signal: controller.signal,
         cb: {
           getMessages: () => get().chats[docKey]?.data.threads.find((t) => t.id === threadId)?.messages ?? [],
@@ -882,6 +891,16 @@ export const useStore = create<State>((set, get) => {
               updateRun(threadId, { question: { toolUseId, question: String(ask.prompt ?? ""), options: [], selection, resolve } });
               void revealRun(docKey, threadId);
             }),
+          askSecret: async (toolUseId, ask) => {
+            const plugins = await rpc<PluginInfo[]>("plugins.list").catch(() => get().plugins);
+            const target = secretTarget(plugins ?? [], ask);
+            if ("error" in target) return { text: target.error, isError: true };
+            const text = await new Promise<string>((resolve) => {
+              updateRun(threadId, { question: { toolUseId, question: String(ask.label ?? ""), options: [], secret: { ...ask, ...target }, resolve } });
+              void revealRun(docKey, threadId);
+            });
+            return { text };
+          },
           runTool: (name, input, toolUseId) =>
             rpc<ToolRunResult>("tools.run", {
               docKey,
@@ -1334,7 +1353,7 @@ export const useStore = create<State>((set, get) => {
       else get().setAnswerDraft(thread.id, [s.answerDrafts[thread.id]?.trim(), note].filter(Boolean).join(" "));
       return;
     }
-    if (thread && asked && !asked.form) {
+    if (thread && asked && !asked.form && !asked.secret) {
       const picked = p.events.filter((e) => e.kind === "select" && e.t > 0).flatMap((e) => (e.items ?? []).map((i) => `${i.type}${i.label ? ` of ${i.label}` : ""}`));
       const answer = [p.text.trim(), picked.length ? `(while answering I selected: ${picked.join("; ")})` : ""].filter(Boolean).join(" ");
       if (!answer) return;
@@ -2192,7 +2211,7 @@ export const useStore = create<State>((set, get) => {
       let thread = currentThread(get());
       const asked = thread ? get().runs[thread.id]?.question : null;
       const ownRun = !!(opts?.tool || opts?.fresh || opts?.command); // a workflow run, a new request or a command: never an answer or a follow-up
-      if (thread && asked && !asked.form && trimmed && !ownRun && !attachments.some((a) => a.kind !== "voice")) {
+      if (thread && asked && !asked.form && !asked.secret && trimmed && !ownRun && !attachments.some((a) => a.kind !== "voice")) {
         // The agent is waiting on a question: this is the answer (a queued message would wait behind it forever).
         // While it waits for a selection, the message is the user's note and counts as Done.
         if (asked.selection) void get().answerSelection(thread.id, true, trimmed);
@@ -2255,7 +2274,7 @@ export const useStore = create<State>((set, get) => {
         if (!busy(threadId)) flushQueue(get().viewKey, threadId, "end_turn");
         return;
       }
-      if (asked && !asked.form && item?.text) {
+      if (asked && !asked.form && !asked.secret && item?.text) {
         // The agent is waiting on a question, so it won't take a next step: answer it with this message.
         set((s) => ({ queue: { ...s.queue, [threadId]: (s.queue[threadId] ?? []).filter((m) => m.id !== id) } }));
         if (asked.selection) void get().answerSelection(threadId, true, item.text);
@@ -2383,6 +2402,14 @@ export const useStore = create<State>((set, get) => {
       run?.question?.resolve(answer);
       updateRun(threadId, { question: null });
       set((s) => ({ answerDrafts: { ...s.answerDrafts, [threadId]: "" } }));
+    },
+
+    async answerSecret(threadId, value) {
+      const q = get().runs[threadId]?.question;
+      if (!q?.secret) return;
+      if (value !== null) await rpc("plugins.setConfig", { id: q.secret.id, values: { [q.secret.key]: value } });
+      // The run may have been stopped while the value was saved.
+      if (get().runs[threadId]?.question?.toolUseId === q.toolUseId) get().answerQuestion(threadId, value !== null ? SECRET_SAVED : SECRET_SKIPPED);
     },
 
     keepWaiting(threadId) {

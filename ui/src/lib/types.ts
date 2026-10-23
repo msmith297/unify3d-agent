@@ -172,6 +172,8 @@ export interface Settings {
   toolInputs?: "panel" | "page";
   /** Seconds a question (ask_user / ask_form) waits for an answer before the agent decides on its own; 0 = never. Default 60. */
   questionTimeoutSec?: number;
+  /** The agent may search the web and read web pages (Anthropic's web_search / web_fetch). Default on. */
+  webResearch?: boolean;
 }
 
 // ---- plugins (docs/plugins/design.md; RPCs implemented by the add-in's PluginsBridge, hooks and MCP runtime) ----

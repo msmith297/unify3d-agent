@@ -49,7 +49,7 @@ export function Composer() {
   // The agent is waiting on a question: what's sent here answers it.
   const asking = useStore((s) => {
     const q = thread ? s.runs[thread.id]?.question : null;
-    return !!q && !q.form;
+    return !!q && !q.form && !q.secret; // a key goes in its own masked card, never here
   });
   // ...a selection (ask_selection): a message here is a note and counts as Done.
   const selecting = useStore((s) => !!(thread && s.runs[thread.id]?.question?.selection));
@@ -492,7 +492,7 @@ function VoiceBar() {
   const answering = useStore((s) => {
     const t = currentThread(s);
     const q = t ? s.runs[t.id]?.question : null;
-    return !!q && !q.form;
+    return !!q && !q.form && !q.secret;
   });
   const { cancelVoice } = useStore.getState();
   const label =

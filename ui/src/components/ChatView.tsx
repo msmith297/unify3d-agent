@@ -6,6 +6,8 @@ import { BrandLogo } from "./Brand";
 import { FormCard } from "./FormCard";
 import { QuestionTimer } from "./QuestionTimer";
 import { SelectionCard } from "./SelectionCard";
+import { SecretCard } from "./SecretCard";
+import { webResultSummary } from "../lib/creator";
 import { Answered } from "./Answered";
 import { RestartCard } from "./Recovery";
 import { ToolFormCard, ToolFormPane } from "./ToolFormCard";
@@ -147,6 +149,7 @@ function renderItem(item: Item, thread: Thread, run: RunState | undefined, onIma
     case "question":
       return item.call.name === "ask_form" ? <FormCard call={item.call} threadId={thread.id} run={run} />
         : item.call.name === "ask_selection" ? <SelectionCard call={item.call} threadId={thread.id} run={run} />
+        : item.call.name === "ask_secret" ? <SecretCard call={item.call} threadId={thread.id} run={run} />
         : <QuestionCard call={item.call} threadId={thread.id} run={run} />;
     case "footer":
       return <TurnFooter turn={item.turn} isLast={item.isLast} running={!!run} />;
@@ -392,7 +395,13 @@ function buildItems(thread: Thread, run: RunState | undefined, showProgress: boo
       else if (b.type === "tool_use") {
         const call: ToolCall = { id: b.id, name: b.name, input: b.input, result: results.get(b.id) };
         if (call.name === "offer_restart") return; // shown as the button under the reply
-        segment.push(call.name === "ask_user" || call.name === "ask_form" || call.name === "ask_selection" ? { kind: "question", key, call } : { kind: "tool", key, call });
+        segment.push(call.name === "ask_user" || call.name === "ask_form" || call.name === "ask_selection" || call.name === "ask_secret" ? { kind: "question", key, call } : { kind: "tool", key, call });
+      } else if (b.type === "server_tool_use") {
+        // Web research runs on Anthropic's side: its result is in this same message.
+        const blocks = m.content as ContentBlockParam[];
+        const sum = webResultSummary(blocks.find((r) => "tool_use_id" in r && r.type !== "tool_result" && r.tool_use_id === b.id));
+        const result: ToolResultBlockParam | undefined = sum ? { type: "tool_result", tool_use_id: b.id, content: sum.text, ...(sum.isError ? { is_error: true } : {}) } : undefined;
+        segment.push({ kind: "tool", key, call: { id: b.id, name: b.name, input: b.input, result } });
       }
     });
   });
@@ -414,7 +423,7 @@ function liveItems(live: LiveBlock[] | null, showProgress: boolean): Item[] {
     const key = `live${i}`;
     if (b.type === "thinking" && b.text.trim() && showProgress) out.push({ kind: "progress", key, text: b.text.trim() });
     else if (b.type === "text" && b.text) out.push({ kind: "text", key, text: b.text, streaming: i === live.length - 1 });
-    else if (b.type === "tool_use" && b.name !== "ask_user" && b.name !== "ask_selection" && b.name !== "offer_restart") {
+    else if (b.type === "tool_use" && b.name !== "ask_user" && b.name !== "ask_selection" && b.name !== "ask_secret" && b.name !== "offer_restart") {
       out.push({ kind: "tool", key, call: { id: b.id ?? key, name: b.name ?? "tool", input: undefined, partial: b.json ?? "" } });
     }
   });

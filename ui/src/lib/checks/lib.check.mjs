@@ -4,6 +4,7 @@
 // Not part of the app: nothing imports this file, and tsc / vite ignore .mjs files.
 import assert from "node:assert/strict";
 import "./cheatsheet.check.mjs"; // the SolidWorks API cheat sheet (budget, members, in the prompt)
+import "./creator.check.mjs"; // the plugin creator: web research, ask_secret, the creator prompt and workflow
 import { selectionKind, isAllowed, refBase, kindsText, selectionStatus, selectionAnswer } from "../selection.ts";
 import {
   clampSteps,
