@@ -10,7 +10,7 @@ Written 2026-10-20 at the end of a long session. Its last step, a multi-angle re
 
 **Unify3D Agent** is a SolidWorks add-in with an AI agent that reads and changes the user's CAD models through the SolidWorks API.
 - **Add-in:** C# net48, using xCAD and Roslyn scripting. It runs inside SOLIDWORKS 2026.
-- **Panel:** a chat panel built with React, TypeScript, zustand and Vite, hosted in WebView2. It calls the Claude API directly (`ui/src/agent/runAgent.ts`).
+- **Panel:** a chat panel built with React, TypeScript, zustand and Vite, hosted in WebView2. It calls the model provider's API directly (Claude or OpenAI): the loop in `ui/src/agent/runAgent.ts`, the adapters in `ui/src/agent/providers/` (section 13).
 - **Tools:** the agent's tools are C# `[AgentTool]` classes (`src/SwAgent/Tools/*.cs`) plus `execute_csharp` cells.
 - **User tools:** the agent can build "tools" and "workflows" for the user: folders with a `TOOL.md`, an `inputs.json` (a native PropertyManager page) and an optional `macro.cs`.
 - **Built-in tools:** the add-in ships these in the same folder format.
@@ -38,7 +38,7 @@ All commands run from the working folder.
 | Purpose | Command |
 |---|---|
 | Debug build | `"/c/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/MSBuild.exe" src/SwAgent/SwAgent.csproj -restore -nologo -v:minimal -p:Configuration=Debug` |
-| Tests | `dotnet test tests/SwAgent.Tests`. Expect **722 passed, 0 failed, 4 skipped** (2026-10-23, after the model providers integration; about 8 minutes). The skipped four are the long FE sweeps; run them with `MOLD_SWEEP=1`. Some plugin tests need node, Git for Windows or a local agent-bridge clone and skip without them (section 7). Tests set `SWAGENT_DATA_DIR` through `tests/SwAgent.Tests/test.runsettings`, so they never touch the user's real data. Keep it that way. |
+| Tests | `dotnet test tests/SwAgent.Tests`. Expect **722 passed, 0 failed, 4 skipped** (2026-10-23, after the model providers integration and its review fixes; about 8 minutes). The skipped four are the long FE sweeps; run them with `MOLD_SWEEP=1`. Some plugin tests need node, Git for Windows or a local agent-bridge clone and skip without them (section 7). Tests set `SWAGENT_DATA_DIR` through `tests/SwAgent.Tests/test.runsettings`, so they never touch the user's real data. Keep it that way. |
 | UI | `cd ui && npx tsc -b && npm run build` (node_modules is installed). Panel logic checks: `node ui/src/lib/checks/<name>.check.mjs` for agent, providers, integration, lib, models, creator and cheatsheet (section 13). |
 | Mold data generators | `python -I tools/dev/mold-data/<gen>.py --check`. Each must report that its output matches the shipped files. See `tools/dev/mold-data/README.md`. |
 | FE sweeps / Monte Carlo | `tools/dev/MoldSweep` (README inside). Build it in Release **from a scratch copy**, never into `src/SwAgent/bin/Release`. |
@@ -418,7 +418,7 @@ its checkbox says what it does ("Leave out fields at the tool default").
 the dialogs (export, load from file, open folder). Deleting a tool still leaves its `last-inputs\` entry (harmless; a new
 tool of the name starts with those remembered values).
 
-## 13. Model providers: Claude and OpenAI (built 2026-10-23; CORE and EDGES tracks, then integration)
+## 13. Model providers (Claude + OpenAI) (built 2026-10-23; CORE and EDGES tracks, integration, then a review pass)
 
 **Design:** `docs/providers/design.md` (the contract; section 1 is the one-page summary). Built in two parallel tracks,
 CORE (the provider layer, the neutral agent loop, the adapters) and EDGES (keys, settings, pickers, docs), merged and
@@ -431,28 +431,59 @@ optional `replay` field on its assistant messages.
 | Neutral agent loop: hooks, approval, local tools, sub-agents, steering, step limit, stall watchdog (`provider.stallMs`), malformed-output re-sends; images and PDFs become a note for a model without vision / PDF support | `ui/src/agent/runAgent.ts`, `ui/src/agent/providers/media.ts` |
 | Provider layer: `PROVIDERS`, `getProvider`, `providerOf`, `displayParts`, `providerErrorText`; errors by kind; `livenessFetch`, `redactKeys` | `ui/src/agent/providers/{index,types,errors,transport}.ts` |
 | Claude adapter (the old request and stream code, moved unchanged) | `ui/src/agent/providers/anthropic.ts` |
-| OpenAI adapter: Responses API, streamed, `store: false`; history translation and replay; client-side context clearing; `web_search`; 12 h cache for long runs; speed (`service_tier`); quota 429s not retried | `ui/src/agent/providers/openai/{client,history,stream,display}.ts`; `openai` pinned at 7.32.0 |
+| OpenAI adapter: Responses API, streamed, `store: false`; history translation and replay; client-side context clearing; `web_search`; speed (`service_tier`); quota 429s not retried; a 403 country block is an `access` error, not a bad key. The 12 h cache for long runs is wired but off (`cacheTtlLong: null` on every GPT row) until hand check H6 | `ui/src/agent/providers/openai/{client,history,stream,display}.ts`; `openai` pinned at 7.32.0 |
 | Fake model APIs for the checks and the mock host (`?fake`) | `ui/src/agent/providers/fake.ts`, `fixtures/` |
-| Model registry: providers, caps, families, tiers per provider, `resolveModel` (aliases into the chat's provider), tool provider choice, grouped pickers, effort clamp, `/model` | `ui/src/lib/models.ts` |
+| Model registry: providers, caps, families, tiers per provider, default model per provider (`DEFAULT_MODELS`, `keyedDefaultModel`: with only another provider's key, new chats start on its default; checked at boot too, for environment keys), caps for unknown ids per provider (`UNKNOWN_MODEL`), `resolveModel` (aliases and `opus-5`-style family names into the chat's provider), tool provider choice, grouped pickers, effort clamp, `/model` | `ui/src/lib/models.ts` |
+| System prompt per run: the web wording follows the model's web tools (`caps.web`, the `WEB` table), working-style notes the provider (`STYLE`; only OpenAI has some) | `ui/src/agent/systemPrompt.ts` |
 | Keys (C#): one DPAPI file per provider, `apikey.bin` unchanged, `apikey-openai.bin` new, writes through `AtomicFile` (settings.json too); `apiKey.get/set {provider?}` (no provider: Anthropic), `getState.apiKeySources` | `src/SwAgent/Infrastructure/SettingsStore.cs` (`ProviderKeys`), `AgentController.cs` |
 | Secrets away from children: `ANTHROPIC_*` and `OPENAI_*` hidden from plugin, hook, MCP and git processes and `check_prerequisites`' programs; `${OPENAI_*}` expands to "" (plugins may still set `OPENAI_API_KEY` for their own servers) | `Infrastructure/SecretEnv.cs`, `ChildEnv.Hidden`, `PluginManager.Expand`, `Fetcher.GitStartInfo`, `CreatorTools.VersionStartInfo` |
 | Panel: per-provider keys (`keys.get` asks the add-in for one provider's key when a run needs it), the no-key notice, tool runs on `tierModel(tier, toolProvider())`, error texts by kind, the speed setting (sent to every run; each adapter sends it only to models that offer it), the served tier in the turn's footer | `ui/src/store.ts`, `ui/src/components/ChatView.tsx` (`chatItems.ts`) |
 | Options > AI providers (save, test, remove, get a key, Speed), grouped model pickers, effort pickers and `/effort` by model, the tour's provider choice | `ui/src/components/ProviderSettings.tsx`, `SettingsPanel.tsx`, `Composer.tsx` (+ group headers in `Menu.tsx`), `Tour.tsx` |
 | Mock host: per-provider keys, `?fake`, a demo chat on GPT-6.1 Sol with `replay` | `ui/src/lib/mockHost.ts` |
 
-**Adding a provider** (design section 10): an adapter in `ui/src/agent/providers/<id>/` added to `PROVIDERS`, its rows in
-`MODELS` and a column in `TIERS`, a line in `ProviderKeys.All` and `SecretEnv.ProviderPrefixes`, its origin in
-`ui/index.html`'s CSP (the O19 check fails until it is there), fixtures and scenarios in `providers.check.mjs`.
+**Where keys live.** Per PC, DPAPI-encrypted (current user): `%APPDATA%\SwAgent\apikey.bin` (Anthropic, unchanged)
+and `apikey-openai.bin` (OpenAI); without a saved key the add-in falls back to `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`
+(source "environment"). The panel asks for one provider's key per run (`keys.get`); keys never go into settings.json,
+chats, logs or child processes (`SecretEnv`). Tests use `SWAGENT_DATA_DIR` and fake keys.
+
+**Adding a provider** (design section 10):
+1. An adapter in `ui/src/agent/providers/<id>/` implementing `Provider`, added to `PROVIDERS`.
+2. In `ui/src/lib/models.ts`: its rows in `MODELS`, a column in `TIERS`, its default in `DEFAULT_MODELS`, its id prefix in
+   `PREFIXES`, an `UNKNOWN_MODEL` entry (caps for ids not in the registry). Add the id to `ProviderId` and `NO_KEYS`
+   (store.ts); the `Record<ProviderId, ...>` types then point at what is missing.
+3. In `ui/src/agent/systemPrompt.ts`: a new kind of web tools (`ModelCaps.web`) needs its wording in `WEB`; working-style
+   notes, if any, in `STYLE`.
+4. C#: a line in `ProviderKeys.All` (SettingsStore.cs) and `SecretEnv.ProviderPrefixes`.
+5. Its origin in `ui/index.html`'s CSP (the O19 check fails until it is there).
+6. Fixtures and scenarios in `providers.check.mjs`, and its error codes mapped to `ErrorKind`.
 
 **How to test.** All under node, no network (`fetch` is the fake, the keys are fakes):
 - `node ui/src/lib/checks/agent.check.mjs`: the Claude goldens C1-C8, captured from the code before the refactor (`7a2bf2d`). Every request body must stay string-equal: **never regenerate them**; a changed golden is a regression.
-- `providers.check.mjs`: the OpenAI adapter O1-O19, provider switches, clearing, stalls, errors, the CSP, the chat items.
+- `providers.check.mjs`: the OpenAI adapter O1-O19 (O12b: a cleared turn sends no item id without its reasoning; O14b:
+  403 access), provider switches, clearing, stalls, errors, the CSP, the chat items. The OpenAI goldens
+  (`fixtures/golden/openai-*.json`) may be regenerated when an OpenAI request changes on purpose: delete the file and run
+  with `--write`.
 - `integration.check.mjs`: full turns with tool calls on each provider through the mock's fake script, a chat that switches Claude -> OpenAI -> Claude, keys reaching only their provider, sub-agent aliases, speed for sub-agents, capability flags.
 - `models.check.mjs` (also run by `lib.check.mjs`).
 - C#: `SettingsStoreTests.cs` and the OpenAI cases in `HookProtocolTests`, `HookRunnerTests`, `PluginManagerTests`, `PluginReviewTests`.
 - Browser: `npm --prefix ui run dev`, open `/?demo&fake`, and set `localStorage["swagent-mock:apiKey"]` and `["swagent-mock:apiKey:openai"]` to any test string.
 
-**Not tested:** nothing ran in SolidWorks or against a real API (there is no OpenAI key on this PC). Hand checks H1-H12
-are in design section 11; also not covered by them: whether replayed item ids and `web_search_call` items are accepted
-with `store: false`. While OpenAI streams, the live reasoning text shows the summaries raw (bold `**` headings); the
-saved chat shows them as sentences.
+**Review fixes (2026-10-23), with checks:** no 12 h cache request until H6 (the SDK and API reference list only
+"30m"; a rejected value would have failed every OpenAI long run); context clearing no longer replays a cleared turn's
+`fc_` / `msg_` items without their reasoning (they go as translated items, `web_search_call` left out); translated
+Claude text goes as the plain `{ role: "assistant", content: text }` input form; tool schemas with a property named
+`default` / `enum` / ... still get `items: {}` on arrays; a 403 country block says so instead of "key rejected"; Luna gets
+Fast mode; `opus-5` / `sonnet-5` in a command or agent resolve again as before the provider layer; an OpenAI-only setup
+with the key in the environment starts new chats on GPT-6.1 Sol; the prompt's web wording and unknown-id caps are no
+longer Claude's by default for a new provider.
+
+**What is open:**
+1. **Nothing ran against the live OpenAI API** (there is no OpenAI key on this PC) **or in SolidWorks.** Every OpenAI
+   request shape is checked against the docs and the pinned SDK's types only. Hand checks H1-H12 are in design section
+   11. Also not covered by them: whether replayed item ids and `web_search_call` items are accepted with `store: false`,
+   and the plain assistant message form for translated Claude text.
+2. H6 decides the long-run cache: if `prompt_cache_options.ttl: "12h"` is accepted, set `cacheTtlLong: "12h"` on the GPT
+   rows in `models.ts` (and the O16 check); nothing else changes.
+3. While OpenAI streams, the live reasoning text shows the summaries raw (bold `**` headings); the saved chat shows them
+   as sentences.
+4. A third provider is not wired in: the list above is the work.

@@ -66,7 +66,9 @@ const gptCaps = (cacheReadRatio: number, serviceTiers: ("fast" | "ultrafast")[])
   progressUpdates: false,
   fallbacks: false,
   cacheReadRatio,
-  cacheTtlLong: "12h",
+  // The SDK and the API reference list only "30m" (the default, which every read refreshes). Set "12h" once hand check
+  // H6 shows the API takes it (docs/providers/design.md 6.7); client.ts already sends it then.
+  cacheTtlLong: null,
   serviceTiers,
   contextWindow: 1_050_000,
   maxOutput: 128000,
@@ -89,7 +91,7 @@ export const MODELS: ModelInfo[] = [
     price: { input: 2, cachedInput: 0.1, cacheWrite: 2.5, output: 10 },
   },
   { id: "gpt-6-astra", provider: "openai", label: "GPT-6 Astra", note: "Most capable · about 5× the cost of Sol", family: "gpt-6", tier: "high", caps: gptCaps(0.1, ["fast", "ultrafast"]) },
-  { id: "gpt-6-luna", provider: "openai", label: "GPT-6 Luna", note: "Fastest · for quick questions", family: "gpt-6", tier: "fast", caps: gptCaps(0.1, []) },
+  { id: "gpt-6-luna", provider: "openai", label: "GPT-6 Luna", note: "Fastest · for quick questions", family: "gpt-6", tier: "fast", caps: gptCaps(0.1, ["fast"]) },
 ];
 
 export const EFFORTS: { id: Effort; label: string; note: string }[] = [
@@ -147,15 +149,21 @@ export function inferProvider(id: string): ProviderId {
   return PREFIXES.find(([re]) => re.test(id))?.[1] ?? "anthropic";
 }
 
+/**
+ * What an id the registry doesn't know gets, per provider: its family (reasoning is replayed only within one) and
+ * conservative capabilities. A new provider needs its entry here (the Record type asks for it).
+ */
+const UNKNOWN_MODEL: Record<ProviderId, (id: string) => Pick<ModelInfo, "family" | "caps">> = {
+  anthropic: () => ({ family: "claude", caps: claudeCaps(false, false) }),
+  openai: (id) => ({ family: id, caps: { ...gptCaps(0.1, []), cacheTtlLong: null, contextWindow: undefined } }),
+};
+
 /** A model's registry row; an unknown id gets its inferred provider and conservative capabilities. */
 export function modelOption(id: string): ModelInfo {
   const known = MODELS.find((m) => m.id === id);
   if (known) return known;
   const provider = inferProvider(id);
-  if (provider === "openai") {
-    return { id, provider, label: id, note: "", family: id, tier: "balanced", caps: { ...gptCaps(0.1, []), cacheTtlLong: null, contextWindow: undefined } };
-  }
-  return { id, provider, label: id, note: "", family: "claude", tier: "balanced", caps: claudeCaps(false, false) };
+  return { id, provider, label: id, note: "", tier: "balanced", ...UNKNOWN_MODEL[provider](id) };
 }
 
 /** The effort a model is sent: the one asked for if it offers it, else the nearest offered one (ties go down). */
@@ -220,6 +228,9 @@ export function resolveModel(name: string | null | undefined, ctx: ResolveContex
     if (chatProvider === "anthropic") return MODELS.find((m) => m.id.startsWith(`claude-${a}-`))?.id ?? null;
     return tierModel(aliasTier, chatProvider).model;
   }
+  // A family name with a version ("opus-5", "sonnet-5"): that Claude model on Claude, its tier elsewhere.
+  const byFamily = MODELS.find((m) => m.provider === "anthropic" && m.id.startsWith(`claude-${a}-`));
+  if (byFamily) return chatProvider === "anthropic" ? byFamily.id : tierModel(byFamily.tier, chatProvider).model;
   const known = MODELS.find((m) => m.id === a || m.label.toLowerCase() === a);
   if (known) return ctx.hasKey(known.provider) ? known.id : tierModel(known.tier, chatProvider).model;
   const prefixed = PREFIXES.find(([re]) => re.test(a));
@@ -242,6 +253,19 @@ export function pickToolProvider(defaultModel: string, hasKey: (p: ProviderId) =
   const own = inferProvider(defaultModel);
   if (hasKey(own)) return own;
   return order.find(hasKey) ?? "anthropic";
+}
+
+/** Each provider's default model: what new chats start on when only that provider has a key. */
+export const DEFAULT_MODELS: Record<ProviderId, string> = { anthropic: "claude-opus-5-5", openai: "gpt-6.1-sol" };
+
+/**
+ * The default model to switch to when the current default's provider has no key but another provider has one (an
+ * OpenAI key only, saved or from the environment): that provider's default. Null keeps the current default.
+ */
+export function keyedDefaultModel(defaultModel: string, hasKey: (p: ProviderId) => boolean, order: ProviderId[]): string | null {
+  if (hasKey(inferProvider(defaultModel))) return null;
+  const p = order.find(hasKey);
+  return p ? DEFAULT_MODELS[p] : null;
 }
 
 /** The efforts a model offers, as picker rows. */

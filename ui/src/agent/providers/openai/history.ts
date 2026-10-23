@@ -75,15 +75,21 @@ function callOutput(b: any): Item {
   return { type: "function_call_output", call_id: callId(b.tool_use_id), output };
 }
 
-/** An assistant message from blocks: text as output_text messages, tool_use as function_call; Claude-only blocks dropped. */
+/** Assistant text as an input message (the plain form: no id, status or output_text parts, which only OpenAI's own items have). */
+const assistantText = (text: string, phase: unknown): Item => ({ type: "message", role: "assistant", content: text, ...(phase ? { phase } : {}) });
+
+/** A function call without OpenAI's item id and status: what a translated call looks like. */
+const plainCall = (item: Item): Item => ({ type: "function_call", call_id: item.call_id, name: item.name, arguments: item.arguments });
+
+/** An assistant message from blocks: text as plain assistant messages, tool_use as function_call; Claude-only blocks dropped. */
 function translatedAssistant(blocks: ContentBlockParam[]): Item[] {
   const phase = blocks.some((b) => b.type === "tool_use") ? "commentary" : "final_answer";
   const items: Item[] = [];
   for (const b of blocks as any[]) {
     if (b.type === "text") {
-      if (b.text) items.push({ type: "message", role: "assistant", content: [{ type: "output_text", text: b.text, annotations: [] }], phase });
+      if (b.text) items.push(assistantText(b.text, phase));
     } else if (b.type === "tool_use") {
-      items.push({ type: "function_call", call_id: callId(b.id), name: b.name, arguments: JSON.stringify(b.input ?? {}) });
+      items.push(plainCall({ call_id: callId(b.id), name: b.name, arguments: JSON.stringify(b.input ?? {}) }));
     }
     // thinking, redacted_thinking, server_tool_use and web_*_tool_result are Claude's own.
   }
@@ -152,16 +158,26 @@ export function toInput(req: { system: string; messages: StoredMessage[]; model:
   return { items, owner };
 }
 
+/** Keywords whose values are data, not schemas. */
 const NOT_SCHEMA = new Set(["default", "enum", "const", "examples", "example"]);
+/** Keywords whose values map names to schemas: every value is a schema, whatever its name ("default" too). */
+const SCHEMA_MAPS = new Set(["properties", "patternProperties", "$defs", "definitions", "dependentSchemas"]);
 const fixed = new WeakMap<object, unknown>();
 
 function fixSchema(node: any): any {
   if (Array.isArray(node)) return node.map(fixSchema);
   if (!node || typeof node !== "object") return node;
   const out: any = {};
-  for (const [k, v] of Object.entries(node)) out[k] = NOT_SCHEMA.has(k) ? v : fixSchema(v);
+  for (const [k, v] of Object.entries(node)) out[k] = NOT_SCHEMA.has(k) ? v : SCHEMA_MAPS.has(k) ? fixSchemaMap(v) : fixSchema(v);
   const isArray = out.type === "array" || (Array.isArray(out.type) && out.type.includes("array"));
   if (isArray && out.items === undefined && out.prefixItems === undefined) out.items = {};
+  return out;
+}
+
+function fixSchemaMap(map: any): any {
+  if (!map || typeof map !== "object" || Array.isArray(map)) return fixSchema(map);
+  const out: any = {};
+  for (const [name, schema] of Object.entries(map)) out[name] = fixSchema(schema);
   return out;
 }
 
@@ -222,7 +238,9 @@ export function itemTokens(item: Item): number {
  * Once the estimate passes the trigger, the oldest tool calls (arguments and outputs) are replaced by a placeholder,
  * keeping the last `keepToolUses` and the excluded tools. The amount cleared moves in `clearAtLeastTokens` steps, so the
  * cleared set only grows when the estimate crosses another step and requests in between are byte-identical (the cache
- * holds). Reasoning items of an assistant message whose calls were cleared are dropped (they might not match any more).
+ * holds). Reasoning items of an assistant message whose calls were cleared are dropped (they might not match any more),
+ * and the rest of that message goes as if translated: calls and text without their item ids, other items (web_search_call)
+ * left out, because OpenAI may refuse an output item replayed without the reasoning it came with.
  * Pure: returns new items; the stored history never changes.
  */
 export function clearOldCalls(t: Translated, rules: ClearingRules, tools: Item[]): { items: Item[]; cleared: string[] } {
@@ -253,10 +271,16 @@ export function clearOldCalls(t: Translated, rules: ClearingRules, tools: Item[]
   const clearedTurns = new Set(chosen.map((c) => t.owner[c.i]));
   const items: Item[] = [];
   t.items.forEach((item, i) => {
-    if (item.type === "reasoning" && clearedTurns.has(t.owner[i])) return;
-    if (clearCalls.has(i)) items.push(rules.clearInputs ? { ...item, arguments: CLEARED_ARGS } : item);
-    else if (clearOutputs.has(i)) items.push({ ...item, output: CLEARED_OUTPUT });
-    else items.push(item);
+    if (clearOutputs.has(i)) return void items.push({ ...item, output: CLEARED_OUTPUT });
+    if (t.owner[i] < 0 || !clearedTurns.has(t.owner[i])) return void items.push(item);
+    // An item of a cleared turn: no reasoning, and nothing with an OpenAI item id.
+    if (item.type === "function_call") {
+      const call = plainCall(item);
+      items.push(clearCalls.has(i) && rules.clearInputs ? { ...call, arguments: CLEARED_ARGS } : call);
+    } else if (item.type === "message") {
+      if (typeof item.content === "string") items.push(assistantText(item.content, item.phase));
+      else for (const p of item.content ?? []) if (p.type === "output_text" && p.text) items.push(assistantText(p.text, item.phase));
+    }
   });
   return { items, cleared: chosen.map((c) => c.item.call_id) };
 }

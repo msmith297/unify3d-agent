@@ -348,6 +348,7 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
       sessionContext: opts.sessionContext,
       knowledge: opts.knowledge,
       webResearch: web,
+      webTools: m.caps.web ?? undefined,
       memory: opts.memory,
       provider: m.provider,
     });

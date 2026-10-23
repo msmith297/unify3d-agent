@@ -206,6 +206,9 @@ await t("O5 web_search: no blocks for the calls, display shows web steps; tool a
   assert.deepEqual(body.tools.at(-1), { type: "web_search", user_location: { type: "approximate" }, search_context_size: "medium" });
   assert.deepEqual(body.include, ["web_search_call.action.sources"]);
   assert.equal(body.max_tool_calls, 18);
+  // The prompt describes the web tools the model has (runAgent passes caps.web): web_search only, no web_fetch.
+  const system = body.input[0].content[0].text;
+  assert.ok(system.includes("- web_search is your only web tool.") && !system.includes("web_fetch results"));
   // The replayed web steps go back with the reply.
   const again = requestBody({ model: modelOption("gpt-6.1-sol"), effort: "high", system: "S", tools: TOOLS, messages: [prompt("q"), m, prompt("And for 120-400 mm?")], web: true, longRun: false, clearing: CLEARING });
   assert.deepEqual(again.input.slice(2, 5).map((x) => x.id), ["ws_o5a", "ws_o5b", "msg_o5"]);
@@ -317,7 +320,8 @@ await t("O10 switch to OpenAI: a Claude history becomes input items; Claude-only
   ]);
   assert.deepEqual(items[1].content.map((p) => p.type), ["input_text", "input_file", "input_image"]);
   assert.deepEqual(items[1].content[1], { type: "input_file", filename: "drawing.pdf", file_data: `data:application/pdf;base64,${PDF}` });
-  assert.deepEqual(items[2], { type: "message", role: "assistant", content: [{ type: "output_text", text: "Checking the standard.", annotations: [] }], phase: "commentary" });
+  // Translated text is the documented plain input form (no id, status or output_text parts: those are OpenAI's own).
+  assert.deepEqual(items[2], { type: "message", role: "assistant", content: "Checking the standard.", phase: "commentary" });
   assert.deepEqual(items[3], { type: "function_call", call_id: "toolu_01Ctx", name: "get_model_context", arguments: "{}" });
   assert.equal(items[4].call_id, "toolu_01Ctx");
   assert.deepEqual(items[4].output.map((p) => p.type), ["input_text", "input_image"]);
@@ -371,6 +375,8 @@ await t("O12 clearing: a growing prefix in 12K steps, never excluded or recent c
       assert.equal(out.output === CLEARED_OUTPUT, isCleared);
       const turn = Number(c.call_id.slice(5));
       assert.equal(items.some((x) => x.id === `rs_${turn}`), !isCleared, "reasoning goes only where the turn's call was cleared");
+      assert.equal(c.id, isCleared ? undefined : `fc_${turn}`, "a call whose reasoning went has no item id either");
+      if (isCleared) assert.deepEqual(Object.keys(c), ["type", "call_id", "name", "arguments"]);
     }
     if (prev && prev.cleared.join() === cleared.join()) {
       assert.equal(JSON.stringify(items).startsWith(JSON.stringify(prev.items).slice(0, -1)), true, "between steps the request grows at the end only");
@@ -382,6 +388,46 @@ await t("O12 clearing: a growing prefix in 12K steps, never excluded or recent c
   }
   assert.ok(steps >= 3, `clearing stepped ${steps} times`);
   assert.ok(prev.cleared.length > 10);
+});
+
+await t("O12b clearing: a cleared turn keeps no item id without its reasoning (text, calls), drops its web_search_call", () => {
+  const model = modelOption("gpt-6.1-sol");
+  const history = [prompt("Build the mold.")];
+  for (let k = 0; k < 12; k++) {
+    const id = `call_${k}`;
+    const output = [
+      { id: `rs_${k}`, type: "reasoning", summary: [], encrypted_content: "e".repeat(400) },
+      ...(k === 0 ? [{ id: "ws_0", type: "web_search_call", status: "completed", action: { type: "search", query: "q" } }] : []),
+      { id: `msg_${k}`, type: "message", status: "completed", role: "assistant", phase: "commentary", content: [{ type: "output_text", text: `Step ${k}.`, annotations: [], logprobs: [] }] },
+      { id: `fc_${k}a`, type: "function_call", status: "completed", call_id: `${id}a`, name: "execute_csharp", arguments: JSON.stringify({ code: "c".repeat(200) }) },
+      { id: `fc_${k}b`, type: "function_call", status: "completed", call_id: `${id}b`, name: "execute_csharp", arguments: "{}" },
+    ];
+    history.push({ role: "assistant", content: [{ type: "text", text: `Step ${k}.` }, { type: "tool_use", id: `${id}a`, name: "execute_csharp", input: { code: "c".repeat(200) } }, { type: "tool_use", id: `${id}b`, name: "execute_csharp", input: {} }], replay: { provider: "openai", model: model.id, data: { output } } });
+    history.push({ role: "user", content: [{ type: "tool_result", tool_use_id: `${id}a`, content: "o".repeat(16000) }, { type: "tool_result", tool_use_id: `${id}b`, content: "ok" }] });
+  }
+  const t1 = toInput({ system: "S", messages: history, model });
+  const { items, cleared } = clearOldCalls(t1, CLEARING, toolDefs(TOOLS, false));
+  assert.ok(cleared.length >= 2, `cleared ${cleared.length}`);
+  const clearedTurns = new Set(cleared.map((c) => Number(/^call_(\d+)/.exec(c)[1])));
+  for (let k = 0; k < 12; k++) {
+    const own = items.filter((x) => x.type === "function_call" && x.call_id.startsWith(`call_${k}`) && x.call_id.length === `call_${k}`.length + 1);
+    const text = items.find((x) => x.type === "message" && x.role === "assistant" && (x.id === `msg_${k}` || x.content === `Step ${k}.`));
+    if (clearedTurns.has(k)) {
+      assert.ok(!items.some((x) => x.id === `rs_${k}`));
+      for (const c of own) assert.equal(c.id, undefined, `${c.call_id} keeps no id`);
+      assert.deepEqual(text, { type: "message", role: "assistant", content: `Step ${k}.`, phase: "commentary" });
+      // Each call keeps its own arguments unless it was cleared itself.
+      for (const c of own) assert.equal(c.arguments === '{"cleared":true}', cleared.includes(c.call_id));
+    } else {
+      assert.ok(items.some((x) => x.id === `rs_${k}`));
+      assert.equal(text.id, `msg_${k}`);
+      for (const c of own) assert.ok(c.id?.startsWith(`fc_${k}`));
+    }
+  }
+  assert.ok(clearedTurns.has(0) && !items.some((x) => x.type === "web_search_call"), "a cleared turn's web_search_call goes with its reasoning");
+  // The rule the request must follow: every item with an OpenAI id belongs to a turn whose reasoning is sent.
+  const reasoned = new Set(items.filter((x) => x.type === "reasoning").map((x) => x.id.slice(3)));
+  for (const x of items) if (x.id && x.type !== "reasoning") assert.ok(reasoned.has(/^(?:msg|fc)_(\d+)/.exec(x.id)[1]), `${x.id} goes without its reasoning`);
 });
 
 // ---- O13: stalls ----
@@ -422,6 +468,14 @@ await t("O14 an OpenAI 401 that echoes the key is redacted", async () => {
   assert.equal(errorText(a(400, "other"), { vendor: "Anthropic" }), "x");
 });
 
+await t("O14b an OpenAI 403 for an unsupported country is about access, not the key", async () => {
+  const body = { error: { message: "Country, region, or territory not supported", type: "request_forbidden", code: "unsupported_country_region_territory", param: null } };
+  const r = await run([{ status: 403, json: body }], {}, [prompt("Go.")]);
+  assert.equal(r.thrown.kind, "access");
+  assert.equal(r.thrown.status, 403);
+  assert.equal(providerErrorText(r.thrown), "OpenAI refused this request from your location or network. Check your OpenAI account's access.");
+});
+
 // ---- O15-O17: speed, long runs, effort ----
 
 await t("O15 speed: service_tier only on models that offer it; a served tier is reported", async () => {
@@ -430,7 +484,10 @@ await t("O15 speed: service_tier only on models that offer it; a served tier is 
   assert.equal(a.log[0].body.service_tier, "fast");
   assert.equal(Object.keys(a.log[0].body).at(-1), "service_tier");
   assert.deepEqual(a.served, ["fast"]);
-  const b = await run([sse("openai-done.sse")], { model: "gpt-6-luna", serviceTier: "fast" }, [prompt("Go.")]);
+  // Luna has Fast mode but not Ultrafast.
+  const lunaFast = await run([sse("openai-done.sse")], { model: "gpt-6-luna", serviceTier: "fast" }, [prompt("Go.")]);
+  assert.equal(lunaFast.log[0].body.service_tier, "fast");
+  const b = await run([sse("openai-done.sse")], { model: "gpt-6-luna", serviceTier: "ultrafast" }, [prompt("Go.")]);
   assert.ok(!("service_tier" in b.log[0].body));
   assert.deepEqual(b.served, []);
   const c = await run([sse("anthropic-done.sse")], { model: "claude-opus-5-5", serviceTier: "fast" }, [prompt("Go.")]);
@@ -441,11 +498,15 @@ await t("O15 speed: service_tier only on models that offer it; a served tier is 
   assert.equal(providerErrorText(d.thrown), "Your OpenAI project doesn't allow the Ultrafast speed. Set Speed to Standard in Options.");
 });
 
-await t("O16 long runs ask for the 12 h cache only where the model has it", async () => {
+await t("O16 long runs ask for the 12 h cache only where the model has it (none yet: hand check H6)", async () => {
   const req = (model, longRun) =>
-    requestBody({ model: modelOption(model), effort: "high", system: "S", tools: TOOLS, messages: [prompt("q")], web: false, longRun, clearing: CLEARING });
-  assert.deepEqual(req("gpt-6.1-sol", true).prompt_cache_options, { ttl: "12h" });
-  assert.ok(!("prompt_cache_options" in req("gpt-6.1-sol", false)));
+    requestBody({ model: typeof model === "string" ? modelOption(model) : model, effort: "high", system: "S", tools: TOOLS, messages: [prompt("q")], web: false, longRun, clearing: CLEARING });
+  // The SDK lists only "30m": no registry model asks for 12 h until H6 shows the API takes it.
+  for (const m of MODELS.filter((x) => x.provider === "openai")) assert.ok(!("prompt_cache_options" in req(m.id, true)), m.id);
+  const sol = modelOption("gpt-6.1-sol");
+  const with12h = { ...sol, caps: { ...sol.caps, cacheTtlLong: "12h" } };
+  assert.deepEqual(req(with12h, true).prompt_cache_options, { ttl: "12h" });
+  assert.ok(!("prompt_cache_options" in req(with12h, false)));
   assert.ok(!("prompt_cache_options" in req("gpt-9-preview", true)), "unknown OpenAI models get no long TTL");
 });
 
@@ -464,7 +525,7 @@ await t("O18 system prompt: Anthropic's is unchanged; OpenAI's differs only by t
   const input = { realisticAppearance: true, verbosity: "medium", userTools: BASE.userTools, skills: [], agents: [], mcpInstructions: [], sessionContext: [], knowledge: null, webResearch: true, memory: null };
   assert.equal(buildSystemPrompt(input), goldenSystem);
   assert.equal(buildSystemPrompt({ ...input, provider: "anthropic" }), goldenSystem);
-  const openai = buildSystemPrompt({ ...input, provider: "openai" });
+  const openai = buildSystemPrompt({ ...input, provider: "openai", webTools: "openai" });
   const STYLE =
     "\n\n# Working style on this model\n" +
     "- Act without asking when the answer can be inferred from the request, the model or the conversation. Ask only when a choice changes the result and you can't infer it.\n" +
@@ -477,7 +538,12 @@ await t("O18 system prompt: Anthropic's is unchanged; OpenAI's differs only by t
   assert.ok(openai.includes(STYLE) && openai.includes(WEB_OPENAI));
   assert.equal(openai.replace(STYLE, "").replace(WEB_OPENAI, WEB_ANTHROPIC), goldenSystem);
   // Without web research neither wording appears.
-  assert.ok(!buildSystemPrompt({ ...input, webResearch: false, provider: "openai" }).includes("web_search is your only"));
+  assert.ok(!buildSystemPrompt({ ...input, webResearch: false, provider: "openai", webTools: "openai" }).includes("web_search is your only"));
+  // The web wording follows the run's web tools (caps.web), the style notes the provider: a third provider gets no
+  // style notes and the wording for the tools it has, never Claude's web_fetch by default.
+  const third = buildSystemPrompt({ ...input, provider: "mistral", webTools: "openai" });
+  assert.ok(!third.includes(STYLE) && third.includes(WEB_OPENAI));
+  assert.equal(third.replace(WEB_OPENAI, WEB_ANTHROPIC), goldenSystem);
 });
 
 // ---- O19: the CSP lets the panel reach every provider ----
@@ -525,6 +591,10 @@ await t("tool schemas for OpenAI: arrays get items, the root is an object, nothi
   assert.equal(schema.properties.list.items, undefined, "the add-in's schema isn't changed");
   assert.equal(forOpenAI(schema), out);
   assert.equal(forOpenAI({ properties: {} }).type, "object");
+  // A property named like a data keyword ("default", "enum", ...) is still a schema.
+  const named = forOpenAI({ type: "object", properties: { default: { type: "array" }, enum: { type: "array" }, other: { type: "array" } }, $defs: { const: { type: "array" } } });
+  assert.deepEqual(named.properties, { default: { type: "array", items: {} }, enum: { type: "array", items: {} }, other: { type: "array", items: {} } });
+  assert.deepEqual(named.$defs.const, { type: "array", items: {} });
 });
 
 // ---- the chat: display parts ----

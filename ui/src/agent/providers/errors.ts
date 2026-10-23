@@ -1,7 +1,7 @@
 import type { ProviderId } from "../../lib/types";
 
 /** What went wrong with a provider request; store.ts shows the text for the kind (errorText). */
-export type ErrorKind = "auth" | "rate" | "quota" | "overloaded" | "context" | "policy" | "tier" | "network" | "other";
+export type ErrorKind = "auth" | "access" | "rate" | "quota" | "overloaded" | "context" | "policy" | "tier" | "network" | "other";
 
 /** A failed provider request. The message is already redacted (no key fragments). */
 export class ProviderError extends Error {
@@ -50,6 +50,8 @@ export function errorText(err: ProviderError, ctx: { vendor: string }): string {
   switch (err.kind) {
     case "auth":
       return err.provider === "anthropic" ? "The API key was rejected. Check it in Settings." : `The ${ctx.vendor} API key was rejected. Check it in Settings.`;
+    case "access":
+      return `${ctx.vendor} refused this request from your location or network. Check your ${ctx.vendor} account's access.`;
     case "rate":
       return "Rate limited by the API. Wait a moment and press Retry.";
     case "quota":

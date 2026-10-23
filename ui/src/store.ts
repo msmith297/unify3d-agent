@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { on, rpc } from "./lib/bridge";
 import { questionTimerStep } from "./lib/questionTimeout";
 import { syncRibbonIcons } from "./lib/toolIcons";
-import { DEFAULT_SETTINGS, SETTINGS_VERSION, effortsFor, findModel, inferProvider, modelOption, pickToolProvider, pickerModels, resolveModel, tierModel } from "./lib/models";
+import { DEFAULT_SETTINGS, SETTINGS_VERSION, effortsFor, findModel, inferProvider, keyedDefaultModel, modelOption, pickToolProvider, pickerModels, resolveModel, tierModel } from "./lib/models";
 import { PROVIDERS, getProvider, providerErrorText } from "./agent/providers";
 import { ProviderError } from "./agent/providers/errors";
 import { unreadableNote } from "./agent/providers/media";
@@ -1952,6 +1952,10 @@ export const useStore = create<State>((set, get) => {
           swTheme: host.swTheme ?? null,
           settings,
         });
+        // Only another provider has a key (an environment key never goes through setApiKey): new chats start on its
+        // default model instead of one that can't run.
+        const keyed = keyedDefaultModel(settings.defaultModel, (p) => hasKey(get(), p), PROVIDERS.map((p) => p.id));
+        if (keyed) await get().saveSettings({ defaultModel: keyed });
         await loadChat(viewKey);
         // A new SolidWorks session starts on a fresh chat (earlier ones are in the chat list); after Save and restart,
         // where the user left off.
@@ -2567,12 +2571,10 @@ export const useStore = create<State>((set, get) => {
 
     async setApiKey(provider, key) {
       const res = await rpc<{ source: KeySource; sources?: Record<ProviderId, KeySource> }>("apiKey.set", { provider, key });
-      const hadClaude = hasKey(get(), "anthropic");
       set((s) => ({ apiKeySources: { ...s.apiKeySources, [provider]: res.source, ...(res.sources ?? {}) }, notice: null, keyFocus: null }));
       // The first key is OpenAI's: new chats start on OpenAI's default instead of a model that can't run.
-      if (provider === "openai" && key && !hadClaude && inferProvider(get().settings.defaultModel) === "anthropic") {
-        await get().saveSettings({ defaultModel: "gpt-6.1-sol" });
-      }
+      const keyed = keyedDefaultModel(get().settings.defaultModel, (p) => hasKey(get(), p), PROVIDERS.map((p) => p.id));
+      if (keyed) await get().saveSettings({ defaultModel: keyed });
     },
 
     setPanel(panel) {

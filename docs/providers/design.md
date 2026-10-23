@@ -33,7 +33,7 @@ So:
 | Stop reasons | Anthropic's vocabulary stays canonical (`end_turn`, `tool_use`, `max_tokens`, `refusal`, `pause_turn`, plus the panel's own stops). Every adapter maps to it. |
 | Usage | `{input (uncached), output, cacheRead, cacheWrite, context}` as today. Every adapter normalises to it. |
 | Context clearing on OpenAI | A client-side copy of `clear_tool_uses`, with the same trigger, keep count, minimum and exclude list. It runs in steps, so the prompt cache holds between steps. No server compaction in v1. |
-| Prompt caching on OpenAI | Implicit caching. The system prompt is the first `developer` message, and tools, `parallel_tool_calls` and the parameter order are kept byte-stable. Long runs ask for `prompt_cache_options.ttl: "12h"`. |
+| Prompt caching on OpenAI | Implicit caching. The system prompt is the first `developer` message, and tools, `parallel_tool_calls` and the parameter order are kept byte-stable. Long runs are meant to ask for `prompt_cache_options.ttl: "12h"`; as built nothing is sent until hand check H6 (6.7). |
 | Web research on OpenAI | The hosted `web_search` tool, which can also open pages from its results. OpenAI has no separate `web_fetch`. No client-side fetch tool is built in v1. The prompt and the setting text say so. |
 | Thinking | OpenAI `reasoning: {effort, summary: "auto"}`. Summaries show as progress notes, like Claude's thinking. The encrypted reasoning items are kept in `replay` and sent back. |
 | Effort | The same five ids (`low`, `medium`, `high`, `xhigh`, `max`). Each model lists the ones it supports, and pickers show only those. |
@@ -329,7 +329,8 @@ With `provider.label = "Claude"`, the status and error texts are byte-identical 
 
 | Kind | Anthropic source | OpenAI source | User text (`{vendor}` = provider.vendor) |
 |---|---|---|---|
-| auth | 401 | 401, or 403 for a country or IP block | Anthropic: today's "The API key was rejected. Check it in Settings." OpenAI: "The OpenAI API key was rejected. Check it in Settings." |
+| auth | 401 | 401 | Anthropic: today's "The API key was rejected. Check it in Settings." OpenAI: "The OpenAI API key was rejected. Check it in Settings." |
+| access | none | 403 for a country, region or IP block (the key is fine) | "OpenAI refused this request from your location or network. Check your OpenAI account's access." |
 | rate | 429 | 429 `rate_limit_exceeded`, `slow_down` | Today's "Rate limited by the API. Wait a moment and press Retry." |
 | quota | none | 429 `credit_balance_exhausted`, `organization_spend_limit_exceeded`, `project_spend_limit_exceeded`, `organization_usage_limit_exceeded` | "Your OpenAI account is out of credit or over its spend limit. Check billing on platform.openai.com, then press Retry." |
 | overloaded | 529, 503 | 503 `server_is_overloaded`, 500 | Today's "The API is overloaded right now. Press Retry in a moment." |
@@ -370,7 +371,7 @@ With `provider.label = "Claude"`, the status and error texts are byte-identical 
 | `ChatView.tsx:986` footer | "billed at 10%" | `billed at ${Math.round(model.caps.cacheReadRatio * 100)}%` (Claude 0.1, so the same text). |
 | `ChatView.tsx:339-432` `buildItems` | walks `content` | walks `displayParts(message)`: `providerOf(replay?.provider)?.display?.(m) ?? content.map((_, i) => ({kind:"block", index:i}))`. Claude messages give the same parts in the same order, so they render as today. |
 | Composer and Settings effort lists | `EFFORTS` | `EFFORTS.filter(e => model.caps.efforts.includes(e.id))` |
-| `systemPrompt.ts` `creator(web)` | one wording | `creator(web, webKind)`: `"anthropic"` gives today's text, `"openai"` a search-only wording (section 6.9). |
+| `systemPrompt.ts` `creator(web)` | one wording | `creator(web, webTools)`: the run's `caps.web` picks the wording, `"anthropic"` today's text, `"openai"` a search-only one (section 6.9). The working-style notes come from a per-provider table (`STYLE`). |
 | `WebResearchSettings.tsx` | "through Anthropic" | Provider-neutral text (section 7.7). |
 | Attachments (`FileAttachments.cs`, `store.ts:396-413`) | Anthropic limits | Unchanged. Anthropic's limits (5 MB per image, 32 MB per request) are the stricter ones, so they hold for OpenAI too (50 MB per file and per request). Comments now say "the strictest provider". |
 
@@ -516,7 +517,7 @@ does.
 | User message | One `{ type: "message", role: "user", content: [...] }` holding its non-tool-result blocks in order, after the `function_call_output` items for its `tool_result` blocks. That is the split from inventory item 4.5: results first, then hook text and steering. |
 | `tool_result` | `{ type: "function_call_output", call_id: tool_use_id, output }`. A string or all-text content becomes one string (text parts joined with `"\n\n"`). Content with images or documents becomes an array of `input_text` / `input_image` / `input_file`. With `is_error`, the first text becomes `"Error: " + text`, or an `input_text` "Error:" is put first. |
 | Assistant message whose blocks all map to one OpenAI `replay` of a compatible model (same `family` in the registry), and whose derived blocks match `content` (same count, and each `function_call.call_id` equals the `tool_use.id` at its position) | `replay.data.output` items, verbatim, in order, minus reasoning items that can't be replayed (section 6.6). |
-| Any other assistant message: Claude-origin, foreign model family, or failed check | `text` becomes `{ type: "message", role: "assistant", content: [{ type: "output_text", text, annotations: [] }], phase }`. `phase` is `"commentary"` when the message has any `tool_use`, else `"final_answer"`. `tool_use` becomes `{ type: "function_call", call_id: id, name, arguments: JSON.stringify(input) }`. `thinking`, `redacted_thinking`, `server_tool_use` and `web_*_tool_result` are dropped. `citations` on text are dropped. |
+| Any other assistant message: Claude-origin, foreign model family, or failed check | `text` becomes the plain input form `{ type: "message", role: "assistant", content: text, phase }` (an `output_text` part needs the `id`, `status` and `logprobs` of OpenAI's own items). `phase` is `"commentary"` when the message has any `tool_use`, else `"final_answer"`. `tool_use` becomes `{ type: "function_call", call_id: id, name, arguments: JSON.stringify(input) }`. `thinking`, `redacted_thinking`, `server_tool_use` and `web_*_tool_result` are dropped. `citations` on text are dropped. |
 
 - **Ids from Claude.** `call_id` passes through. Claude's `toolu_...` ids are `[A-Za-z0-9_]`, under 64 characters. An id
   outside `/^[A-Za-z0-9_-]{1,64}$/` becomes `"c_" + fnv1a64hex(id)`, and so does its result's `call_id`. **(verify H7:
@@ -603,8 +604,9 @@ cache holds, and follows OpenAI's rule to send back every reasoning item since t
   text order serves OpenAI.
 - **Long runs:** `prompt_cache_options.ttl: "12h"` (writes cost 2.5x instead of 1.25x), only when
   `model.caps.cacheTtlLong === "12h"`. The 30-minute default is a minimum that every read refreshes, so normal chats need
-  nothing. **(verify H6: the create reference still lists only "30m". If a 400 names `prompt_cache_options`, set the
-  model's `cacheTtlLong` to null; no code change.)**
+  nothing. **(verify H6: the create reference and the pinned SDK list only "30m".)** As built, every GPT row ships
+  with `cacheTtlLong: null`, so nothing is sent and the 30-minute default applies; once H6 shows "12h" is accepted, set
+  it on the rows (no code change).
 - **Usage:** `cached_tokens` and `cache_write_tokens` feed the footer (section 6.10).
 
 ### 6.8 Client-side context clearing (`clearOldCalls(items, rules)`)
@@ -629,7 +631,9 @@ translated `input` items, run last. The stored history is never changed.
    - its output becomes `"[Cleared to save context: an older tool result. Run the tool again if you need it.]"`, and
      its images and files are dropped;
    - with `clearInputs`, its `arguments` becomes `"{\"cleared\":true}"`;
-   - the reasoning items of the same assistant message are dropped (6.6).
+   - the reasoning items of the same assistant message are dropped (6.6), and the rest of that message goes as if
+     translated (6.3): its `function_call` and `message` items lose their item `id` and `status`, and its other items
+     (`web_search_call`) are left out. OpenAI may refuse an output item replayed without the reasoning it came with.
 
 Because the target moves in 12K steps, the set of cleared calls only grows when the estimate crosses another step. Each
 growth costs one cache rewrite, as `clear_at_least` does on Claude, and requests in between are byte-identical.
@@ -756,14 +760,15 @@ Entries:
 | claude-haiku-5-5 | anthropic | Haiku 5.5 | Fastest · for quick questions | claude | fast | all 5 | anthropic | no | no | 0.1 | 1h | - | - / 64000 |
 | gpt-6.1-sol | openai | GPT-6.1 Sol | OpenAI default · best balance | gpt-6 | balanced | all 5 | openai | no | no | 0.05 | 12h | fast, ultrafast | 1.05M / 128000 |
 | gpt-6-astra | openai | GPT-6 Astra | Most capable · about 5× the cost of Sol | gpt-6 | high | all 5 | openai | no | no | 0.1 | 12h | fast, ultrafast | 1.05M / 128000 |
-| gpt-6-luna | openai | GPT-6 Luna | Fastest · for quick questions | gpt-6 | fast | all 5 | openai | no | no | 0.1 | 12h | - | 1.05M / 128000 |
+| gpt-6-luna | openai | GPT-6 Luna | Fastest · for quick questions | gpt-6 | fast | all 5 | openai | no | no | 0.1 | 12h | fast | 1.05M / 128000 |
 
 - **Claude rows** keep today's ids, labels and notes. Their context sizes are left out until checked; nothing reads them in v1.
 - **Unknown Claude ids** get today's conservative behaviour: no fallbacks, no progress updates. `webTools` keeps its own
   regex.
 - **Unknown OpenAI ids:** all five efforts, `web: "openai"`, no long cache TTL, no speed tiers.
 - **Prices** are from the research (for example Sol: 2 / 0.10 / 2.50 / 10). Claude prices are left out until checked.
-- **Luna's speed tiers** are unknown, so it has none. **(verify)**
+- **Luna's speed tiers:** Fast only (OpenAI's fast-mode guide and pricing list Luna; Ultrafast is Astra and 6.1 Sol).
+- **As built, `cacheTtlLong` is null on every GPT row** until H6 (6.7); the 12h in this table is the target.
 - **Families:** `gpt-6` covers 6 and 6.1 because OpenAI says reasoning carries within a family. **(verify H9: if 6.1 Sol
   drops Astra's reasoning, nothing breaks; the items are only wasted input.)**
 
@@ -1007,7 +1012,7 @@ Inventory sections A-S, item by item. The track is CORE (C), EDGES (E) or the co
 | H. `capture_views` token text | Unchanged (7.7). | - |
 | H. Vision and PDF need | `caps.vision` / `caps.pdf`. Every v1 model is true for both. | C0 |
 | I. `systemPrompt.ts` stability and order | Unchanged for Claude. `provider` param (below). | C |
-| I. `creator(web)` | `webKind` variant (6.9). | C |
+| I. `creator(web)` | `webTools` variant (6.9). | C |
 | I. OpenAI prompting notes (Astra asks more, heavy Markdown) | For `provider: "openai"`, a short "Working style" paragraph after the core section: act without asking when the answer can be inferred, carry the task through to the end, keep Markdown light (short paragraphs, lists only for steps). The text is fixed in the check. | C |
 | I. "Some skills were written for Claude Code" and MCP heading | Kept (plugin compatibility). | - |
 | I. `workSummary` `MINOR_TOOLS` | Unchanged. | - |
@@ -1125,7 +1130,7 @@ Inventory sections A-S, item by item. The track is CORE (C), EDGES (E) or the co
 | O12 | Clearing. A synthetic history grows one tool call at a time. The cleared set is a prefix, grows only when the estimate crosses a 12K step, never touches excluded tools or the last 6 calls, and drops reasoning only in turns with cleared calls. Requests between steps are string-equal in their prefix. |
 | O13 | Stall, with `stallMs: 50`. A hanging stream retries twice with "The connection to OpenAI went quiet - retrying (n/2)...", then throws the final text. The same happens on Claude with "Claude". |
 | O14 | `redactKeys` on an OpenAI 401 body: the message has no `sk-` fragment. |
-| O15 | Speed. `serviceTier: "fast"` on Sol adds `service_tier`. On Luna nothing is added. A served `fast` reaches `onServedTier`. |
+| O15 | Speed. `serviceTier: "fast"` on Sol adds `service_tier`, and on Luna; `"ultrafast"` on Luna adds nothing. A served `fast` reaches `onServedTier`. |
 | O16 | Long run. `ttl: "12h"` appears only with `longRun` and `cacheTtlLong: "12h"`. |
 | O17 | Effort clamp. A model whose efforts list lacks `max` sends `xhigh`. |
 | O18 | The system prompt. `buildSystemPrompt({...})` with `provider` omitted or `"anthropic"` equals G0's system text. `"openai"` differs only by the working-style paragraph and the web wording. |
@@ -1222,10 +1227,14 @@ Inventory sections A-S, item by item. The track is CORE (C), EDGES (E) or the co
 ## 10. How a third provider is added later
 
 1. **Adapter:** `ui/src/agent/providers/<id>/` implementing `Provider` (4.2), and added to `PROVIDERS`.
-2. **Models:** rows in `MODELS`, plus a `<id>` column in `TIERS`.
-3. **Keys:** a line in `ProviderKeys.All` and an entry in `SecretEnv.ProviderPrefixes` (C#).
-4. **CSP:** its origin in `ui/index.html` (the O19 check fails until it is there).
-5. **Tests:** fixtures and scenarios in `providers.check.mjs`.
+2. **Models:** rows in `MODELS`, a `<id>` column in `TIERS`, its default model in `DEFAULT_MODELS`, its id prefix in
+   `PREFIXES`, and an `UNKNOWN_MODEL` entry (family and conservative caps for ids not in the registry). The Record types
+   ask for each of these.
+3. **Prompt:** a new kind of web tools (`ModelCaps.web`) needs its wording in `systemPrompt.ts` `WEB` (the Record type
+   asks for it); working-style notes, if any, go in `STYLE`.
+4. **Keys:** a line in `ProviderKeys.All` and an entry in `SecretEnv.ProviderPrefixes` (C#).
+5. **CSP:** its origin in `ui/index.html` (the O19 check fails until it is there).
+6. **Tests:** fixtures and scenarios in `providers.check.mjs`.
 
 Settings rows, pickers, the Tour, error texts and alias resolution come from the registry with no further changes. A new
 `ErrorKind` is only needed when the provider has a failure the table in 4.4 doesn't cover.
@@ -1269,7 +1278,7 @@ Settings rows, pickers, the Tour, error texts and alias resolution come from the
 - Foreign `call_id`s (H7).
 - Tool-count and description limits (H8).
 - Reasoning carry within the `gpt-6` family (H9).
-- Speed tiers per model, Luna in particular (7.1).
+- Speed tiers per model (7.1; Luna now Fast only, from the docs).
 - `x-should-retry` support in the pinned `openai` SDK (4.4: read its source after install, no network needed).
 - The OpenAI keys page URL (H12).
 

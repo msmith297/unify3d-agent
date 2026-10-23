@@ -48,7 +48,7 @@ export function openaiFetch(liveness: { last: number }) {
 function kindOf(status: number | undefined, code: string | undefined, err: any): ErrorKind {
   if (code === "misalignment_policy_violation" || err?.misalignment) return "policy";
   if (status === 401) return "auth";
-  if (status === 403) return "auth"; // a country, region or IP block
+  if (status === 403) return "access"; // a country, region or IP block: the key itself is fine
   if (status === 429 || code === "rate_limit_exceeded" || code === "slow_down") return code && QUOTA_CODES.has(code) ? "quota" : "rate";
   if (code && QUOTA_CODES.has(code)) return "quota";
   if (code === "context_length_exceeded") return "context";
@@ -98,7 +98,8 @@ export function requestBody(req: TurnRequest): Record<string, unknown> {
     body.include = ["web_search_call.action.sources"];
     body.max_tool_calls = 18; // Claude's 8 searches + 10 fetches, as one cap
   }
-  // Long tool runs wait 5-60 min on gate questions: keep the prompt cached across them.
+  // Long tool runs wait 5-60 min on gate questions: keep the prompt cached across them. No GPT model has "12h" yet
+  // (models.ts gptCaps): it waits for hand check H6.
   if (req.longRun && m.caps.cacheTtlLong === "12h") body.prompt_cache_options = { ttl: "12h" };
   if (req.serviceTier && m.caps.serviceTiers.includes(req.serviceTier)) body.service_tier = req.serviceTier;
   return body;

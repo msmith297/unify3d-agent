@@ -14,6 +14,8 @@ import {
   resolveModel,
   modelFromAlias,
   pickToolProvider,
+  keyedDefaultModel,
+  DEFAULT_MODELS,
   pickerModels,
   groupModels,
   effortsFor,
@@ -64,9 +66,10 @@ t("every registry row is valid", () => {
     ],
   );
   assert.deepEqual(MODELS.filter((m) => m.provider === "openai").map((m) => [m.id, m.tier, m.family, m.caps.serviceTiers.join("+"), m.caps.cacheTtlLong]), [
-    ["gpt-6.1-sol", "balanced", "gpt-6", "fast+ultrafast", "12h"],
-    ["gpt-6-astra", "high", "gpt-6", "fast+ultrafast", "12h"],
-    ["gpt-6-luna", "fast", "gpt-6", "", "12h"],
+    // No 12 h cache until hand check H6 shows the API takes it (the SDK lists only "30m"); Luna has Fast mode.
+    ["gpt-6.1-sol", "balanced", "gpt-6", "fast+ultrafast", null],
+    ["gpt-6-astra", "high", "gpt-6", "fast+ultrafast", null],
+    ["gpt-6-luna", "fast", "gpt-6", "fast", null],
   ]);
   assert.equal(modelOption("claude-opus-5-5").caps.cacheReadRatio, 0.1); // the footer still says "billed at 10%"
   assert.equal(DEFAULT_SETTINGS.defaultModel, "claude-opus-5-5");
@@ -98,6 +101,9 @@ t("unknown ids get conservative capabilities", () => {
   assert.equal(o.caps.cacheTtlLong, null);
   assert.deepEqual(o.caps.serviceTiers, []);
   assert.equal(o.family, "gpt-7-nova"); // reasoning never carries to or from an unknown model
+  assert.equal(c.family, "claude");
+  assert.equal(c.caps.web, "anthropic");
+  assert.equal(c.caps.cacheTtlLong, "1h");
 });
 
 t("tierModel for both providers", () => {
@@ -158,6 +164,25 @@ t("resolveModel: every cell of the table in design 7.4", () => {
   // modelFromAlias keeps its meaning: a Claude chat with every key.
   assert.equal(modelFromAlias("sonnet"), "claude-sonnet-5-5");
   assert.equal(modelFromAlias("inherit"), null);
+  // A family name with a version, as before the provider layer: that Claude model on Claude, its tier elsewhere.
+  assert.equal(resolveModel("opus-5", claude(both)), "claude-opus-5-5");
+  assert.equal(resolveModel("Sonnet-5", claude(has("anthropic"))), "claude-sonnet-5-5");
+  assert.equal(resolveModel("fable-5", claude(both)), "claude-fable-5-1");
+  assert.equal(modelFromAlias("opus-5"), "claude-opus-5-5");
+  assert.equal(resolveModel("opus-5", openai(both)), "gpt-6-astra");
+  assert.equal(resolveModel("haiku-5", openai(has("openai"))), "gpt-6-luna");
+  assert.equal(resolveModel("opus-9", claude(both)), null);
+});
+
+t("keyedDefaultModel: only another provider has a key (an environment key too), so new chats start on its default", () => {
+  assert.deepEqual(DEFAULT_MODELS, { anthropic: "claude-opus-5-5", openai: "gpt-6.1-sol" });
+  for (const p of PROVIDERS) assert.ok(MODELS.some((m) => m.id === DEFAULT_MODELS[p] && m.provider === p));
+  assert.equal(keyedDefaultModel("claude-opus-5-5", has("openai"), PROVIDERS), "gpt-6.1-sol");
+  assert.equal(keyedDefaultModel("gpt-6-astra", has("anthropic"), PROVIDERS), "claude-opus-5-5");
+  assert.equal(keyedDefaultModel("claude-opus-5-5", has("anthropic", "openai"), PROVIDERS), null);
+  assert.equal(keyedDefaultModel("claude-sonnet-5-5", has("anthropic"), PROVIDERS), null);
+  assert.equal(keyedDefaultModel("gpt-6.1-sol", has("openai"), PROVIDERS), null);
+  assert.equal(keyedDefaultModel("claude-opus-5-5", has(), PROVIDERS), null, "no key at all: the default stays (the no-key notice follows)");
 });
 
 t("toolProvider: the default model's provider with a key, else the first with a key, else Anthropic", () => {
