@@ -577,7 +577,7 @@ await t("chat: Claude messages give the same items as before; OpenAI messages ad
 
   const o1 = assistantItems(o1Message, 1, new Map(), true);
   assert.deepEqual(o1.map((x) => x.kind), ["progress", "text"]);
-  assert.equal(o1[0].text, "**Reading the shell** The user wants the wall thickness.\n\nIt is in the context block.");
+  assert.equal(o1[0].text, "Reading the shell. The user wants the wall thickness.\n\nIt is in the context block.", "a summary's bold heading shows as a sentence");
   assert.deepEqual(assistantItems(o1Message, 1, new Map(), false).map((x) => x.kind), ["text"]);
   const web = { role: "assistant", content: [{ type: "text", text: "ISO 2768-m allows ±0.2 mm." }], replay: { provider: "openai", model: "gpt-6.1-sol", data: { output: [
     { id: "ws1", type: "web_search_call", status: "completed", action: { type: "search", query: "ISO 2768", sources: [{ type: "url", url: "https://a.example" }] } },

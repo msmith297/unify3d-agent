@@ -25,11 +25,17 @@ export type FakeScript = FakeStep[] | ((req: FakeRequest) => FakeStep);
 const hostOf = (url: string): FakeRequest["host"] =>
   url.startsWith("https://api.anthropic.com/") ? "anthropic" : url.startsWith("https://api.openai.com/") ? "openai" : "other";
 
-/** A fetch serving the script; every request is pushed to `log`. Error answers carry retry-after-ms 1 (instant retries). */
+/**
+ * A fetch serving the script for the model APIs; every such request is pushed to `log`. Other hosts go to the fetch that
+ * was in place when this one was made (the mock host's own requests). Error answers carry retry-after-ms 1 (instant
+ * retries).
+ */
 export function fakeFetch(script: FakeScript, log: FakeRequest[] = []): typeof fetch {
   let next = 0;
+  const passthrough = typeof fetch === "function" ? fetch : null;
   return (async (input: RequestInfo | URL, init: RequestInit = {}) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    if (hostOf(url) === "other" && passthrough) return passthrough(input, init);
     const text = typeof init.body === "string" ? init.body : "";
     let body: any = null;
     try {

@@ -91,13 +91,18 @@ await t("C2 a tool loop: tool result with an image, a PostToolUse hook's context
   const hook = (event) =>
     event === "PostToolUse" ? { block: false, additionalContext: ["Peer agent: the customer wants R2."], systemMessages: [], continue: true } : null;
   const toolResult = { content: [{ type: "text", text: "+ Fillet1 [Fillet]" }, { type: "image", source: { type: "base64", media_type: "image/png", data: PNG } }], isError: false };
-  golden("C2", [
-    await run("loop", [{ sse: "anthropic-tool.sse" }, { sse: "anthropic-done.sse" }], {}, [prompt("Fillet the selected edges 2 mm.")], {
-      hook,
-      toolResult,
-      steer: [{ type: "text", text: "Also check the draft." }],
-    }),
-  ]);
+  const loop = await run("loop", [{ sse: "anthropic-tool.sse" }, { sse: "anthropic-done.sse" }], {}, [prompt("Fillet the selected edges 2 mm.")], {
+    hook,
+    toolResult,
+    steer: [{ type: "text", text: "Also check the draft." }],
+  });
+  golden("C2", [loop]);
+  // The cached prefix: the second request repeats the first one's system, tools and messages before its new turn.
+  const [a, b] = loop.requests.map((q) => q.body);
+  const upToMessages = (s) => s.slice(0, s.indexOf('"messages":[') + '"messages":['.length);
+  assert.equal(upToMessages(a), upToMessages(b));
+  const msgs = (s) => JSON.stringify(JSON.parse(s).messages);
+  assert.ok(msgs(b).startsWith(msgs(a).slice(0, -1)));
 });
 
 await t("C3 Sonnet 5.5, long run (1 h cache), web on (dynamic web tools, no web beta)", async () => {

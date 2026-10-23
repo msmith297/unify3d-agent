@@ -22,6 +22,11 @@ function webPart(item: any): DisplayPart {
   };
 }
 
+/** A summary part opens with a bold heading ("**Finding the standard** Looking it up."): shown as a plain sentence. */
+function plainHeading(text: string): string {
+  return text.replace(/^\*\*(.+?)\*\*\s*/, (_, h: string) => (/[.:!?]$/.test(h) ? `${h} ` : `${h}. `)).trim();
+}
+
 /**
  * How an OpenAI assistant message shows: its output in order - reasoning summaries as progress notes, web searches as
  * step cards, and the canonical blocks (text, tool calls) where they came from. Falls back to the plain blocks when
@@ -37,7 +42,7 @@ export function openaiDisplay(m: StoredMessage): DisplayPart[] {
   for (const item of output as any[]) {
     if (item?.type === "reasoning") {
       const text = (item.summary ?? [])
-        .map((s: any) => s?.text ?? "")
+        .map((s: any) => plainHeading(s?.text ?? ""))
         .filter((t: string) => t.trim())
         .join("\n\n")
         .trim();
