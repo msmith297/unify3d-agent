@@ -87,8 +87,12 @@ namespace SwAgent.Tests.Plugins
                 host.Start();
                 await host.SyncAsync();
                 var info = host.Info();
-                Assert.Equal(new[] { "UserPromptSubmit", "PostToolUse", "Stop", "SessionStart" }.OrderBy(x => x),
+                // Every event the plugin declares that the runtime knows (newer agent-bridge builds add PreToolUse,
+                // matched to Claude Code's AskUserQuestion/ExitPlanMode, which never fires for Unify3D tools).
+                Assert.Equal(hooks.Properties().Select(p => p.Name).Where(HookEvents.All.Contains).OrderBy(x => x),
                     ((JObject)info["hookEvents"]).Properties().Select(p => p.Name).Where(n => n != "PermissionRequest").OrderBy(x => x));
+                Assert.Subset(new HashSet<string>(((JObject)info["hookEvents"]).Properties().Select(p => p.Name)),
+                    new HashSet<string> { "UserPromptSubmit", "PostToolUse", "Stop", "SessionStart" });
 
                 // UserPromptSubmit, PostToolUse, Stop, Stop --listen (async) and SessionStart --listen (async).
                 Assert.True(await Until(() => finished.Count >= 5 && host.Hooks.BackgroundCount == 0, TimeSpan.FromSeconds(90)),
