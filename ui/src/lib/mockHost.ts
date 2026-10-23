@@ -212,6 +212,7 @@ export async function mockRpc(method: string, params: any): Promise<unknown> {
     case "toolForm.pick":
     case "toolForm.ok":
     case "toolForm.cancel":
+    case "toolForm.profile":
       return mockToolForm(method, params, emitLocal);
     case "update.status":
     case "update.check":

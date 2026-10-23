@@ -21,7 +21,7 @@ export const BUILTIN_COMMANDS: BuiltinCommand[] = [
   { name: "model", description: "Set this chat's model", hint: "<opus | fable | sonnet | haiku>" },
   { name: "effort", description: "Set this chat's effort", hint: "<low | medium | high | xhigh | max>" },
   { name: "tools", description: "List your tools and workflows" },
-  { name: "run", description: "Run a tool or workflow", hint: "<tool>" },
+  { name: "run", description: "Run a tool or workflow", hint: "<tool> [--profile name]" },
   { name: "new-tool", description: "Make a new tool with the agent" },
   { name: "new-plugin", description: "Make a plugin with the agent (bundle your tools, commands, skills)" },
   { name: "settings", description: "Open Options" },

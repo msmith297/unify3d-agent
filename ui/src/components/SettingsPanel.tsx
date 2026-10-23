@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { BrandMark } from "./Brand";
 import { UpdateSettings } from "./Update";
+import { ToolProfilesSettings } from "./ToolProfilesSettings";
 import { stepZoom } from "../lib/zoom";
 import { useStore } from "../store";
 import { rpc } from "../lib/bridge";
@@ -150,6 +151,7 @@ export function SettingsPanel() {
               </label>
             ))}
           </div>
+          <ToolProfilesSettings />
         </Rollout>
 
         <Rollout title="Plugins" icon={<IconPlugin size={14} />}>

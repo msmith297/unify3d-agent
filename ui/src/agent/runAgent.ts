@@ -223,7 +223,7 @@ export interface AgentRunOptions {
   approval: ApprovalMode;
   realisticAppearance: boolean;
   verbosity: Verbosity;
-  userTools: { name: string; title: string; description: string; kind?: string; builtIn?: boolean; category?: string | null }[];
+  userTools: { name: string; title: string; description: string; kind?: string; builtIn?: boolean; category?: string | null; profiles?: string[] }[];
   /** API round trips before the turn stops (a tool's max_steps; default 200, cap 1000). */
   maxSteps?: number;
   /** A long tool run: the prompt cache lives 1 hour (answers to its gate questions often take 5-60 min). */

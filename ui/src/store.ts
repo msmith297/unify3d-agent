@@ -50,6 +50,7 @@ import type {
 import { recordSession } from "./lib/sessions";
 import { refBase, selectionAnswer, type SnapshotItem } from "./lib/selection";
 import { DEFAULT_STEPS, LONG_RUN_STEPS, clampSteps, runReportsDone, stickyState, withRunDoc } from "./lib/toolRun";
+import { profileLine, splitProfileArg } from "./lib/toolFormLogic";
 import { WRITE_TOOLS, runAgent, type ApprovalDecision, type ApprovalRequest, type LiveBlock, type SubAgentProgress } from "./agent/runAgent";
 import { BUILTIN_COMMANDS, commandHead, parseSlash, resolveSlash, tagLines, type CommandSources, type TagKind } from "./lib/commands";
 import { EVENT_TAG, HOOK_TAG, autoTurnAllowed, hasHook, hookContextText, systemEventText, wakeApproval, wakesMayFollow } from "./lib/hooks";
@@ -443,6 +444,8 @@ Finish this case yourself.${p.builtIn ? "" : " If it is a case the macro should 
   if (c.model) contextLines.push(`Model:\n${c.model}`);
   if (c.history) contextLines.push(`Feature history:\n${c.history}`);
 
+  const profile = profileLine(p.profile);
+  if (profile) inputLines.unshift(`- ${profile}`);
   const head = `[Run tool: ${p.tool}]${inputLines.length ? `\n<tool_inputs>\n${inputLines.join("\n")}\n</tool_inputs>` : ""}`;
   const blocks: ContentBlockParam[] = [{ type: "text", text: head }, ...attachments];
   blocks.push({ type: "text", text: `<sw_context>\nTool run: ${label}\n${contextLines.join("\n")}${c.view ? "\nAttached after this block: the user's view when they ran the tool." : ""}\n</sw_context>` });
@@ -1801,8 +1804,12 @@ export const useStore = create<State>((set, get) => {
       const t = get().userTools.find((x) => x.name === name);
       set({ panel: "chat" });
       // A ribbon tool opens its inputs (page or panel form) in the add-in, which hands the run back when it needs the agent.
+      // "--profile "Shop A"" opens them with that profile loaded.
       if (t?.kind === "tool") {
-        await rpc("userTools.run", { name }).catch((err) => set({ notice: `Couldn't run ${t.title}: ${err.message}` }));
+        const { profile } = splitProfileArg(notes ?? "");
+        await (profile ? rpc("toolProfiles.run", { tool: name, profile }) : rpc("userTools.run", { name })).catch((err) =>
+          set({ notice: `Couldn't run ${t.title}: ${err.message}` }),
+        );
         return;
       }
       if (!t && name !== "create-plugin") {

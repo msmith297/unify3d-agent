@@ -161,6 +161,8 @@ export interface IndexedTool {
   kind?: string;
   builtIn?: boolean;
   category?: string | null;
+  /** Saved profiles of the tool's inputs (run_tool loads one). */
+  profiles?: string[];
 }
 
 /** What the skills index needs of a plugin skill. */
@@ -273,6 +275,12 @@ ${C.sections.api}
 ${C.sections.crashSafety}${knowledgeSection(opts.knowledge)}`;
 }
 
+/** " Profiles: Shop A, PU shop starter." after a tool's index line (saved input values; run_tool loads one). */
+function profilesNote(profiles: string[] | undefined): string {
+  const names = (profiles ?? []).map((p) => p.replace(/\s+/g, " ").trim()).filter(Boolean);
+  return names.length ? ` Profiles: ${names.join(", ")}.` : "";
+}
+
 /**
  * One line per saved user tool, appended to the system prompt (changes only when tools are saved or deleted), e.g.
  * "- design-compression-mold (built-in tool, Molding & Toolmaking): ...".
@@ -280,7 +288,7 @@ ${C.sections.crashSafety}${knowledgeSection(opts.knowledge)}`;
 export function toolIndex(tools: IndexedTool[]): string {
   const lines = tools.map((t) => {
     const category = t.category?.replace(/\s+/g, " ").trim();
-    return `- ${t.name} (${t.builtIn ? "built-in " : ""}${t.kind ?? "workflow"}${category ? `, ${category}` : ""}): ${t.title} - ${t.description}`;
+    return `- ${t.name} (${t.builtIn ? "built-in " : ""}${t.kind ?? "workflow"}${category ? `, ${category}` : ""}): ${t.title} - ${t.description}${profilesNote(t.profiles)}`;
   });
   return `\n\n# The user's workflows and tools\n${lines.length ? lines.join("\n") : "(none saved yet)"}`;
 }

@@ -521,6 +521,8 @@ export interface ToolRunPayload {
   longRun?: boolean;
   /** A built-in Unify3D tool: read-only, so the agent is never told to fix its macro with edit_user_tool. */
   builtIn?: boolean;
+  /** The tool profile the inputs were loaded from, and the inputs the user changed after loading it. */
+  profile?: { name: string; modified?: string[]; locked?: boolean } | null;
 }
 
 export interface UserToolInfo {
@@ -567,6 +569,8 @@ export interface UserToolInfo {
   maxSteps?: number | null;
   /** Agent tools the tool needs from the add-in. */
   requires?: string[];
+  /** Its saved profiles of input values (the user's, then the ones it ships with). */
+  profiles?: string[];
 }
 
 export interface SelectionItem {

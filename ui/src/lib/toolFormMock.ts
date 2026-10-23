@@ -4,7 +4,7 @@
  * grade filling the process data, ShowWhen, unit choices, Optional inputs, ranges, picks and OK. Only for designing the
  * card outside SolidWorks; the real logic is ToolForm in C#.
  */
-import type { ToolFormGroup, ToolFormInput, ToolFormState } from "./toolFormLogic";
+import type { ToolFormGroup, ToolFormInput, ToolFormProfile, ToolFormState } from "./toolFormLogic";
 
 type Emit = (name: string, data: unknown) => void;
 
@@ -97,12 +97,36 @@ let form: {
   files: Record<string, string[]>;
   tier: string;
   message: string | null;
+  /** The loaded profile, what it set, and the values right after loading (for "(modified)" and the markers). */
+  profile: { name: string | null; set: string[]; baseline: string; note: string | null; error: string | null };
 } | null = null;
+
+/** Saved profiles of the mock tool (values, units, switches), for this browser session; one ships with the tool. */
+interface MockProfile {
+  values: Record<string, any>;
+  units: Record<string, string>;
+  on: Record<string, boolean>;
+  locked: boolean;
+}
+const profiles = new Map<string, MockProfile>([
+  ["PU shop starter", { values: { part_family: "PU TDI-ether (MBOCA)", part_grade: "TDI-ether 90A", press_pressure_is: "Gauge reading" }, units: {}, on: {}, locked: true }],
+]);
+let defaultProfile: string | null = null;
 
 const str = (id: string): string => String(form?.values[id] ?? "");
 const grade = () => (MATERIALS[str("part_family")] ?? []).find((g) => g.grade === str("part_grade")) ?? Object.values(MATERIALS)[0][0];
 
 function open(): ToolFormState {
+  fresh();
+  if (defaultProfile && profiles.has(defaultProfile)) {
+    loadProfile(defaultProfile);
+    form!.profile.note = `Loaded your default profile: ${defaultProfile}.`;
+  }
+  return state();
+}
+
+/** The form with the tool defaults. */
+function fresh() {
   form = {
     formId: "mock-" + Math.random().toString(36).slice(2, 10),
     values: {
@@ -129,9 +153,122 @@ function open(): ToolFormState {
     files: {},
     tier: "max",
     message: null,
+    profile: { name: null, set: [], baseline: "", note: null, error: null },
   };
   fill();
-  return state();
+}
+
+/** What a profile compares: the values and switches (a unit change alone is no change). */
+const snapshot = (id: string) => JSON.stringify([form!.values[id] ?? null, form!.on[id] ?? null]);
+const snapshotAll = () => JSON.stringify(Object.fromEntries(DEFS.map((d) => [d.id, snapshot(d.id)])));
+
+function modifiedIds(): string[] {
+  const p = form!.profile;
+  if (!p.name || !p.baseline) return [];
+  const before = JSON.parse(p.baseline) as Record<string, string>;
+  return DEFS.filter((d) => before[d.id] !== snapshot(d.id)).map((d) => d.id);
+}
+
+function loadProfile(name: string | null) {
+  const f = form!;
+  const keep = { formId: f.formId, files: f.files, items: f.items, tier: f.tier };
+  fresh();
+  Object.assign(form!, keep);
+  const g = form!;
+  if (!name) return;
+  const p = profiles.get(name);
+  if (!p) throw new Error(`There is no profile '${name}' for this tool.`);
+  Object.assign(g.values, structuredClone(p.values));
+  Object.assign(g.units, p.units);
+  Object.assign(g.on, p.on);
+  fill();
+  g.profile = { name, set: [...Object.keys(p.values), ...Object.keys(p.on)], baseline: snapshotAll(), note: `Loaded the profile ${name}.`, error: null };
+}
+
+function profileState(): ToolFormProfile {
+  const p = form!.profile;
+  const names = [...profiles.keys()].sort((a, b) => Number(profiles.get(a)!.locked) - Number(profiles.get(b)!.locked) || a.localeCompare(b));
+  return {
+    name: p.name,
+    locked: !!p.name && !!profiles.get(p.name)?.locked,
+    modified: modifiedIds().length > 0,
+    isDefault: !!p.name && p.name === defaultProfile,
+    default: defaultProfile,
+    profiles: names.map((n) => ({ name: n, locked: profiles.get(n)!.locked, isDefault: n === defaultProfile })),
+    note: p.note,
+    error: p.error,
+    warnings: null,
+  };
+}
+
+/** The Profile row's actions (Tools/Profiles/ProfileSession.Act), on the mock form. */
+function profileAction(a: any) {
+  const f = form!;
+  f.profile.error = null;
+  f.profile.note = null;
+  const p = f.profile;
+  const taken = (n: string) => [...profiles.keys()].find((k) => k.toLowerCase() === n.trim().toLowerCase());
+  switch (a.action) {
+    case "load":
+      loadProfile(a.name);
+      if (!a.name) form!.profile.note = "Back to the tool defaults.";
+      return;
+    case "save": {
+      const name = String(a.name ?? "").trim();
+      if (!name) throw new Error("Give the profile a name.");
+      if (taken(name)) throw new Error(`There is already a profile named '${taken(name)}'. Update it, or pick another name.`);
+      const values = a.onlyChanged ? Object.fromEntries(modifiedIds().map((id) => [id, f.values[id]])) : structuredClone(f.values);
+      profiles.set(name, { values, units: { ...f.units }, on: { ...f.on }, locked: false });
+      if (a.makeDefault) defaultProfile = name;
+      f.profile = { name, set: Object.keys(values), baseline: snapshotAll(), note: `Saved the profile ${name}${a.makeDefault ? " as your default." : "."}`, error: null };
+      return;
+    }
+    case "update": {
+      const mine = p.name ? profiles.get(p.name) : undefined;
+      if (!mine || mine.locked) throw new Error(`'${p.name}' comes with the tool and can't be changed. Save it under a new name.`);
+      profiles.set(p.name!, { ...mine, values: structuredClone(f.values), units: { ...f.units }, on: { ...f.on } });
+      f.profile = { ...p, baseline: snapshotAll(), note: `Updated the profile ${p.name}.` };
+      return;
+    }
+    case "setDefault":
+      defaultProfile = a.name ?? null;
+      f.profile.note = a.name ? `The tool opens with ${a.name} from now on.` : "The tool opens without a profile now.";
+      return;
+    case "rename": {
+      const from = profiles.get(a.name);
+      if (!from || from.locked) throw new Error(`'${a.name}' comes with the tool and can't be renamed. Duplicate it instead.`);
+      profiles.delete(a.name);
+      profiles.set(a.newName.trim(), from);
+      if (defaultProfile === a.name) defaultProfile = a.newName.trim();
+      if (p.name === a.name) p.name = a.newName.trim();
+      f.profile.note = `Renamed to ${a.newName.trim()}.`;
+      return;
+    }
+    case "duplicate": {
+      let name = `${a.name} copy`;
+      for (let k = 2; taken(name); k++) name = `${a.name} copy (${k})`;
+      profiles.set(name, { ...structuredClone(profiles.get(a.name)!), locked: false });
+      f.profile.note = `Saved a copy as ${name}.`;
+      return;
+    }
+    case "delete":
+      profiles.delete(a.name);
+      if (defaultProfile === a.name) defaultProfile = null;
+      if (p.name === a.name) f.profile = { name: null, set: [], baseline: "", note: null, error: null };
+      f.profile.note = `Deleted the profile ${a.name}.`;
+      return;
+    case "import": {
+      const json = JSON.parse(a.content);
+      let name = String(json.name ?? "Imported profile");
+      for (let k = 2; taken(name); k++) name = `${json.name} (${k})`;
+      profiles.set(name, { values: json.values ?? {}, units: {}, on: {}, locked: false });
+      loadProfile(name);
+      form!.profile.note = `Added the profile ${name} and loaded it.`;
+      return;
+    }
+    default:
+      f.profile.note = `(mock) "${a.action}" opens a Windows dialog in SolidWorks.`;
+  }
 }
 
 /** The grade's values go into the fields it fills (a pick overwrites an edit, as in ToolForm). */
@@ -225,6 +362,7 @@ function input(d: Def): ToolFormInput {
     o.on = f.on[d.id];
   }
   o.error = errorOf(d);
+  if (f.profile.name) o.mark = modifiedIds().includes(d.id) ? "edited" : f.profile.set.includes(d.id) ? "set" : null;
   return o;
 }
 
@@ -250,6 +388,7 @@ function state(): ToolFormState {
     okField: blocking?.id ?? null,
     agent: { tier: f.tier, tiers: ["fast", "balanced", "high", "max"] },
     preview: null,
+    profile: profileState(),
   };
 }
 
@@ -346,6 +485,13 @@ export function mockToolForm(method: string, params: any, emit: Emit): unknown {
       return state();
     case "toolForm.pick":
       pick(params.id);
+      return state();
+    case "toolForm.profile":
+      try {
+        profileAction(params);
+      } catch (err: any) {
+        form!.profile.error = err?.message ?? String(err);
+      }
       return state();
     case "toolForm.ok": {
       const s = state();

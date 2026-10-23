@@ -7,9 +7,9 @@
 import { create } from "zustand";
 import { on, rpc } from "./bridge";
 import { useStore } from "../store";
-import type { ToolFormChange, ToolFormState } from "./toolFormLogic";
+import type { ToolFormChange, ToolFormProfileAction, ToolFormState } from "./toolFormLogic";
 
-export type { ToolFormChange, ToolFormInput, ToolFormGroup, ToolFormState } from "./toolFormLogic";
+export type { ToolFormChange, ToolFormInput, ToolFormGroup, ToolFormProfile, ToolFormProfileAction, ToolFormState } from "./toolFormLogic";
 
 interface ToolFormStore {
   form: ToolFormState | null;
@@ -24,6 +24,8 @@ interface ToolFormStore {
   change(change: ToolFormChange): Promise<void>;
   /** Selection inputs: "Use selection" replaces the list; follow (the input is focused and the selection changed) adds to it. */
   pick(id: string, follow?: boolean): Promise<void>;
+  /** The Profile row: load, save, update and the menu's actions; the add-in answers with the new state. */
+  profile(action: ToolFormProfileAction): Promise<void>;
   ok(): Promise<void>;
   cancel(): Promise<void>;
   setFocused(id: string | null): void;
@@ -62,6 +64,7 @@ export const useToolForm = create<ToolFormStore>((set, get) => {
     groupOpen: {},
     change: (change) => send("toolForm.change", change),
     pick: (id, follow) => send("toolForm.pick", follow ? { id, follow: true } : { id }),
+    profile: (action) => send("toolForm.profile", action),
     async ok() {
       const form = get().form;
       if (!form || get().closing) return;

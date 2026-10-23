@@ -41,7 +41,42 @@ export interface ToolFormInput {
   multiple?: boolean;
   items?: { type: string; label?: string | null; detail?: string | null }[];
   filter?: string[];
+  /** While a profile is loaded: "set" (the profile set this input) or "edited" (changed after loading it). */
+  mark?: "set" | "edited" | null;
 }
+
+/** The form's Profile row (Tools/Profiles/ProfileSession.cs State). */
+export interface ToolFormProfile {
+  /** The profile loaded, or null (tool defaults, or the values remembered from the last run). */
+  name: string | null;
+  /** It came with the tool: it can't be updated, only saved under a new name. */
+  locked: boolean;
+  /** Something differs from the loaded profile. */
+  modified: boolean;
+  isDefault: boolean;
+  default: string | null;
+  profiles: { name: string; locked: boolean; isDefault: boolean }[];
+  /** One line about the last action ("Loaded your default profile: Shop A."). */
+  note?: string | null;
+  /** Why the last action was refused. */
+  error?: string | null;
+  /** What loading ignored or kept at the default (an outdated profile). */
+  warnings?: string[] | null;
+}
+
+/** An action of the Profile row, sent with toolForm.profile (formId is added by the store). */
+export type ToolFormProfileAction =
+  | { action: "load"; name: string | null }
+  | { action: "save"; name: string; makeDefault?: boolean; includeDocument?: boolean; onlyChanged?: boolean }
+  | { action: "update" }
+  | { action: "setDefault"; name: string | null }
+  | { action: "rename"; name: string; newName: string }
+  | { action: "duplicate"; name: string }
+  | { action: "delete"; name: string }
+  | { action: "import"; content: string }
+  | { action: "export"; name: string }
+  | { action: "loadFile" }
+  | { action: "openFolder" };
 
 export interface ToolFormGroup {
   id: string;
@@ -65,6 +100,8 @@ export interface ToolFormState {
   agent?: { tier: string; tiers: string[] } | null;
   /** Tools with preview.cs: compiled yet, following every change (else on the Preview button), and what to say. */
   preview?: { available: boolean; live: boolean; message?: string | null } | null;
+  /** The Profile row (older add-ins: none). */
+  profile?: ToolFormProfile | null;
 }
 
 /** A change sent with toolForm.change (formId is added by the store). */
@@ -155,10 +192,48 @@ export function acceptText(accept: string[] | undefined): string {
 
 export const TIER_LABELS: Record<string, string> = { fast: "Fast", balanced: "Balanced", high: "High", max: "Max" };
 
+/** The profile dropdown's caption: "Shop A (modified)", "(Tool defaults)". */
+export function profileCaption(p: ToolFormProfile): string {
+  return p.name ? `${p.name}${p.modified ? " (modified)" : ""}` : "(Tool defaults)";
+}
+
+/**
+ * The save buttons next to OK (docs/tool-profiles.md): no profile -> "Save as profile..."; the user's profile changed ->
+ * "Update" and "Save as new..."; a locked one changed, or any one unchanged -> only "Save as new...".
+ */
+export function profileButtons(p: ToolFormProfile): { update: boolean; saveLabel: string } {
+  if (!p.name) return { update: false, saveLabel: "Save as profile…" };
+  return { update: p.modified && !p.locked, saveLabel: "Save as new…" };
+}
+
+/** Whether a dropped file looks like a tool profile (by name; the add-in checks the content). */
+export function isProfileFile(name: string): boolean {
+  return /\.json$/i.test(name.trim());
+}
+
 /** A filled-in value the user changed: what the table had, for the "Table: ..." hint. */
 export function tableHint(input: ToolFormInput): string | null {
   if (!input.edited || input.table === undefined || input.table === null) return null;
   const v = typeof input.table === "number" ? formatNumber(input.table) : String(input.table);
   const unit = typeof input.table === "number" && input.unit ? (input.unit === "%" ? " %" : ` ${input.unit}`) : "";
   return `Table: ${v}${unit}`;
+}
+
+/**
+ * "--profile "Shop A"" (or --profile=Shop, --profile 'Shop A') in a /run or /<tool> command: the profile, and the rest of
+ * the arguments without it.
+ */
+export function splitProfileArg(args: string): { profile: string | null; rest: string } {
+  const m = /(^|\s)--profile(?:=|\s+)(?:"([^"]*)"|'([^']*)'|“([^”]*)”|(\S+))/i.exec(args ?? "");
+  if (!m) return { profile: null, rest: (args ?? "").trim() };
+  const profile = (m[2] ?? m[3] ?? m[4] ?? m[5] ?? "").trim();
+  const rest = (args.slice(0, m.index) + m[1] + args.slice(m.index + m[0].length)).replace(/\s+/g, " ").trim();
+  return { profile: profile || null, rest };
+}
+
+/** The line a tool run's prompt carries about its profile: "Profile: Shop A (modified: press_pressure)". */
+export function profileLine(profile: { name?: string | null; modified?: string[] | null } | null | undefined): string | null {
+  if (!profile?.name) return null;
+  const modified = (profile.modified ?? []).filter(Boolean);
+  return `Profile: ${profile.name}${modified.length ? ` (modified: ${modified.join(", ")})` : ""}`;
 }
