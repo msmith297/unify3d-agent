@@ -34,7 +34,7 @@ export function repairHistory(messages: MessageParam[]): MessageParam[] {
   for (let i = 0; i < messages.length; i++) {
     const m = messages[i];
     if (m.role === "assistant") {
-      push(m);
+      push(i === messages.length - 1 ? m : withoutOpenServerCalls(m));
       const ids = blocksOf(m).filter((b) => b.type === "tool_use").map((b) => (b as { id: string }).id);
       if (ids.length === 0) continue;
       const next = messages[i + 1];
@@ -56,4 +56,14 @@ export function repairHistory(messages: MessageParam[]): MessageParam[] {
   // The API wants the conversation to start with the user.
   while (out.length && out[0].role !== "user") out.shift();
   return out;
+}
+
+/**
+ * A web search or fetch (server_tool_use) whose result isn't in the same message was cut off (a paused turn the user
+ * stopped): the API only resumes one when it is the last message, so anywhere else it is dropped.
+ */
+function withoutOpenServerCalls(m: MessageParam): MessageParam {
+  if (typeof m.content === "string" || !m.content.some((b) => b.type === "server_tool_use")) return m;
+  const answered = new Set(m.content.filter((b) => b.type !== "tool_result" && "tool_use_id" in b).map((b) => (b as { tool_use_id: string }).tool_use_id));
+  return { ...m, content: m.content.filter((b) => b.type !== "server_tool_use" || answered.has(b.id)) };
 }

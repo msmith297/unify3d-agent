@@ -2,6 +2,7 @@
 // Imported by lib.check.mjs; run from the ui folder:  node src/lib/checks/lib.check.mjs
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { repairHistory } from "../../agent/history.ts";
 import { SECRET_SAVED, SECRET_SKIPPED, safeHelpUrl, secretTarget, webBetas, webResultSummary, webTitle, webTools } from "../creator.ts";
 
 let n = 0;
@@ -72,6 +73,17 @@ t("the creator workflow triages, researches, tries before enabling and keeps sec
   const requires = /^requires: (.*)$/m.exec(md)[1].split(",").map((s) => s.trim());
   // requires lists the add-in's tools; ask_secret is the panel's own.
   for (const tool of ["check_prerequisites", "plugin_try_mcp"]) assert.ok(requires.includes(tool), `requires ${tool}`);
+});
+
+t("history keeps answered web steps, resumes a paused one at the end, and drops one cut off earlier", () => {
+  const user = (text) => ({ role: "user", content: [{ type: "text", text }] });
+  const search = { type: "server_tool_use", id: "srv1", name: "web_search", input: { query: "acme mcp" } };
+  const result = { type: "web_search_tool_result", tool_use_id: "srv1", content: [] };
+  const answered = { role: "assistant", content: [search, result, { type: "text", text: "Found it." }] };
+  assert.deepEqual(repairHistory([user("a"), answered, user("b")])[1], answered);
+  const paused = { role: "assistant", content: [{ type: "text", text: "Looking..." }, search] };
+  assert.deepEqual(repairHistory([user("a"), paused]).at(-1), paused); // pause_turn: the API resumes it
+  assert.deepEqual(repairHistory([user("a"), paused, user("stop, do this instead")])[1].content, [{ type: "text", text: "Looking..." }]);
 });
 
 console.log(`creator: ${n} checks passed`);
