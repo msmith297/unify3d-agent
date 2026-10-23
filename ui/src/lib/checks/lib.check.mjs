@@ -21,6 +21,7 @@ import { slashQuery, slashRows, parseSlash, resolveSlash, splitArgs, substituteA
 import { matcherMatches, hasHook, hookToolResponse, HOOK_RESPONSE_CAP, hookContextText, systemEventText, parseTagged, autoTurnAllowed, AUTO_WINDOW_MS, wakesMayFollow, wakeApproval } from "../hooks.ts";
 import { modelFromAlias } from "../models.ts";
 import { formatNumber, parseNumber, stepNumber, visibleGroups, chipText, takesText, acceptText, tableHint } from "../toolFormLogic.ts";
+import { splitProfileArg, profileLine, profileButtons, profileCaption, isProfileFile } from "../toolFormLogic.ts";
 import { mockOpenToolForm, mockToolForm } from "../toolFormMock.ts";
 import { questionTimerStep } from "../questionTimeout.ts";
 import { knowledgeSection } from "../knowledge.ts";
@@ -657,6 +658,72 @@ t("toolMarks: the tool index marks notes and copies whose original changed", () 
   assert.equal(toolMarks({ hasNotes: true }), " [your notes]");
   assert.equal(toolMarks({ forkedFrom: "design-compression-mold", sourceChanged: true }), " [copy of design-compression-mold, design-compression-mold changed]");
   assert.equal(toolMarks({ hasNotes: true, forkedFrom: "smart-rebuild" }), " [your notes; copy of smart-rebuild]");
+// ---- tool profiles (docs/tool-profiles.md) ----
+
+t("/run --profile picks the profile out of the arguments", () => {
+  assert.deepEqual(splitProfileArg('design-compression-mold --profile "Shop A" quick one'), { profile: "Shop A", rest: "design-compression-mold quick one" });
+  assert.deepEqual(splitProfileArg("--profile='Rubber shop starter'"), { profile: "Rubber shop starter", rest: "" });
+  assert.deepEqual(splitProfileArg("--profile=ShopA notes"), { profile: "ShopA", rest: "notes" });
+  assert.deepEqual(splitProfileArg("--PROFILE “Shop B”"), { profile: "Shop B", rest: "" });
+  assert.deepEqual(splitProfileArg("notes about profiles"), { profile: null, rest: "notes about profiles" });
+  assert.deepEqual(splitProfileArg("a--profile x"), { profile: null, rest: "a--profile x" }); // only a separate word
+});
+
+t("the run's prompt line and the form's profile buttons", () => {
+  assert.equal(profileLine({ name: "Shop A", modified: ["press_pressure", "cycle_life"] }), "Profile: Shop A (modified: press_pressure, cycle_life)");
+  assert.equal(profileLine({ name: "Shop A", modified: [] }), "Profile: Shop A");
+  assert.equal(profileLine(null), null);
+  const base = { locked: false, isDefault: false, default: null, profiles: [] };
+  assert.deepEqual(profileButtons({ ...base, name: null, modified: false }), { update: false, saveLabel: "Save as profile…" });
+  assert.deepEqual(profileButtons({ ...base, name: "Shop A", modified: true }), { update: true, saveLabel: "Save as new…" });
+  assert.deepEqual(profileButtons({ ...base, name: "PU shop starter", locked: true, modified: true }), { update: false, saveLabel: "Save as new…" });
+  assert.deepEqual(profileButtons({ ...base, name: "Shop A", modified: false }), { update: false, saveLabel: "Save as new…" });
+  assert.equal(profileCaption({ ...base, name: "Shop A", modified: true }), "Shop A (modified)");
+  assert.equal(profileCaption({ ...base, name: null, modified: false }), "(Tool defaults)");
+  assert.equal(isProfileFile("shop-a.JSON"), true);
+  assert.equal(isProfileFile("drawing.pdf"), false);
+});
+
+t("the mock form saves, marks, updates and opens with the default profile", () => {
+  const events = [];
+  const emit = (name, data) => events.push([name, data]);
+  mockOpenToolForm(emit);
+  let form = events.at(-1)[1];
+  const input = (f, id) => f.groups.flatMap((g) => g.inputs).find((i) => i.id === id);
+  const send = (change) => (form = mockToolForm("toolForm.change", { formId: form.formId, ...change }, emit));
+  const act = (action) => (form = mockToolForm("toolForm.profile", { formId: form.formId, ...action }, emit));
+  assert.equal(form.profile.name, null);
+  assert.ok(form.profile.profiles.some((p) => p.name === "PU shop starter" && p.locked));
+
+  send({ id: "cavities", value: 4 });
+  act({ action: "save", name: "Shop A", makeDefault: true });
+  assert.equal(form.profile.name, "Shop A");
+  assert.equal(form.profile.modified, false);
+  assert.equal(input(form, "cavities").mark, "set");
+  send({ id: "cavities", value: 6 });
+  assert.equal(form.profile.modified, true);
+  assert.equal(input(form, "cavities").mark, "edited");
+  act({ action: "update" });
+  assert.equal(form.profile.modified, false);
+  act({ action: "save", name: "shop a" });
+  assert.match(form.profile.error, /already a profile named 'Shop A'/);
+
+  act({ action: "load", name: "PU shop starter" });
+  assert.equal(input(form, "cavities").value, 1);
+  send({ id: "cavities", value: 2 });
+  act({ action: "update" });
+  assert.match(form.profile.error, /comes with the tool/);
+
+  mockToolForm("toolForm.cancel", { formId: form.formId }, emit);
+  mockOpenToolForm(emit);
+  form = events.at(-1)[1];
+  assert.equal(form.profile.name, "Shop A");
+  assert.equal(form.profile.note, "Loaded your default profile: Shop A.");
+  assert.equal(input(form, "cavities").value, 6);
+  act({ action: "setDefault", name: null });
+  act({ action: "delete", name: "Shop A" });
+  assert.equal(form.profile.name, null);
+  mockToolForm("toolForm.cancel", { formId: form.formId }, emit);
 });
 
 console.log(`${n} checks passed`);

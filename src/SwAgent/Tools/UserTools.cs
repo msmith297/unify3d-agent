@@ -739,6 +739,8 @@ namespace SwAgent.Tools
                         ["hasNotes"] = Memory.MemoryStore.Instance.HasNotes(name, dir, readOnly),
                         ["forkedFrom"] = forkedFrom,
                         ["sourceChanged"] = forkedFrom != null && ToolForks.SourceChanged(dir),
+                        // Saved settings of its inputs (the tool index lists them; run_tool / --profile load one).
+                        ["profiles"] = new JArray(ToolProfiles.Names(name, toolDir: dir)),
                     });
                 }
                 catch (Exception ex)

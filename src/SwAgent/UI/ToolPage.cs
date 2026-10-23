@@ -25,7 +25,7 @@ namespace SwAgent.UI
     /// every change; if that ever gets slow the preview switches to on-demand (the eye button) instead of lagging.
     /// </summary>
     [ComVisible(true)]
-    public sealed class ToolPage : IPropertyManagerPage2Handler9
+    public sealed partial class ToolPage : IPropertyManagerPage2Handler9
     {
         private const int PreviewBudgetMs = 350;
 
@@ -160,12 +160,13 @@ namespace SwAgent.UI
             public IComponent2 Component;
         }
 
-        internal ToolPage(ISldWorks sw, IModelDoc2 model, ToolSpec spec, List<SelectedEntity> preselected)
+        internal ToolPage(ISldWorks sw, IModelDoc2 model, ToolSpec spec, List<SelectedEntity> preselected, string profile = null)
         {
             _sw = sw;
             _model = model;
             _spec = spec;
             _preselected = preselected;
+            _requestedProfile = profile;
             _previewTimer.Tick += (s, e) =>
             {
                 _previewTimer.Stop();
@@ -184,7 +185,7 @@ namespace SwAgent.UI
             if (_spec.Preview != null && !_spec.Paused.Contains("preview")) options |= (int)swPropertyManagerPageOptions_e.swPropertyManagerOptions_PreviewButton;
 
             // The page's state (defaults, remembered values, data choices) before any control exists.
-            _form = CreateForm(_spec, _model, out _imperial);
+            _form = CreateForm(_spec, _model, out _imperial, _requestedProfile, out _profiles);
             _quirks = PageQuirks.Load();
 
             var errors = 0;
@@ -210,6 +211,7 @@ namespace SwAgent.UI
             }
             Preselect();
             UpdateOkButton();
+            if (_pendingProfileMessage != null) Message(_pendingProfileMessage); // "Loaded your default profile: ..."
 
             if (_spec.Preview != null && _spec.Paused.Contains("preview"))
             {
@@ -233,12 +235,15 @@ namespace SwAgent.UI
 
         // ---- building ----
 
-        /// <summary>The form for a tool: its data, the document's unit system and the values remembered on this PC.</summary>
-        private static ToolForm CreateForm(ToolSpec spec, IModelDoc2 model, out bool imperial)
+        /// <summary>
+        /// The form for a tool: its data, the document's unit system, and the profile asked for or the default profile - else
+        /// the values remembered on this PC.
+        /// </summary>
+        private static ToolForm CreateForm(ToolSpec spec, IModelDoc2 model, out bool imperial, string profile, out ProfileSession profiles)
         {
             imperial = Units.IsImperial(model);
             // Bad data must never stop the page (the same fallbacks as the panel's form).
-            return ToolFormSession.CreateForm(spec, imperial);
+            return ProfileSession.OpenForm(spec, imperial, profile, out profiles);
         }
 
         private void Quiet(Action a)
@@ -256,6 +261,7 @@ namespace SwAgent.UI
 
         private void Build()
         {
+            BuildProfileGroup();
             var groups = new Dictionary<string, IPropertyManagerPageGroup>();
             var nextMark = 2;
             foreach (var model in _form.Fields)
@@ -1161,6 +1167,7 @@ namespace SwAgent.UI
         {
             UpdateOkButton();
             SchedulePreview();
+            ShowProfileState();
         }
 
         // ---- preview ----
@@ -1251,6 +1258,7 @@ namespace SwAgent.UI
                 }
                 // Inputs with "Remember": their value (spec units) becomes next run's default on this PC.
                 if (_result != null && _form != null) RememberStore.Save(_spec.Name, _form.RememberJson());
+                if (_result != null && _form != null) _profiles?.Finished(_form, _result);
             }
             HidePreview();
         }
@@ -1292,7 +1300,7 @@ namespace SwAgent.UI
 
         public void OnCheckboxCheck(int id, bool check)
         {
-            if (_quiet > 0) return;
+            if (_quiet > 0 || IsProfileControl(id)) return;
             if (_fields.TryGetValue(id, out var f) && f.Model != null && !IsLateEvent(f))
             {
                 Try(f, () =>
@@ -1321,7 +1329,7 @@ namespace SwAgent.UI
 
         public void OnTextboxChanged(int id, string text)
         {
-            if (_quiet > 0) return;
+            if (_quiet > 0 || IsProfileControl(id)) return;
             if (_fields.TryGetValue(id, out var f) && f.Model != null && f.Type == "text")
             {
                 Try(f, () => _form.SetText(f.Model, text));
@@ -1338,6 +1346,7 @@ namespace SwAgent.UI
                 if (item >= 0 && item < ToolSpec.Tiers.Length) TierChanged?.Invoke(ToolSpec.Tiers[item]);
                 return;
             }
+            if (OnProfileCombo(id, item)) return;
             if (_fields.TryGetValue(id, out var f) && f.Model != null && !IsLateEvent(f) && !(f.Stale && id != f.UnitBoxId))
             {
                 if (id == f.UnitBoxId)
@@ -1380,6 +1389,7 @@ namespace SwAgent.UI
 
         public void OnButtonPress(int id)
         {
+            if (OnProfileButton(id)) return;
             if (!_fields.TryGetValue(id, out var f) || f.Type != "files") return;
             if (id == f.ClearButtonId)
             {
@@ -1445,19 +1455,26 @@ namespace SwAgent.UI
         /// When everything the tool needs is already selected (and it doesn't ask to always show its page), build the
         /// inputs from the selection and defaults so it can run straight away.
         /// </summary>
-        internal static ToolInputs TryFromSelection(ToolSpec spec, IModelDoc2 model, List<SelectedEntity> preselected, bool forTest = false)
+        internal static ToolInputs TryFromSelection(ToolSpec spec, IModelDoc2 model, List<SelectedEntity> preselected, bool forTest = false, string profile = null)
         {
             if (spec.Confirm == "always" && !forTest) return null;
             // Inputs using the newer options (units, Optional, size, data choices, fills, ShowWhen, remembered values) get
-            // the page's defaults from the form; the original ones keep exactly the defaults they always had.
-            var form = CreateForm(spec, model, out _);
+            // the page's defaults from the form; the original ones keep exactly the defaults they always had. With a profile
+            // loaded (asked for, or the default) every value comes from the form.
+            var form = CreateForm(spec, model, out _, profile, out var profiles);
+            var fromProfile = profiles.Loaded != null;
             var inputs = new ToolInputs();
             var used = new HashSet<object>();
             foreach (var s in spec.Inputs)
             {
                 var type = ToolSpec.Type(s);
                 var field = s?.Id == null ? null : form.Get(s.Id);
-                if (field != null && !field.IsPlain && type != "selection" && type != "files") continue;
+                if (field != null && (!field.IsPlain || fromProfile) && type != "selection" && type != "files")
+                {
+                    // A note the tool needs and the profile left empty: the page asks for it.
+                    if (type == "text" && ToolSpec.IsRequired(s) && string.IsNullOrWhiteSpace(field.Value) && !forTest) return null;
+                    continue;
+                }
                 switch (type)
                 {
                     case "selection":
@@ -1509,7 +1526,8 @@ namespace SwAgent.UI
                         break;
                 }
             }
-            form.Collect(inputs, f => !f.IsPlain);
+            form.Collect(inputs, f => !f.IsPlain || fromProfile);
+            profiles.Finished(form, inputs);
             return inputs;
         }
 

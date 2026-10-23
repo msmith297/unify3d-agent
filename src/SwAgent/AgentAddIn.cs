@@ -63,6 +63,7 @@ namespace SwAgent
             tools.RegisterAll(new KnowledgeTools(scripts));
             tools.RegisterAll(new Memory.MemoryTools());
             tools.RegisterAll(new ForkTools());
+            tools.RegisterAll(new ProfileTools());
             CompileAdvisor.Extra = UserHelpers.LastBuild; // compile errors can point at the helpers the agent saved
             return tools;
         }

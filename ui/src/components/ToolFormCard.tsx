@@ -1,15 +1,30 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { X } from "lucide-react";
+import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
+import { Lock, MoreHorizontal, X } from "lucide-react";
 import { Caret, IconAttach, IconCancel, IconEye, IconSelect, IconToolbox, IconWarning, Spinner, ToolIcon } from "./SwIcons";
 import { useStore } from "../store";
 import { useToolForm, type ToolFormInput, type ToolFormState } from "../lib/toolForm";
-import { TIER_LABELS, acceptText, chipText, formatNumber, parseNumber, stepNumber, tableHint, takesText, visibleGroups } from "../lib/toolFormLogic";
+import {
+  TIER_LABELS,
+  acceptText,
+  chipText,
+  formatNumber,
+  isProfileFile,
+  parseNumber,
+  profileButtons,
+  profileCaption,
+  stepNumber,
+  tableHint,
+  takesText,
+  visibleGroups,
+  type ToolFormProfile,
+} from "../lib/toolFormLogic";
 import { svgDataUrl } from "../lib/toolIcons";
 
 /**
  * A tool's inputs in the chat (Tools/ToolFormBridge.cs), in place of its PropertyManager page: the same groups, inputs,
  * units, data choices and checks, drawn as rollouts in one card above the composer. OK runs the tool; its output then
- * flows into the chat as before. Esc cancels, Ctrl+Enter is OK.
+ * flows into the chat as before. Esc cancels, Ctrl+Enter is OK. The Profile row on top loads saved settings
+ * (docs/tool-profiles.md); the buttons next to OK save them, and a profile file dropped on the card is added and loaded.
  */
 export function ToolFormCard() {
   const form = useToolForm((s) => s.form);
@@ -51,10 +66,21 @@ export function ToolFormPane() {
 }
 
 function Card({ form }: { form: ToolFormState }) {
-  const { ok, cancel, change, closing, error } = useToolForm();
+  const { ok, cancel, change, profile, closing, error } = useToolForm();
   const info = useStore((s) => s.userTools.find((t) => t.name === form.tool));
   const [more, setMore] = useState(false);
+  const [saving, setSaving] = useState(false);
   const groups = visibleGroups(form);
+  const buttons = form.profile ? profileButtons(form.profile) : null;
+
+  // A profile file someone shared, dropped on the card: added to the user's profiles and loaded.
+  const onDrop = (e: DragEvent) => {
+    const file = [...e.dataTransfer.files].find((f) => isProfileFile(f.name));
+    if (!form.profile || !file) return;
+    e.preventDefault();
+    e.stopPropagation();
+    void file.text().then((content) => profile({ action: "import", content }));
+  };
 
   const onKey = (e: KeyboardEvent) => {
     if (e.key === "Escape") {
@@ -70,7 +96,13 @@ function Card({ form }: { form: ToolFormState }) {
   };
 
   return (
-    <section className="sw-rollout !border-accent" onKeyDown={onKey} aria-label={`${form.title} inputs`}>
+    <section
+      className="sw-rollout !border-accent"
+      onKeyDown={onKey}
+      onDragOver={(e) => form.profile && e.dataTransfer.types.includes("Files") && e.preventDefault()}
+      onDrop={onDrop}
+      aria-label={`${form.title} inputs`}
+    >
       <div className="sw-rollout-head">
         {info?.iconSvg ? <img src={svgDataUrl(info.iconSvg)} alt="" width={16} height={16} /> : info?.icon ? <ToolIcon name={info.icon} /> : <IconToolbox size={16} />}
         <span className="min-w-0 flex-1 truncate text-[12px]" title={form.title}>
@@ -100,6 +132,7 @@ function Card({ form }: { form: ToolFormState }) {
             <span className="selectable">{error ?? form.message}</span>
           </div>
         )}
+        {form.profile && <ProfileRow profile={form.profile} />}
         {groups.map((g) => (
           <Group key={g.id} id={g.id} title={g.title} expanded={g.expanded} hasError={g.inputs.some((i) => i.visible && !!i.error)}>
             {g.inputs.filter((i) => i.visible).map((i) => (
@@ -122,12 +155,23 @@ function Card({ form }: { form: ToolFormState }) {
           </Group>
         )}
         {form.preview?.message && <div className="text-[11px] text-text-3">{form.preview.message}</div>}
+        {saving && form.profile && <SaveProfile form={form} onClose={() => setSaving(false)} />}
       </div>
 
       <div className="sw-etch flex flex-wrap items-center justify-end gap-1.5 bg-card-2 px-2 py-1.5">
         <span className={`mr-auto min-w-0 flex-1 text-[11px] ${form.okEnabled ? "text-text-3" : "text-warn"}`}>
           {form.okEnabled ? (form.agent ? "OK hands the inputs to the agent in this chat." : "OK runs the tool (Ctrl+Z undoes it).") : form.okReason}
         </span>
+        {buttons?.update && (
+          <button type="button" className="sw-btn" onClick={() => void profile({ action: "update" })} title="Save your changes into this profile">
+            Update “{form.profile!.name}”
+          </button>
+        )}
+        {buttons && (
+          <button type="button" className="sw-btn" onClick={() => setSaving(true)} title="Save these values as a profile (it doesn't run the tool)" aria-expanded={saving}>
+            {buttons.saveLabel}
+          </button>
+        )}
         {form.preview?.available && !form.preview.live && (
           <button type="button" className="sw-btn" onClick={() => void change({ preview: true })} title="Draw the preview for these values">
             <IconEye size={13} /> Preview
@@ -161,6 +205,235 @@ function Group({ id, title, expanded, hasError, children }: { id: string; title:
   );
 }
 
+// ---- profiles ----
+
+/** The dropdown entry that opens a profile file (no profile name can hold a control character). */
+const FROM_FILE = "\u001ffile";
+
+/** The Profile row: which saved settings the form holds, a menu for managing them, and what the last action said. */
+function ProfileRow({ profile: p }: { profile: ToolFormProfile }) {
+  const profile = useToolForm((s) => s.profile);
+  const [menu, setMenu] = useState(false);
+  const [editing, setEditing] = useState<null | "rename" | "delete">(null);
+  const [name, setName] = useState("");
+  const menuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!menu) return;
+    const close = (e: MouseEvent) => !menuRef.current?.contains(e.target as Node) && setMenu(false);
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [menu]);
+  const loaded = p.profiles.find((x) => x.name === p.name);
+  const rename = () => void profile({ action: "rename", name: p.name!, newName: name }).then(() => setEditing(null));
+  const items: { label: string; run: () => void; show: boolean }[] = [
+    { label: "Open the tool with it", show: !!p.name && !p.isDefault, run: () => void profile({ action: "setDefault", name: p.name }) },
+    { label: "Stop opening the tool with it", show: !!p.name && p.isDefault, run: () => void profile({ action: "setDefault", name: null }) },
+    { label: `Stop opening the tool with ${p.default}`, show: !p.name && !!p.default, run: () => void profile({ action: "setDefault", name: null }) },
+    {
+      label: "Rename…",
+      show: !!loaded && !loaded.locked,
+      run: () => {
+        setName(p.name ?? "");
+        setEditing("rename");
+      },
+    },
+    { label: "Duplicate", show: !!p.name, run: () => void profile({ action: "duplicate", name: p.name! }) },
+    { label: "Delete…", show: !!loaded && !loaded.locked, run: () => setEditing("delete") },
+    { label: "Export…", show: !!p.name, run: () => void profile({ action: "export", name: p.name! }) },
+    { label: "Load from file…", show: true, run: () => void profile({ action: "loadFile" }) },
+    { label: "Open folder", show: true, run: () => void profile({ action: "openFolder" }) },
+  ];
+  // Esc closes the small editor, not the whole form.
+  const stop = (e: KeyboardEvent) => {
+    if (e.key === "Escape") {
+      e.stopPropagation();
+      setEditing(null);
+    }
+  };
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center gap-1.5">
+        <span className="shrink-0 text-[11.5px] font-semibold text-text" title="Saved settings for this tool. Loading one sets its values; you can still change any field.">
+          Profile
+        </span>
+        <select
+          value={p.name ?? ""}
+          onChange={(e) => {
+            const v = e.target.value;
+            void profile(v === FROM_FILE ? { action: "loadFile" } : { action: "load", name: v || null });
+          }}
+          className="sw-input h-[22px] min-w-0 flex-1 px-1 text-[12px]"
+          aria-label="Profile"
+        >
+          <option value="">(Tool defaults)</option>
+          {p.profiles.map((x) => (
+            <option key={x.name} value={x.name}>
+              {x.name === p.name ? profileCaption(p) : x.name}
+              {x.isDefault ? " - default" : ""}
+              {x.locked ? " - comes with the tool" : ""}
+            </option>
+          ))}
+          <option value={FROM_FILE}>Load from file…</option>
+        </select>
+        {loaded?.locked && (
+          <span className="shrink-0 text-text-3" title="Comes with the tool: save it under a new name to change it">
+            <Lock size={12} />
+          </span>
+        )}
+        <div ref={menuRef} className="relative">
+          <button type="button" className="sw-tool !h-[22px] !min-w-[22px]" onClick={() => setMenu((m) => !m)} title="More profile actions" aria-expanded={menu}>
+            <MoreHorizontal size={14} />
+          </button>
+          {menu && (
+            <div className="absolute right-0 top-full z-30 mt-1 min-w-[190px] rounded-[3px] border border-line-strong bg-card py-0.5 shadow-[0_4px_12px_rgba(0,0,0,0.35)]" role="menu">
+              {items
+                .filter((i) => i.show)
+                .map((i) => (
+                  <button
+                    key={i.label}
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setMenu(false);
+                      i.run();
+                    }}
+                    className="block w-full px-2 py-1 text-left text-[12px] text-text hover:bg-accent-soft"
+                  >
+                    {i.label}
+                  </button>
+                ))}
+            </div>
+          )}
+        </div>
+      </div>
+      {editing === "rename" && p.name && (
+        <div className="flex items-center gap-1.5" onKeyDown={stop}>
+          <input
+            autoFocus
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.ctrlKey && !e.metaKey) {
+                e.preventDefault();
+                e.stopPropagation();
+                rename();
+              }
+            }}
+            className="sw-input h-[22px] min-w-0 flex-1 px-1.5 text-[12px]"
+            aria-label="New name"
+          />
+          <button type="button" className="sw-btn" onClick={rename} disabled={!name.trim()}>
+            Rename
+          </button>
+          <button type="button" className="sw-btn" onClick={() => setEditing(null)}>
+            Cancel
+          </button>
+        </div>
+      )}
+      {editing === "delete" && p.name && (
+        <div className="flex flex-wrap items-center gap-1.5 text-[11.5px] text-text-2" onKeyDown={stop}>
+          <span className="min-w-0 flex-1">Delete the profile {p.name}? The values in the form stay.</span>
+          <button type="button" className="sw-btn" onClick={() => void profile({ action: "delete", name: p.name! }).then(() => setEditing(null))}>
+            Delete
+          </button>
+          <button type="button" className="sw-btn" onClick={() => setEditing(null)}>
+            Keep it
+          </button>
+        </div>
+      )}
+      {(p.error || p.note || (p.warnings?.length ?? 0) > 0) && (
+        <div className="flex flex-col gap-0.5 text-[11px]" aria-live="polite">
+          {p.error ? <span className="text-err">{p.error}</span> : p.note && <span className="text-text-3">{p.note}</span>}
+          {p.warnings?.map((w) => (
+            <span key={w} className="selectable text-warn">
+              {w}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** "Save as profile": a name, and what goes in. Saving never runs the tool. */
+function SaveProfile({ form, onClose }: { form: ToolFormState; onClose: () => void }) {
+  const profile = useToolForm((s) => s.profile);
+  const [name, setName] = useState("");
+  const [makeDefault, setMakeDefault] = useState(false);
+  const [includeDocument, setIncludeDocument] = useState(false);
+  const [onlyChanged, setOnlyChanged] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const hasDocument = form.groups.some((g) => g.inputs.some((i) => i.type === "files" || i.type === "selection"));
+  const save = async () => {
+    if (!name.trim() || busy) return;
+    setBusy(true);
+    await profile({ action: "save", name: name.trim(), makeDefault, includeDocument, onlyChanged });
+    setBusy(false);
+    // Closed once the add-in took it (the Profile row then shows its name); a refusal shows there and the box stays.
+    const now = useToolForm.getState().form?.profile;
+    if (now && !now.error && now.name?.toLowerCase() === name.trim().toLowerCase()) onClose();
+  };
+  const box = (checked: boolean, set: (v: boolean) => void, label: string, title: string) => (
+    <label className="flex cursor-default items-center gap-1.5 text-[11.5px] text-text-2" title={title}>
+      <input type="checkbox" className="accent-[var(--accent)]" checked={checked} onChange={(e) => set(e.target.checked)} />
+      {label}
+    </label>
+  );
+  return (
+    <section
+      className="sw-rollout"
+      aria-label="Save as profile"
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          e.stopPropagation();
+          onClose();
+        }
+      }}
+    >
+      <div className="sw-rollout-head">
+        <span className="flex-1 text-[12px]">Save as profile</span>
+      </div>
+      <div className="flex flex-col gap-1.5 px-2 py-1.5">
+        <input
+          autoFocus
+          value={name}
+          placeholder="Name, e.g. Shop A - PU on the 50 t press"
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.ctrlKey && !e.metaKey) {
+              e.preventDefault();
+              e.stopPropagation();
+              void save();
+            }
+          }}
+          className="sw-input h-[22px] w-full min-w-0 px-1.5 text-[12px]"
+          aria-label="Profile name"
+        />
+        {box(makeDefault, setMakeDefault, "Make it the default", "The tool opens with this profile from now on")}
+        {box(onlyChanged, setOnlyChanged, "Only the fields I changed", "Leave out every field that is at the tool default")}
+        {hasDocument && box(includeDocument, setIncludeDocument, "Include the files and selections", "For a template of one job: they belong to this part")}
+        <div className="flex justify-end gap-1.5">
+          <button type="button" className="sw-btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="button" className="sw-btn sw-btn-primary" onClick={() => void save()} disabled={!name.trim() || busy}>
+            {busy ? <Spinner size={11} /> : null}
+            Save
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/** A small marker before a caption: the profile set the input, or the user changed it after loading the profile. */
+function Mark({ mark }: { mark?: "set" | "edited" | null }) {
+  if (mark === "set") return <span className="mr-1 inline-block h-[6px] w-[6px] shrink-0 rounded-full bg-accent align-middle" title="From the profile" aria-label="From the profile" />;
+  if (mark === "edited")
+    return <span className="mr-1 inline-block h-[7px] w-[7px] shrink-0 rounded-full border-[1.5px] border-warn align-middle" title="Changed after loading the profile" aria-label="Changed after loading the profile" />;
+  return null;
+}
+
 // ---- one input ----
 
 function Field({ input, blocking }: { input: ToolFormInput; blocking: boolean }) {
@@ -171,7 +444,10 @@ function Field({ input, blocking }: { input: ToolFormInput; blocking: boolean })
       <div>
         <label className="flex cursor-default items-start gap-1.5 text-[12px] text-text" title={input.tip ?? undefined}>
           <input type="checkbox" className="mt-0.5 accent-[var(--accent)]" checked={input.value === true} onChange={(e) => void change({ id: input.id, value: e.target.checked })} />
-          {input.label}
+          <span>
+            <Mark mark={input.mark} />
+            {input.label}
+          </span>
         </label>
         <Notes input={input} blocking={blocking} />
       </div>
@@ -193,6 +469,7 @@ function Label({ input }: { input: ToolFormInput }) {
   const change = useToolForm((s) => s.change);
   const text = (
     <>
+      <Mark mark={input.mark} />
       {input.label}
       {input.required && input.type !== "selection" && <span className="text-err"> *</span>}
     </>

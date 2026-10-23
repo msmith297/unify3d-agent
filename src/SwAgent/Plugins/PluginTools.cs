@@ -432,6 +432,8 @@ namespace SwAgent.Plugins
                             {
                                 JArray.Parse(File.ReadAllText(inputs));
                                 f.AddRange(ToolSpec.CheckInputs(dir, ToolSpec.LoadInputs(dir)).Select(w => $"warning: tools/{name}/inputs.json: {w}"));
+                                // profiles\*.json ship with the tool, locked (docs/tool-profiles.md)
+                                f.AddRange(ToolProfiles.CheckShipped(dir, m.Name + ":" + name));
                             }
                             catch (JsonException ex)
                             {

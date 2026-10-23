@@ -56,6 +56,9 @@ namespace SwAgent.Scripting
             public bool RowUnique;
         }
 
+        /// <summary>The tool profile the values were loaded from: { name, modified: [input ids], locked }; null when none was.</summary>
+        internal JObject Profile;
+
         internal void Set(string id, object value) => _values[id] = value;
         internal void SetSelection(string id, List<SelectedItem> items) => _selections[id] = items;
         internal void SetFiles(string id, List<string> paths) => _files[id] = paths;

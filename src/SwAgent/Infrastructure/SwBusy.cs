@@ -31,6 +31,8 @@ namespace SwAgent.Infrastructure
             "check_prerequisites",
             // standing instructions and the user's copies of read-only tools (docs/agent-memory.md)
             "remember", "list_memory", "forget", "fork_tool", "compare_fork",
+            // tool profiles (run_tool opens a tool's inputs, so it isn't here)
+            "list_tool_profiles", "save_tool_profile",
         };
 
         /// <summary>

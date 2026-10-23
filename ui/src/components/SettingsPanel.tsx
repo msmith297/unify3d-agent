@@ -3,6 +3,7 @@ import { BrandMark } from "./Brand";
 import { UpdateSettings } from "./Update";
 import { WebResearchSettings } from "./WebResearchSettings";
 import { MemorySettings } from "./MemorySettings";
+import { ToolProfilesSettings } from "./ToolProfilesSettings";
 import { stepZoom } from "../lib/zoom";
 import { useStore } from "../store";
 import { rpc } from "../lib/bridge";
@@ -152,6 +153,7 @@ export function SettingsPanel() {
               </label>
             ))}
           </div>
+          <ToolProfilesSettings />
         </Rollout>
 
         <MemorySettings Rollout={Rollout} Toggle={Toggle} />

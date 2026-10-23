@@ -518,6 +518,9 @@ namespace SwAgent.Tools
 
         public FormField Get(string id) => id != null && _byId.TryGetValue(id.Trim(), out var f) ? f : null;
 
+        /// <summary>The data the choices read (a profile names a data choice's row by id).</summary>
+        internal ToolData Data => _data;
+
         // ---- defaults ----
 
         private void Init(FormField f, JObject remembered)

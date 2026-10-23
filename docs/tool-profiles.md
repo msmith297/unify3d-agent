@@ -113,3 +113,28 @@ Saving never runs the tool; OK still does.
 - An outdated profile (a missing field, an out-of-range value) loads with the right warnings.
 - Locked shipped profiles can't be updated.
 - The payload carries the profile name and the modified fields.
+
+## 5. As built (2026-10-22)
+
+Code: `src/SwAgent/Tools/Profiles/` (`ToolProfiles` store, `ProfileValues` capture/apply/compare, `ProfileSession` per open
+form, `ProfilesBridge` RPCs, `ProfileTools` agent tools), `UI/ToolPage.Profiles.cs` (the page's Profile group),
+`ui/src/components/ToolFormCard.tsx` (Profile row, save box, markers, drop a `.json`), `ToolProfilesSettings.tsx`
+(Options > Tools > Tool profiles). Tests: `tests/SwAgent.Tests/ToolProfilesTests.cs`, panel checks in `lib.check.mjs`.
+
+Choices made while building:
+
+- A value a data row filled in (shrink from the grade, the press temperature...) is saved only when the user changed it,
+  so a corrected table value still reaches the profile (the same rule as the remembered values).
+- A data choice whose entry several rows share (a material family) is stored as its text; a single row as its id.
+- Opening with a profile keeps the unit choices remembered on this PC; the profile's own units win for its values.
+- "(Tool defaults)" resets values but keeps the files and picked entities.
+- The page has the dropdown, Update, Set as default and a name box with Save; rename, duplicate, delete, export and
+  import are in the panel (the form's ⋯ menu, and Options > Tools for page users).
+- `run_tool` and `/run <tool> --profile "Shop A"` (also `/<tool> --profile ...`) open the inputs with that profile; a tool
+  whose selection is already complete runs at once with it (confirm: missing), as it does without one.
+- `mold_record init` copies the run's `profile` into `mold.json`; the setup sheet shows it ("Profile" row).
+- Shipped: `tools/builtin/design-compression-mold/profiles/` ("PU shop starter", "Rubber shop starter"); plugin tools
+  ship theirs the same way and `plugin_validate` checks them.
+
+Not checked in SolidWorks: the page's Profile group (dropdown refill after a save, button enabling) and the dialogs
+(export, load from file, open folder).

@@ -142,6 +142,10 @@ tool's inputs page), `macro.cs`, `preview.cs`, `icon.svg` / `icon.png`, and any 
 - Disabling the plugin removes its tools.
 - `requires:` in `TOOL.md` names agent tools the tool needs. Use it for tools that need a newer add-in, or MCP tools
   of the plugin's own servers.
+- `tools/<tool>/profiles/*.json` ship ready-made profiles of the tool's inputs (`docs/tool-profiles.md`), e.g. "PU shop
+  starter". Users see them with a lock: they load and duplicate them, but can't change or delete them. Write one by
+  saving a profile in the tool's form and exporting it, or copy `tools/builtin/design-compression-mold/profiles/`.
+  `plugin_validate` checks every value against `inputs.json`.
 
 ### Helpers for the agent's code
 

@@ -529,6 +529,8 @@ export interface ToolRunPayload {
   builtIn?: boolean;
   /** A read-only tool's standing instructions (the user's notes on it), already worded for the agent. */
   notes?: string | null;
+  /** The tool profile the inputs were loaded from, and the inputs the user changed after loading it. */
+  profile?: { name: string; modified?: string[]; locked?: boolean } | null;
 }
 
 export interface UserToolInfo {
@@ -582,6 +584,8 @@ export interface UserToolInfo {
   /** The user's copy of this tool (fork_tool), and whether the original changed since. */
   forkedFrom?: string | null;
   sourceChanged?: boolean;
+  /** Its saved profiles of input values (the user's, then the ones it ships with). */
+  profiles?: string[];
 }
 
 export interface SelectionItem {

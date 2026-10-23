@@ -57,6 +57,15 @@ namespace SwAgent.Mold
             return role != "reference" && role != "garbage" && role != "unfiled";
         }
 
+        /// <summary>"Shop A", "Shop A, changed: press_pressure, cycle_life", or "None".</summary>
+        internal static string ProfileText(JObject profile)
+        {
+            var name = (string)profile?["name"];
+            if (string.IsNullOrWhiteSpace(name)) return "None";
+            var modified = (profile["modified"] as JArray)?.Select(x => (string)x).Where(x => !string.IsNullOrEmpty(x)).ToList() ?? new List<string>();
+            return modified.Count == 0 ? name : $"{name}, changed: {string.Join(", ", modified)}";
+        }
+
         /// <summary>The derived numbers the operator needs, from the record (no recalculation of the design).</summary>
         public static JObject Build(JObject j, MoldData data)
         {
@@ -114,6 +123,8 @@ namespace SwAgent.Mold
             return new JObject
             {
                 ["moldId"] = j["id"],
+                // The tool profile the page values came from ("Shop A", "Shop A, changed: press_pressure"), "None" without one.
+                ["profile"] = ProfileText(j["profile"] as JObject),
                 ["title"] = (string)j.SelectToken("identity.moldNumber") ?? (string)j.SelectToken("inputs.mold_number") ?? Path.GetFileNameWithoutExtension((string)j.SelectToken("files.moldPart") ?? "mold"),
                 ["display"] = (string)j.SelectToken("units.display") ?? "imperial",
                 ["materialName"] = (string)row?["name"] ?? (string)j.SelectToken("materials.part.id"),

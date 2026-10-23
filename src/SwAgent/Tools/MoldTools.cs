@@ -944,6 +944,8 @@ namespace SwAgent.Tools
                             // the calculator reads the display system from here (screws, stock and rounding follow it): MMGS, CGS
                             // and MKS are metric, IPS (and custom inch or pound units) imperial
                             rec.Json["units"]["display"] = Units.IsImperial(model) ? "imperial" : "metric";
+                            // the tool profile the page values came from, and what the user changed after loading it
+                            if (page?.Profile != null) rec.Json["profile"] = page.Profile.DeepClone();
                             rec.Save();
                         }
                         // The part finds its record by these even after a rename or move; checkpoints are keyed by the id (B2).
