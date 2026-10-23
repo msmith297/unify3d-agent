@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { buildAgentPrompt, buildSystemPrompt, type IndexedSkill, type IndexedTool, type Verbosity } from "./systemPrompt";
 import { MEMORY_WRITE_TOOLS, memoryRefusal, type MemoryIndex } from "../lib/memory";
 import { repairHistory } from "./history";
-import { modelFromAlias, modelOption } from "../lib/models";
+import { inferProvider, modelFromAlias, modelOption } from "../lib/models";
 import { hookContextText, hookToolResponse } from "../lib/hooks";
 import type {
   AgentInfo,
@@ -18,6 +18,7 @@ import type {
   FormSpec,
   KnowledgeIndex,
   SelectionAsk,
+  ProviderId,
 } from "../lib/types";
 import { clampSteps } from "../lib/toolRun";
 import { webBetas, webTools, type SecretAsk } from "../lib/creator";
@@ -243,7 +244,15 @@ export interface AgentCallbacks {
 }
 
 export interface AgentRunOptions {
-  apiKey: string;
+  // CORE-STUB (design 4.3): CORE's runAgent reads these; here only `keys` is used, for the Anthropic key.
+  /** Each provider's key: `has` from the key sources the host reported, `get` through apiKey.get { provider }. */
+  keys: { get(p: ProviderId): Promise<string | null>; has(p: ProviderId): boolean };
+  /** OpenAI speed for models that offer it (Options > AI providers > Speed). */
+  serviceTier?: "fast" | "ultrafast";
+  /** The speed tier a provider actually served (TurnMeta.serviceTier). */
+  onServedTier?(tier: string): void;
+  /** Tests only: the stall watchdog's silence limit. */
+  stallMs?: number;
   model: string;
   effort: Effort;
   tools: ToolDef[];
@@ -308,8 +317,12 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
   // Liveness: every byte the API sends - text, thinking or the keep-alive pings it sends while the model thinks -
   // counts. A long think keeps the connection busy; a silent connection is stalled.
   const liveness = { last: Date.now() };
+  // CORE-STUB: the neutral loop picks the adapter of the model's provider (design 4.3); only Claude runs in this build.
+  if (inferProvider(opts.model) !== "anthropic") return { stop: "error", error: "OpenAI models run once the OpenAI adapter is in this build." };
+  const apiKey = await opts.keys.get("anthropic");
+  if (!apiKey) return { stop: "error", error: "Add your Anthropic API key to start chatting." };
   const client = new Anthropic({
-    apiKey: opts.apiKey,
+    apiKey,
     dangerouslyAllowBrowser: true,
     maxRetries: 3,
     fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -334,8 +347,8 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
   const m = modelOption(opts.model);
 
   const betas = ["thinking-binding-controls-2026-08-01", "context-management-2025-06-27"];
-  if (m.progressUpdates) betas.push("thinking-display-updates-2026-08-18");
-  if (m.fallbacks) betas.push("server-side-fallback-2026-07-01");
+  if (m.caps.progressUpdates) betas.push("thinking-display-updates-2026-08-18");
+  if (m.caps.fallbacks) betas.push("server-side-fallback-2026-07-01");
   // Web research runs on Anthropic's side (server tools); a sub-agent (its own system prompt) never gets it.
   const web = !opts.system && !!opts.webResearch;
   betas.push(...webBetas(m.id, web));
@@ -400,7 +413,7 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
           // reloaded from a file (or continued after an add-in update) valid instead of failing with a 400.
           thinking: {
             type: "adaptive",
-            display: m.progressUpdates ? "updates" : "summarized",
+            display: m.caps.progressUpdates ? "updates" : "summarized",
             block_binding: { prefix_mismatch_behavior: "drop_block" },
           },
           output_config: { effort: opts.effort },
@@ -410,7 +423,7 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
           // Old tool calls (C# cells, screenshots, model dumps) are cleared server-side once the prompt grows, keeping
           // only the most recent ones. The stored history stays complete and append-only, so thinking stays valid.
           context_management: { edits: [clearing] },
-          ...(m.fallbacks ? { fallbacks: "default" as const } : {}),
+          ...(m.caps.fallbacks ? { fallbacks: "default" as const } : {}),
           betas,
         },
         { signal: request.signal },

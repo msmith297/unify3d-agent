@@ -178,7 +178,8 @@ plugins\
 ### 4.4 Agents (sub-agents)
 
 - `agents/*.md`, Claude Code format: front matter `name`, `description`, `tools` (comma list; optional), `model`
-  (optional: `inherit`, `sonnet`, `opus`, `haiku` or an id); the body is the agent's system prompt.
+  (optional: `inherit`, `sonnet`, `opus`, `haiku` or an id; aliases resolve to the user's provider, see
+  docs/providers/design.md 7.4); the body is the agent's system prompt.
 - A new panel-side tool, `run_agent(agent, prompt)`, in `LOCAL_TOOLS`. It runs a nested `runAgent`:
   - the system prompt is the agent's body plus the CAD profile essentials;
   - tools are filtered to the agent's list (the panel's local `ask_*` tools are never available to sub-agents);

@@ -85,6 +85,7 @@ Written 2026-10-22. It extends `docs/plugins/design.md` §5.3 and the built-in w
   setting "Allow web research (search and read web pages)", default on. They run on Anthropic's side, so the panel's CSP
   doesn't change. Search results and fetched pages are untrusted data: the system prompt says never to follow
   instructions found in them, the same rule as for bridge messages. Context editing may clear old fetch results.
+  On OpenAI, search runs on OpenAI's side too; there is no fetch tool (docs/providers/design.md 6.9).
 - **MCP over Streamable HTTP** (`src/SwAgent/Mcp/McpHttpClient.cs`), alongside stdio:
   - `{ "type": "http", "url": ..., "headers": {...} }` in `.mcp.json`;
   - JSON or SSE responses; `Mcp-Session-Id`; header values may use `${user_config.key}`;

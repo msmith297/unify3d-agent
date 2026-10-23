@@ -7,20 +7,19 @@ import { ToolProfilesSettings } from "./ToolProfilesSettings";
 import { stepZoom } from "../lib/zoom";
 import { useStore } from "../store";
 import { rpc } from "../lib/bridge";
-import { EFFORTS, MODELS } from "../lib/models";
+import { clampEffort, effortsFor, groupModels, pickerModels } from "../lib/models";
+import { PROVIDERS, getProvider } from "../agent/providers";
+import { AiProviderSettings } from "./ProviderSettings";
 import { SW_THEME_NAMES } from "../lib/theme";
-import { Caret, IconAgent, IconGear, IconHistory, IconKey, IconMic, IconOk, IconPart, IconPlugin, IconRebuild, IconShield, IconToolbox, IconUpdate, Spinner } from "./SwIcons";
+import { Caret, IconAgent, IconGear, IconHistory, IconMic, IconOk, IconPart, IconPlugin, IconRebuild, IconShield, IconToolbox, IconUpdate, Spinner } from "./SwIcons";
 import type { ApprovalMode, Effort, Settings, Theme } from "../lib/types";
 
 /** Options page laid out like a SolidWorks PropertyManager: stacked rollouts. */
 export function SettingsPanel() {
   const settings = useStore((s) => s.settings);
-  const apiKeySource = useStore((s) => s.apiKeySource);
   const host = useStore((s) => s.host);
   const swTheme = useStore((s) => s.swTheme);
-  const { saveSettings, setApiKey, setPanel } = useStore.getState();
-  const [key, setKey] = useState("");
-  const [saved, setSaved] = useState(false);
+  const { saveSettings, setPanel } = useStore.getState();
   const swName = swTheme ? SW_THEME_NAMES[swTheme.theme] : null;
 
   return (
@@ -34,54 +33,18 @@ export function SettingsPanel() {
           </button>
         </div>
 
-        <Rollout title="Anthropic API key" icon={<IconKey size={14} />}>
-          <p className="text-[11.5px] text-text-2">
-            {apiKeySource === "stored" && "A key is saved for your Windows account, encrypted with DPAPI."}
-            {apiKeySource === "environment" && "Using the ANTHROPIC_API_KEY environment variable. Saving a key here overrides it."}
-            {apiKeySource === "none" && "Paste an API key from the Claude Console to start chatting. It's encrypted for your Windows account and never stored in your files."}
-          </p>
-          <form
-            className="mt-1.5 flex gap-1"
-            onSubmit={async (e) => {
-              e.preventDefault();
-              if (!key.trim()) return;
-              await setApiKey(key.trim());
-              setKey("");
-              setSaved(true);
-              setTimeout(() => setSaved(false), 2000);
-            }}
-          >
-            <input
-              type="password"
-              value={key}
-              onChange={(e) => setKey(e.target.value)}
-              placeholder={apiKeySource === "none" ? "sk-ant-…" : "Replace the saved key"}
-              autoComplete="off"
-              spellCheck={false}
-              className="sw-input h-[22px] min-w-0 flex-1 px-1.5 font-mono text-[11.5px]"
-            />
-            <button type="submit" disabled={!key.trim()} className="sw-btn sw-btn-primary">
-              {saved ? "Saved" : "Save"}
-            </button>
-          </form>
-          <div className="mt-1.5 flex gap-3 text-[11px]">
-            <button className="text-accent hover:underline" onClick={() => rpc("app.openExternal", { url: "https://platform.claude.com/settings/keys" })}>
-              Get a key…
-            </button>
-            {apiKeySource === "stored" && (
-              <button className="text-text-3 hover:text-err" onClick={() => setApiKey("")}>
-                Remove saved key
-              </button>
-            )}
-          </div>
-        </Rollout>
+        <AiProviderSettings />
 
         <Rollout title="Defaults for new chats" icon={<IconAgent size={14} />}>
           <Field label="Model">
-            <Select value={settings.defaultModel} onChange={(v) => saveSettings({ defaultModel: v })} options={MODELS.map((m) => [m.id, `${m.label} - ${m.note}`])} />
+            <ModelSelect value={settings.defaultModel} onChange={(v) => saveSettings({ defaultModel: v })} />
           </Field>
           <Field label="Effort">
-            <Select<Effort> value={settings.defaultEffort} onChange={(v) => saveSettings({ defaultEffort: v })} options={EFFORTS.map((e) => [e.id, `${e.label} - ${e.note}`])} />
+            <Select<Effort>
+              value={clampEffort(settings.defaultEffort, settings.defaultModel)}
+              onChange={(v) => saveSettings({ defaultEffort: v })}
+              options={effortsFor(settings.defaultModel).map((e) => [e.id, `${e.label} - ${e.note}`])}
+            />
           </Field>
           <Field label="Replies">
             <Select<Settings["verbosity"]>
@@ -494,6 +457,30 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
       <span className="w-12 shrink-0 text-[11.5px] text-text-2">{label}</span>
       {children}
     </label>
+  );
+}
+
+/** The default model: the models of providers with a key (plus the current one), under provider headers when several. */
+function ModelSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const sources = useStore((s) => s.apiKeySources);
+  const groups = groupModels(pickerModels(value, (p) => (sources[p] ?? "none") !== "none"), PROVIDERS.map((p) => p.id));
+  const option = (m: { id: string; label: string; note: string }) => (
+    <option key={m.id} value={m.id}>
+      {m.note ? `${m.label} - ${m.note}` : m.label}
+    </option>
+  );
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value)} className="sw-input h-[22px] min-w-0 flex-1 px-1 text-[12px]">
+      {groups.map((g) =>
+        g.header ? (
+          <optgroup key={g.provider} label={getProvider(g.provider).label}>
+            {g.models.map(option)}
+          </optgroup>
+        ) : (
+          g.models.map(option)
+        ),
+      )}
+    </select>
   );
 }
 

@@ -8,6 +8,24 @@ export type TextBlockParam = Anthropic.Beta.Messages.BetaTextBlockParam;
 export type ToolUseBlockParam = Anthropic.Beta.Messages.BetaToolUseBlockParam;
 
 export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
+
+// CORE-STUB (C0, docs/providers/design.md 3.2, 7.6): the contract step writes these; integration keeps C0's copy.
+export type ProviderId = "anthropic" | "openai";
+
+/** Data only the provider that wrote a message can use. Never shown; never sent to another provider. */
+export interface ProviderReplay {
+  provider: ProviderId;
+  /** The model that produced the message (OpenAI carries reasoning only within a model family). */
+  model: string;
+  /** Provider-defined. OpenAI: { output: ResponseOutputItem[] } - response.output exactly as returned. */
+  data: unknown;
+}
+
+/** A stored message: the Anthropic message plus, on assistant messages from some providers, replay data. */
+export type StoredMessage = MessageParam & { replay?: ProviderReplay };
+
+/** Where the add-in found a provider's key. */
+export type KeySource = "stored" | "environment" | "none";
 export type ApprovalMode = "ask" | "auto" | "read_only";
 export type Theme = "solidworks" | "system" | "light" | "dark";
 
@@ -40,9 +58,11 @@ export interface TurnMeta {
   durationMs?: number;
   stop?: string;
   error?: string;
+  /** The speed tier actually served (OpenAI "fast" / "ultrafast"), when not the standard one. */
+  serviceTier?: string;
 }
 
-/** A conversation. `messages` is the exact Claude API history so it can be replayed verbatim. */
+/** A conversation. `messages` is the canonical history (Anthropic Messages blocks; adapters translate it), replayed verbatim. */
 export interface Thread {
   id: string;
   title: string;
@@ -50,7 +70,7 @@ export interface Thread {
   updatedAt: string;
   model: string;
   effort: Effort;
-  messages: MessageParam[];
+  messages: StoredMessage[];
   turns: TurnMeta[];
   /** "Always allow" was chosen for code execution in this chat. */
   autoApprove?: boolean;
@@ -174,8 +194,10 @@ export interface Settings {
   toolInputs?: "panel" | "page";
   /** Seconds a question (ask_user / ask_form) waits for an answer before the agent decides on its own; 0 = never. Default 60. */
   questionTimeoutSec?: number;
-  /** The agent may search the web and read web pages (Anthropic's web_search / web_fetch). Default on. */
+  /** The agent may search the web and read web pages (the provider's own web tools). Default on. */
   webResearch?: boolean;
+  /** OpenAI's speed (service_tier) for models that offer it; standard sends nothing. Default standard. */
+  openaiSpeed?: "standard" | "fast" | "ultrafast";
   /** Save standing instructions the user gives ("always ...", "from now on ..."). Default on. */
   saveMemory?: boolean;
 }
@@ -411,7 +433,10 @@ export interface UpdateInfo {
 export interface HostState {
   version: string;
   solidworksVersion: string | null;
-  apiKeySource: "stored" | "environment" | "none";
+  /** Anthropic's key source (kept for older code). */
+  apiKeySource: KeySource;
+  /** Every provider's key source. Older add-ins don't send it. */
+  apiKeySources?: Record<ProviderId, KeySource>;
   settings: Partial<Settings>;
   scratchKey: string;
   activeDoc: DocInfo | null;

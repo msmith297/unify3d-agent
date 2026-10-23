@@ -2,7 +2,9 @@ import { create } from "zustand";
 import { on, rpc } from "./lib/bridge";
 import { questionTimerStep } from "./lib/questionTimeout";
 import { syncRibbonIcons } from "./lib/toolIcons";
-import { DEFAULT_SETTINGS, EFFORTS, MODELS, SETTINGS_VERSION, modelFromAlias, tierModel } from "./lib/models";
+import { DEFAULT_SETTINGS, EFFORTS, SETTINGS_VERSION, findModel, inferProvider, modelOption, pickToolProvider, pickerModels, resolveModel, speedLabel, tierModel } from "./lib/models";
+import { PROVIDERS, getProvider } from "./agent/providers";
+import { ProviderError, errorText } from "./agent/providers/errors";
 import type {
   Attachment,
   ChatData,
@@ -45,6 +47,8 @@ import type {
   SessionInfo,
   SkillInfo,
   KnowledgeIndex,
+  KeySource,
+  ProviderId,
   Wake,
 } from "./lib/types";
 import { recordSession } from "./lib/sessions";
@@ -158,7 +162,10 @@ interface State {
   bootError: string | null;
   host: HostState | null;
   settings: Settings;
-  apiKeySource: HostState["apiKeySource"];
+  /** Where each provider's key comes from (the add-in's apiKeySources); a provider with "none" can't run. */
+  apiKeySources: Record<ProviderId, KeySource>;
+  /** Options shows this provider's key row first and focused (a run needed its key). */
+  keyFocus: ProviderId | null;
   swTheme: SwThemeInfo | null;
   tools: ToolDef[];
   userTools: UserToolInfo[];
@@ -286,7 +293,8 @@ interface State {
   answerDrafts: Record<string, string>;
   setAnswerDraft(threadId: string, text: string): void;
   saveSettings(patch: Partial<Settings>): Promise<void>;
-  setApiKey(key: string): Promise<void>;
+  /** Save (or with "" remove) a provider's key. */
+  setApiKey(provider: ProviderId, key: string): Promise<void>;
   setPanel(p: State["panel"]): void;
   setIncludeSelection(v: boolean): void;
   toggleSelItem(index: number): void;
@@ -658,6 +666,37 @@ export function currentThread(s: Pick<State, "chats" | "viewKey">): Thread | nul
   return slot.data.threads.find((t) => t.id === slot.data.activeThreadId) ?? null;
 }
 
+/** No key anywhere: the state before the host has answered. */
+export const NO_KEYS: Record<ProviderId, KeySource> = { anthropic: "none", openai: "none" };
+
+/** Whether a provider has a key (stored or from the environment). */
+export function hasKey(s: Pick<State, "apiKeySources">, p: ProviderId): boolean {
+  return (s.apiKeySources[p] ?? "none") !== "none";
+}
+
+/** Whether any provider has a key. */
+export function anyKey(s: Pick<State, "apiKeySources">): boolean {
+  return PROVIDERS.some((p) => hasKey(s, p.id));
+}
+
+/** The host's key sources; an older add-in reports Anthropic's only. */
+function keySources(host: Pick<HostState, "apiKeySource" | "apiKeySources">): Record<ProviderId, KeySource> {
+  return { ...NO_KEYS, anthropic: host.apiKeySource, ...(host.apiKeySources ?? {}) };
+}
+
+/** The OpenAI speed setting for a model that offers it; standard (or a model without tiers) sends nothing. */
+export function serviceTierFor(model: string, settings: Settings): "fast" | "ultrafast" | undefined {
+  const speed = settings.openaiSpeed;
+  return speed === "fast" || speed === "ultrafast" ? (modelOption(model).caps.serviceTiers.includes(speed) ? speed : undefined) : undefined;
+}
+
+/** The notice when a run's provider has no key: today's text when there is no key at all. */
+export function noKeyNotice(model: string, anyKeyAtAll: boolean): string {
+  const m = modelOption(model);
+  const vendor = getProvider(m.provider).vendor;
+  return anyKeyAtAll ? `${m.label} needs an ${vendor} API key. Add one in Options, or pick another model.` : `Add your ${vendor} API key to start chatting.`;
+}
+
 // Saves are serialized per document so an older snapshot never overwrites a newer one.
 const saveChains = new Map<string, Promise<unknown>>();
 
@@ -789,14 +828,25 @@ export const useStore = create<State>((set, get) => {
     return { blocks: [{ type: "text", text: `<sw_context>\n${lines.join("\n")}\n</sw_context>` }, ...extra], refs };
   };
 
+  /** Each provider's key for runAgent: `has` from the reported sources, `get` from the add-in when a run needs it. */
+  const keys = {
+    has: (p: ProviderId) => hasKey(get(), p),
+    get: (p: ProviderId) => rpc<{ key: string | null }>("apiKey.get", { provider: p }).then((r) => r?.key ?? null),
+  };
+
+  /** The provider ribbon tool runs use (design 7.3). */
+  const toolProvider = () => pickToolProvider(get().settings.defaultModel, keys.has, PROVIDERS.map((p) => p.id));
+
   const startRun = async (docKey: string, threadId: string, extra: Partial<RunState> = {}, run: RunOverride = {}) => {
-    const keyRes = await rpc<{ key: string | null }>("apiKey.get");
-    if (!keyRes.key) {
-      set({ panel: "settings", notice: "Add your Anthropic API key to start chatting." });
-      return;
-    }
     const thread = get().chats[docKey]?.data.threads.find((t) => t.id === threadId);
     if (!thread) return;
+    // The run's model decides its provider; without that provider's key, Options opens at its row.
+    const runModel = run.model ?? thread.model;
+    const provider = inferProvider(runModel);
+    if (!keys.has(provider)) {
+      set({ panel: "settings", keyFocus: provider, notice: noKeyNotice(runModel, anyKey(get())) });
+      return;
+    }
     if (get().runs[threadId]) {
       // Never a second run on one thread: its Stop would only reach one of them (callers mark threads busy first).
       console.warn("startRun: a run is already going in this chat; not starting another");
@@ -828,8 +878,10 @@ export const useStore = create<State>((set, get) => {
 
     try {
       const result = await runAgent({
-        apiKey: keyRes.key,
-        model: run.model ?? thread.model,
+        keys,
+        serviceTier: serviceTierFor(runModel, get().settings),
+        onServedTier: (tier) => patchTurn({ serviceTier: tier }),
+        model: runModel,
         effort: run.effort ?? thread.effort,
         tools: get().tools,
         approval,
@@ -953,8 +1005,11 @@ export const useStore = create<State>((set, get) => {
     } catch (err: any) {
       outcome = "error";
       const status = err?.status;
+      if (err instanceof ProviderError && err.requestId) console.warn(`${err.provider} request ${err.requestId} failed: ${err.kind}`);
       const message =
-        status === 401 ? "The API key was rejected. Check it in Settings."
+        err instanceof ProviderError ? errorText(err, { tier: speedLabel(get().settings.openaiSpeed) })
+        // An SDK error from before the provider adapters (the Claude path): the same texts.
+        : status === 401 ? "The API key was rejected. Check it in Settings."
         : status === 429 ? "Rate limited by the API. Wait a moment and press Retry."
         : status === 529 || status === 503 ? "The API is overloaded right now. Press Retry in a moment."
         : err?.message ?? String(err);
@@ -1581,7 +1636,9 @@ export const useStore = create<State>((set, get) => {
         }
         clearComposer();
         if (res?.note) set({ notice: res.note });
-        const model = modelFromAlias(res?.model ?? c.model) ?? undefined;
+        // An alias maps into this chat's provider (design 7.4).
+        const chatModel = currentThread(get())?.model ?? get().settings.defaultModel;
+        const model = resolveModel(res?.model ?? c.model, { chatModel, hasKey: keys.has }) ?? undefined;
         await get().send(withTags(`${commandHead(c.id, args)}\n${res?.text ?? ""}`), { model, command: c.id, input: typed });
         return true;
       }
@@ -1635,15 +1692,15 @@ export const useStore = create<State>((set, get) => {
         return true;
       }
       case "model": {
-        const a = args.toLowerCase();
-        const m = modelFromAlias(a) ?? MODELS.find((x) => a && (x.label.toLowerCase().includes(a) || x.id.includes(a)))?.id;
-        if (!m || !MODELS.some((x) => x.id === m)) {
-          set({ notice: `Models: ${MODELS.map((x) => x.label).join(", ")} - e.g. /model sonnet.` });
+        const chatModel = currentThread(s)?.model ?? s.settings.defaultModel;
+        const m = findModel(args, { chatModel, hasKey: keys.has });
+        if (!m) {
+          set({ notice: `Models: ${pickerModels(chatModel, keys.has).map((x) => x.label).join(", ")} - e.g. /model sonnet.` });
           return true;
         }
         done();
-        get().setThreadModel(m);
-        set({ notice: `Model: ${MODELS.find((x) => x.id === m)?.label}.` });
+        get().setThreadModel(m.id);
+        set({ notice: `Model: ${m.label}.` });
         return true;
       }
       case "effort": {
@@ -1714,7 +1771,8 @@ export const useStore = create<State>((set, get) => {
     bootError: null,
     host: null,
     settings: DEFAULT_SETTINGS,
-    apiKeySource: "none",
+    apiKeySources: NO_KEYS,
+    keyFocus: null,
     swTheme: null,
     tools: [],
     userTools: [],
@@ -1775,7 +1833,7 @@ export const useStore = create<State>((set, get) => {
       set({ tourStep: null });
       get().saveSettings({ tourDone: true });
       // Without a key nothing works yet: Options is where it goes.
-      if (get().apiKeySource === "none") set({ panel: "settings", notice: "Add your Anthropic API key to start chatting." });
+      if (!anyKey(get())) set({ panel: "settings", notice: noKeyNotice(get().settings.defaultModel, false) });
     },
     cancelVoice() {
       set({ voice: VOICE_IDLE });
@@ -1884,7 +1942,7 @@ export const useStore = create<State>((set, get) => {
           docs,
           activeDocKey: host.activeDoc?.key ?? null,
           viewKey,
-          apiKeySource: host.apiKeySource,
+          apiKeySources: keySources(host),
           swTheme: host.swTheme ?? null,
           settings,
         });
@@ -1900,7 +1958,7 @@ export const useStore = create<State>((set, get) => {
         }
         // First run: the tour (it ends in Options when there's no key yet).
         const firstRun = !settings.tourDone;
-        set({ booted: true, panel: host.apiKeySource === "none" && !firstRun ? "settings" : "chat", tourStep: firstRun ? 0 : null });
+        set({ booted: true, panel: !anyKey(get()) && !firstRun ? "settings" : "chat", tourStep: firstRun ? 0 : null });
       } catch (err: any) {
         set({ bootError: err?.message ?? String(err) });
       }
@@ -2497,13 +2555,18 @@ export const useStore = create<State>((set, get) => {
       await rpc("settings.save", settings);
     },
 
-    async setApiKey(key) {
-      const res = await rpc<{ source: HostState["apiKeySource"] }>("apiKey.set", { key });
-      set({ apiKeySource: res.source, notice: null });
+    async setApiKey(provider, key) {
+      const res = await rpc<{ source: KeySource; sources?: Record<ProviderId, KeySource> }>("apiKey.set", { provider, key });
+      const hadClaude = hasKey(get(), "anthropic");
+      set((s) => ({ apiKeySources: { ...s.apiKeySources, [provider]: res.source, ...(res.sources ?? {}) }, notice: null, keyFocus: null }));
+      // The first key is OpenAI's: new chats start on OpenAI's default instead of a model that can't run.
+      if (provider === "openai" && key && !hadClaude && inferProvider(get().settings.defaultModel) === "anthropic") {
+        await get().saveSettings({ defaultModel: "gpt-6.1-sol" });
+      }
     },
 
     setPanel(panel) {
-      set({ panel });
+      set(panel === "settings" ? { panel } : { panel, keyFocus: null });
     },
 
     setIncludeSelection(v) {
@@ -2539,7 +2602,8 @@ export const useStore = create<State>((set, get) => {
         thread = created;
       }
       const threadId = thread.id;
-      const { model, effort } = tierModel(payload.intelligence ?? tool?.intelligence);
+      // The tier's model on the provider the user has (the default model's, else the one with a key).
+      const { model, effort } = tierModel(payload.intelligence ?? tool?.intelligence, toolProvider());
       const staged = stageToolPrompt(payload, label, refBase(thread.selRefs));
       // The tool's intelligence level, step limit and auto-approval (the user ran it: that is the approval) apply to
       // this run; the chat keeps its own model and settings. A long tool's also carry over to follow-ups while its run
