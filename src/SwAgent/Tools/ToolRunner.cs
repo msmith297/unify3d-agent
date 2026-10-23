@@ -115,6 +115,8 @@ namespace SwAgent.Tools
 
         private async Task RunCoreAsync(string name, Action showPane)
         {
+            // A profile asked for with this run (/run --profile, run_tool); else the tool's default profile, if any.
+            var profile = ToolProfiles.TakeRequest(name);
             var spec = ToolSpec.Load(name);
             if (spec == null) return;
             // A tool written for newer agent tools (requires: in TOOL.md) can't do its job with an older add-in.
@@ -139,7 +141,7 @@ namespace SwAgent.Tools
                 var ctx = new ToolContext(_app, doc, threadId, _tools);
 
                 // 1. Inputs: straight from the selection, or from the tool's page.
-                var inputs = spec.Inputs.Count == 0 ? new ToolInputs() : ToolPage.TryFromSelection(spec, model, preselected);
+                var inputs = spec.Inputs.Count == 0 ? new ToolInputs() : ToolPage.TryFromSelection(spec, model, preselected, profile: profile);
                 if (inputs == null)
                 {
                     void TierChanged(string tier)
@@ -158,13 +160,13 @@ namespace SwAgent.Tools
                     if (_forms != null && _forms.CanShow && InputsInPanel(_settings?.Invoke()))
                     {
                         // The form in the chat panel: the same form logic, OK continues here exactly as the page's does.
-                        pageTask = _forms.ShowAsync(spec, model, preselected, TierChanged);
+                        pageTask = _forms.ShowAsync(spec, model, preselected, TierChanged, profile);
                         _inPanelForm = true;
                         showPane?.Invoke();
                     }
                     else
                     {
-                        var page = new ToolPage(_app.Sw, model, spec, preselected);
+                        var page = new ToolPage(_app.Sw, model, spec, preselected, profile);
                         page.TierChanged += TierChanged;
                         pageTask = page.ShowAsync(_scripts);
                     }
@@ -335,7 +337,7 @@ namespace SwAgent.Tools
             }
             // one budget for every file of the run (each was only checked against its own cap)
             FileAttachments.ApplyRunBudget(attached);
-            return new JObject
+            var payload = new JObject
             {
                 ["tool"] = spec.Name,
                 ["title"] = spec.Title,
@@ -346,6 +348,9 @@ namespace SwAgent.Tools
                 ["inputs"] = list,
                 ["context"] = context,
             };
+            // The profile the inputs came from, and what the user changed after loading it.
+            if (inputs.Profile != null) payload["profile"] = inputs.Profile.DeepClone();
+            return payload;
         }
 
         /// <summary>

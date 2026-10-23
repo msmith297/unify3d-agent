@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "tool": "design-compression-mold",
+  "name": "PU shop starter",
+  "created": "2026-10-22T00:00:00Z",
+  "updated": "2026-10-22T00:00:00Z",
+  "toolVersion": "2026-10-19T00:00:00Z",
+  "values": {
+    "mold_material": "Aluminium + steel inserts",
+    "mold_grade": "al_6061_t651",
+    "insert_grade": "st_p20",
+    "part_family": "PU TDI-ether (MBOCA)",
+    "part_grade": "pu-tdi-ether-90a",
+    "press_pressure_is": "Gauge reading",
+    "mold_handling": "Slides in and out each cycle",
+    "mold_support": "Flat on the platen",
+    "cavities": "1",
+    "cycle_life": "5000",
+    "decisions": "Ask on big ones"
+  }
+}

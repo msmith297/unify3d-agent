@@ -392,6 +392,15 @@
       }
     },
     "setupSheet": { "type": [ "string", "null" ] },
+    "profile": {
+      "type": [ "object", "null" ],
+      "description": "The tool profile the page values were loaded from (docs/tool-profiles.md): its name, the inputs the user changed after loading it, and whether it came with the tool.",
+      "properties": {
+        "name": { "type": "string" },
+        "modified": { "type": "array", "items": { "type": "string" } },
+        "locked": { "type": "boolean" }
+      }
+    },
     "machiningSheet": { "type": [ "string", "null" ] }
   },
   "$defs": {

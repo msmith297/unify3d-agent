@@ -709,6 +709,8 @@ namespace SwAgent.Tools
                         ["longRun"] = LongRunOf(fm),
                         ["maxSteps"] = MaxStepsOf(fm),
                         ["requires"] = new JArray(RequiresOf(fm)),
+                        // Saved settings of its inputs (the tool index lists them; run_tool / --profile load one).
+                        ["profiles"] = new JArray(ToolProfiles.Names(name, toolDir: dir)),
                     });
                 }
                 catch (Exception ex)

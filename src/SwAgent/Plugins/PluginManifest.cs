@@ -380,7 +380,10 @@ namespace SwAgent.Plugins
         public IEnumerable<(string Event, string Command)> HookCommands() =>
             Hooks.Properties().SelectMany(ev => ((JArray)ev.Value).SelectMany(g => (JArray)g["hooks"]).Select(h => (ev.Name, (string)h["command"])));
 
-        /// <summary>The tool folders under ToolsPath that have a TOOL.md: (tool name, folder).</summary>
+        /// <summary>
+        /// The tool folders under ToolsPath that have a TOOL.md: (tool name, folder). A folder's profiles\*.json are profiles that
+        /// ship with the tool, locked (ToolProfiles.ShippedDir); they are data, not code, so they don't count in the trust hash.
+        /// </summary>
         public IEnumerable<(string Name, string Dir)> Tools()
         {
             if (ToolsPath == null || !Directory.Exists(ToolsPath)) yield break;

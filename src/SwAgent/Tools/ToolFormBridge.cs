@@ -40,6 +40,9 @@ namespace SwAgent.Tools
         /// <summary>A note at the top of the form (a pick that found nothing, an entity that no longer exists).</summary>
         public string Message;
 
+        /// <summary>The form's profiles (load, save, update, markers); null keeps the form without a Profile row.</summary>
+        public ProfileSession Profiles;
+
         private readonly Dictionary<string, List<ToolInputs.SelectedItem>> _selections = new Dictionary<string, List<ToolInputs.SelectedItem>>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, List<string>> _files = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
 
@@ -323,18 +326,51 @@ namespace SwAgent.Tools
             if (Blocking().Field != null) return null;
             var inputs = Collect();
             RememberStore.Save(Spec.Name, Form.RememberJson(), rememberDir);
+            Profiles?.Finished(Form, inputs);
             return inputs;
+        }
+
+        // ---- profiles ----
+
+        /// <summary>The files and picked entities as a profile reads and restores them.</summary>
+        internal DocumentInputs DocumentInputs() => new DocumentInputs
+        {
+            Files = Files,
+            SetFiles = (id, paths) =>
+            {
+                _files.Remove(id);
+                AddFiles(id, paths);
+            },
+            Selected = Selected,
+            SetSelection = SetSelection,
+        };
+
+        /// <summary>A profile action from the panel's Profile row (ProfileSession.Act); a refusal becomes the profile state's error.</summary>
+        public void Profile(JObject p)
+        {
+            var profiles = Profiles ?? throw new InvalidOperationException("This form has no profiles.");
+            Message = null;
+            try
+            {
+                profiles.Act(Form, p);
+            }
+            catch (ToolException ex)
+            {
+                profiles.Error = ex.Message;
+            }
         }
 
         // ---- the state the panel draws ----
 
         /// <summary>
         /// { formId, tool, title, description, message, imperial, groups: [{ id, title, expanded, inputs: [...] }], okEnabled,
-        /// okReason, okField, agent: { tier, tiers } | null, preview: { available, live, message } | null }.
+        /// okReason, okField, agent: { tier, tiers } | null, preview: { available, live, message } | null, profile:
+        /// ProfileSession.State | null }. Inputs carry mark "set" / "edited" while a profile is loaded.
         /// </summary>
         public JObject State()
         {
             var (blockField, blockMessage) = Blocking();
+            var modified = Profiles?.Modified(Form) ?? new List<string>();
             var groups = new JArray();
             var byTitle = new Dictionary<string, JArray>(StringComparer.Ordinal);
             foreach (var f in Form.Fields)
@@ -347,7 +383,10 @@ namespace SwAgent.Tools
                     inputs = byTitle[title] = new JArray();
                     groups.Add(new JObject { ["id"] = title, ["title"] = title, ["expanded"] = s.GroupExpanded != false, ["inputs"] = inputs });
                 }
-                inputs.Add(Input(f, f == blockField ? blockMessage : null));
+                var input = Input(f, f == blockField ? blockMessage : null);
+                // A small marker: the profile set this input, or the user changed it after loading the profile.
+                if (Profiles?.Mark(f, modified) is string mark) input["mark"] = mark;
+                inputs.Add(input);
             }
             var state = new JObject
             {
@@ -367,6 +406,7 @@ namespace SwAgent.Tools
                 ["preview"] = Spec.Preview == null
                     ? null
                     : new JObject { ["available"] = PreviewAvailable, ["live"] = PreviewLive, ["message"] = PreviewMessage },
+                ["profile"] = Profiles?.State(Form, modified),
             };
             return state;
         }
@@ -473,6 +513,8 @@ namespace SwAgent.Tools
     ///   toolForm.ok { formId } -> { closed: true } | { closed: false, form: state }: the same run path as the page's OK
     ///   toolForm.cancel { formId } -> { closed: true }
     ///   toolForm.list -> [state]: the open form again after the panel reloads (ToolRunner is still waiting on it)
+    ///   toolForm.profile { formId, action, ... } -> state: the Profile row (ProfileSession.Act, plus "export" { name },
+    ///       "loadFile" and "openFolder", which open Windows dialogs here); a refused action is the state's profile.error
     /// and toolForm.closed { formId, reason } when the add-in closes a form itself (another tool started, its document closed).
     /// One form at a time: a new one cancels the one before. Previews (preview.cs) run inside change and pick, never from a
     /// timer, and only while the user isn't in a SolidWorks command; their bodies go on OK, Cancel and document close.
@@ -528,6 +570,8 @@ namespace SwAgent.Tools
                 return open == _open ? (object)open.Session.State() : null;
             });
             bridge.Register("toolForm.ok", p => Ok(Current(p)));
+            bridge.Register("toolForm.profile", p => ProfileAction(Current(p), p as JObject));
+            ProfilesBridge.Register(bridge, Owner);
             bridge.Register("toolForm.cancel", p =>
             {
                 var formId = (string)p?["formId"];
@@ -544,16 +588,19 @@ namespace SwAgent.Tools
         }
 
         /// <summary>Show a tool's form in the panel; completes with the inputs on OK, or null on Cancel (as ToolPage.ShowAsync does).</summary>
-        internal Task<ToolInputs> ShowAsync(ToolSpec spec, IModelDoc2 model, List<ToolPage.SelectedEntity> preselected, Action<string> tierChanged)
+        internal Task<ToolInputs> ShowAsync(ToolSpec spec, IModelDoc2 model, List<ToolPage.SelectedEntity> preselected, Action<string> tierChanged, string profile = null)
         {
             CancelPending("Another tool was started.");
             var imperial = Units.IsImperial(model);
+            // The profile asked for, else the default profile, else today's defaults and remembered values.
+            var form = ProfileSession.OpenForm(spec, imperial, profile, out var profiles, documentInputs: true);
             var open = new Open
             {
-                Session = new ToolFormSession(spec, ToolFormSession.CreateForm(spec, imperial), imperial),
+                Session = new ToolFormSession(spec, form, imperial) { Profiles = profiles },
                 Model = model,
                 TierChanged = tierChanged,
             };
+            profiles.Attach(open.Session.DocumentInputs());
             Preselect(open, preselected ?? new List<ToolPage.SelectedEntity>());
             _open = open;
 
@@ -653,6 +700,59 @@ namespace SwAgent.Tools
             if (inputs == null) return new JObject { ["closed"] = false, ["form"] = session.State() };
             Close(open, inputs);
             return new JObject { ["closed"] = true };
+        }
+
+        // ---- profiles ----
+
+        private JObject ProfileAction(Open open, JObject p)
+        {
+            var session = open.Session;
+            var profiles = session.Profiles ?? throw new InvalidOperationException("This form has no profiles.");
+            var tool = session.Spec.Name;
+            try
+            {
+                switch ((string)p?["action"])
+                {
+                    case "export":
+                        ProfilesBridge.Export(tool, (string)p["name"], Owner());
+                        break;
+                    case "openFolder":
+                        ProfilesBridge.OpenFolder(tool);
+                        break;
+                    case "loadFile":
+                    {
+                        var text = ProfilesBridge.PickFile(Owner());
+                        if (text != null) session.Profile(new JObject { ["action"] = "import", ["content"] = text });
+                        break;
+                    }
+                    default:
+                        session.Profile(p);
+                        break;
+                }
+            }
+            catch (ToolException ex)
+            {
+                profiles.Error = ex.Message; // the dialogs' refusals (Profile catches its own)
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                Log.Warn($"Tool '{tool}': profile action failed: {ex.Message}");
+                profiles.Error = "That didn't work: " + ex.Message;
+            }
+            return session.State();
+        }
+
+        /// <summary>SolidWorks' main window, so dialogs open in front of it (zero when it can't be read).</summary>
+        private IntPtr Owner()
+        {
+            try
+            {
+                return new IntPtr(((IFrame)_app.Sw.Frame()).GetHWndx64());
+            }
+            catch
+            {
+                return IntPtr.Zero;
+            }
         }
 
         // ---- selection ----

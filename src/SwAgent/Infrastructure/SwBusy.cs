@@ -27,6 +27,8 @@ namespace SwAgent.Infrastructure
             "use_skill", "read_plugin_file", "list_plugins", "read_plugin",
             // the agent's own knowledge: API notes and helper files (test_helper runs a cell, so it isn't here)
             "save_api_note", "list_api_notes", "save_helper", "read_helper", "list_helpers", "delete_helper",
+            // tool profiles (run_tool opens a tool's inputs, so it isn't here)
+            "list_tool_profiles", "save_tool_profile",
         };
 
         /// <summary>

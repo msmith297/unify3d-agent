@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "tool": "design-compression-mold",
+  "name": "Rubber shop starter",
+  "created": "2026-10-22T00:00:00Z",
+  "updated": "2026-10-22T00:00:00Z",
+  "toolVersion": "2026-10-19T00:00:00Z",
+  "values": {
+    "mold_material": "Tool steel",
+    "mold_grade": "st_p20",
+    "insert_grade": "st_h13",
+    "part_family": "EPDM",
+    "part_grade": "epdm-s-70a",
+    "press_pressure_is": "Gauge reading",
+    "mold_handling": "Stays in the press",
+    "mold_support": "Flat on the platen",
+    "cavities": "4",
+    "cycle_life": "50000",
+    "decisions": "Ask on big ones"
+  }
+}
